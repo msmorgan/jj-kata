@@ -67,13 +67,26 @@ The toolkit expects one `default` workspace (the coordinator) plus any number of
 workspaces, each a sibling directory at the same level:
 
 ```
-../
-  default/          ← coordinator; run scripts/workflow from here
+~/code/myproj/
+  myproj/           ← coordinator (the `default` workspace); run scripts/workflow from here
   feature-a/        ← feature workspace (created by claim/start)
   feature-b/
   .integrated/      ← archived workspaces after integrate
   .abandoned/       ← archived workspaces after abandon
 ```
+
+The coordinator's **workspace name** is always `default` (jj's initial workspace), but
+its **directory name** is yours to choose — pick it when you clone/init, and name it
+after the project (as above) so IDEs and agents see a unique root instead of yet another
+`default/`. Nothing hardcodes a `../default` path: scripts resolve the coordinator with
+`jj workspace root --name default`. Feature workspace directories are created by the
+toolkit and always match their workspace name (`../NAME`).
+
+The archive buckets are created on demand. On btrfs they are made **subvolumes**, so
+they stay out of snapshots of the containing volume and can be dropped wholesale with
+`btrfs subvolume delete` (or emptied and `rmdir`'d, where deletion needs root); on any
+other filesystem they are plain directories. Retired workspaces are stripped of
+ignored files before archiving, so the buckets hold sources, not build junk.
 
 ---
 
@@ -180,7 +193,9 @@ scripts/workflow integrate NAME
    the feature stack and workspace working copy with it.
 2. **Fold** — moves `default@` onto the feature tip.
 3. **Complete** — moves the owned ticket(s) from `wip/` → `done/` in a final commit.
-4. **Archive** — forgets the workspace and moves its directory to `../.integrated/`.
+4. **Archive** — strips the workspace's ignored files (the jj analogue of
+   `git clean -fdX`, so build junk and other bulky generated state isn't archived),
+   forgets the workspace, and moves its directory to `../.integrated/`.
 
 If a conflict arises during the refresh step, integrate stops (exit 2) and leaves the
 conflict in place in `../NAME`. Resolve it there and re-run `integrate NAME`.
@@ -193,8 +208,9 @@ scripts/workflow abandon NAME
 ```
 
 Discards the feature, reverts every owned ticket back to its triage folder, and
-archives the workspace to `../.abandoned/`. Op-restore safe: the claim commit's
-abandonment rolls back the ticket moves automatically.
+archives the workspace to `../.abandoned/` (ignored/generated files stripped first,
+as in integrate's archive step). Op-restore safe: the claim commit's abandonment
+rolls back the ticket moves automatically.
 
 ### Refreshing (keeping current with trunk)
 
@@ -352,7 +368,9 @@ provision_hook = "scripts/provision-workspace"
 
 > **v1 fixed conventions:** `trunk_workspace` (the trunk workspace name, `default`) and
 > `tickets_root` (`docs/tickets`) are fixed in v1 and are not configurable via
-> `jjworkflow.toml`. `provision_hook` is the only configurable key.
+> `jjworkflow.toml`. `provision_hook` is the only configurable key. The trunk
+> workspace's *directory* name needs no key at all — it is whatever you created it as;
+> jj tracks the mapping (see [Repository shape](#repository-shape)).
 
 ---
 
@@ -364,8 +382,8 @@ The workflow toolkit runs it automatically during `claim`/`start`, passing the n
 workspace directory as `$1`. Without a hook, provisioning is a no-op (fine for
 source-only projects).
 
-Here is a generic example that symlinks a shared `data/` directory from the `default`
-checkout:
+Here is a generic example that symlinks a shared `data/` directory from the coordinator
+(default-workspace) checkout:
 
 ```sh
 #!/usr/bin/env bash
@@ -374,11 +392,14 @@ checkout:
 # $1 = the new workspace directory.
 set -euo pipefail
 ws_dir="$1"
-default_dir="$(dirname "$ws_dir")/default"
+# The coordinator's dir name is not fixed (see Repository shape) — resolve it
+# via jj rather than assuming ../default. The new workspace's own wrapper is
+# already checked out, so route through it per the toolkit's jj rule.
+default_dir="$("$ws_dir/scripts/jj" workspace root --name default)"
 
-# Symlink shared read-only data back to the default checkout.
-# The symlink is excluded by .git/info/exclude in default (shared by all
-# secondary workspaces), so no per-workspace exclude is needed.
+# Symlink shared read-only data back to the coordinator checkout.
+# The symlink is excluded by .git/info/exclude in the default workspace (shared
+# by all secondary workspaces), so no per-workspace exclude is needed.
 ln -sfn "$default_dir/data" "$ws_dir/data"
 
 echo "Provisioned: symlinked data/ in $ws_dir"
@@ -392,8 +413,8 @@ chmod +x scripts/provision-workspace
 
 The `.gitignore` entry for `data/` should use a **trailing slash** (`data/`) so it
 matches the directory but not the symlink — the symlink form stays excluded via
-`.git/info/exclude` in `default` (which is shared across all secondary workspaces
-because they have no `.git` of their own).
+`.git/info/exclude` in the default workspace (which is shared across all secondary
+workspaces because they have no `.git` of their own).
 
 Verify a newly provisioned workspace is clean:
 

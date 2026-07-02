@@ -102,12 +102,63 @@ function __check_todo
     end
 end
 
-# Retire a workspace dir into a sibling bucket instead of deleting it. Symlinks
-# break (fine — gc the bucket later), but nothing is destroyed.
+# jj's `git clean -fdX`, for a workspace about to be retired: delete every
+# on-disk file jj does NOT track, then prune the directories that emptied.
+# Under jj's default auto-tracking, snapshotting first (file list without
+# --ignore-working-copy) makes untracked == gitignored, so nothing real is
+# deleted — any non-ignored stray lands in @ (hence the op log) before the
+# comparison. Must run while jj still knows the workspace: after `workspace
+# forget` there is no tracked list to diff against. Best-effort by design (a
+# failure means a fat archive, not a broken retire) — but an EMPTY tracked
+# list aborts the clean: a real workspace tracks scripts/ at minimum, so empty
+# means the listing failed, and deleting "everything untracked" would then
+# mean everything.
+function __clean_ignored --argument-names ws_dir
+    command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
+    # jj prints paths relative to CWD — run from the workspace root so the
+    # tracked list lines up with find's %P (both ws-relative, NUL-joinable).
+    set -l prev_pwd "$PWD"
+    cd "$ws_dir"; or return 0
+    set -l tracked (command jj -R "$ws_dir" file list 2>/dev/null)
+    cd "$prev_pwd"
+    set -q tracked[1]; or return 0
+    # Disk inventory via find, not fish globs (globs skip dotfiles, and junk
+    # is often dot-prefixed). .jj/.git are workspace plumbing, never junk.
+    set -l junk (comm -z -23 \
+        (find "$ws_dir" -mindepth 1 \( -name .jj -o -name .git \) -prune -o \( -type f -o -type l \) -printf '%P\0' | sort -z | psub) \
+        (printf '%s\0' $tracked | sort -z | psub) | string split0)
+    if set -q junk[1]
+        printf '%s\0' $ws_dir/$junk | xargs -0 -r rm -f --
+    end
+    # Prune dirs the deletions emptied, deepest first (a child sorts after its
+    # parent, so the reverse sort visits it first); non-empty ones are kept.
+    find "$ws_dir" -mindepth 1 \( -name .jj -o -name .git \) -prune -o -type d -print0 |
+        sort -zr | xargs -0 -r rmdir --ignore-fail-on-non-empty -- 2>/dev/null
+    return 0
+end
+
+# Create an archive bucket. On btrfs it's made a SUBVOLUME: excluded from
+# snapshots of the parent volume, and droppable wholesale (`btrfs subvolume
+# delete`, or empty it and rmdir where that needs root). Anything short of
+# that — other filesystem, no btrfs CLI, creation refused — quietly degrades
+# to a plain directory.
+function __ensure_bucket --argument-names dest
+    test -d "$dest"; and return 0
+    if command -q btrfs; and test "$(stat -f -c %T (path dirname $dest) 2>/dev/null)" = btrfs
+        btrfs subvolume create "$dest" >/dev/null 2>&1
+        and return 0
+    end
+    mkdir -p "$dest"
+end
+
+# Retire a workspace dir into a sibling bucket instead of deleting it. Callers
+# strip ignored/generated files first via __clean_ignored (it needs jj access,
+# gone once the workspace is forgotten). Tracked symlinks into other workspaces
+# may break (fine — gc the bucket later), but nothing tracked is destroyed.
 function __retire_ws --argument-names ws_dir bucket
     test -d "$ws_dir"; or return 0
     set -l dest (path dirname $project_dir)/$bucket
-    mkdir -p $dest
+    __ensure_bucket $dest
     set -l base (path basename $ws_dir)
     set -l target $dest/$base
     set -l n 1
@@ -310,6 +361,11 @@ function __workflow_abandon
         return 1
     end
 
+    # Strip ignored files NOW: the surgery below opens with `workspace forget`,
+    # after which jj can't tell tracked from ignored. If the surgery then fails
+    # and rolls back, the live workspace is only missing regenerable files.
+    __clean_ignored "$ws_dir"
+
     set savepoint (jj op log -G -n1 -T 'id.short()')
     and begin
         # Abandon the claim commit AND its feature stack ("$root"::), but not the
@@ -489,6 +545,9 @@ function __integrate_steps
     and if set -q slugs[1]
         jj commit -m "complete $(string join ' ' $slugs)" $move_paths
     end
+    # Strip ignored files while jj still knows the workspace (`workspace forget`
+    # below cuts that off) — the archive mv shouldn't drag build junk along.
+    and __clean_ignored "$ws_dir"
     # Drop the now-folded claim bookmark (its commit lives on in default@'s history;
     # the ref is just clutter). Before workspace forget so a failure still rolls back.
     and jj bookmark forget "$name"
@@ -582,6 +641,9 @@ end
 # cursor marking the real tip while you descend onto each conflict. For a
 # working-copy DIVERGENCE (not a refresh conflict), use `converge` instead.
 function __workflow_resolve
+    # Dir basename == workspace name holds only for FEATURE workspaces (claim/start
+    # create ../NAME). The default workspace's dir name is free — but resolve's
+    # contract is to run from a feature workspace, so basename is safe here.
     set -l name (path basename (jj workspace root))
     set -l tipbm "$name-tip"
     set -l savepoint (jj op log -n1 -G -T 'id.short()')
@@ -635,6 +697,8 @@ end
 # conflicted commit, remove its markers (jj st) and re-run `repair`; exit 2 = a
 # human is needed (divergent halves hold different work, or a jj step rolled back).
 function __workflow_repair
+    # Basename == workspace name: safe only because repair runs from a feature
+    # workspace (toolkit-created as ../NAME); default's dir name is unconstrained.
     set -l name (path basename (jj workspace root))
     # Clear a stale working copy — that's what surfaces a divergence or conflicts.
     jj workspace update-stale 2>/dev/null
