@@ -31,6 +31,24 @@ is idempotent; report what was already in place.
    `.claude/settings.json` — belt-and-braces so no jj command can hang waiting
    on an editor (the toolkit itself always passes `-m`).
 
-5. Sanity check: `workflow` with no arguments prints usage (the plugin's `bin/`
+5. If Claude Code background sessions (or `isolation: worktree` subagents) will
+   run in this repo, wire EnterWorktree to jj-workflow workspaces by adding to
+   the repo's `.claude/settings.json` `hooks` block:
+
+   ```json
+   "WorktreeCreate": [{"hooks": [{"type": "command", "command": "fish \"<HOOKS>/worktree_create.fish\""}]}],
+   "WorktreeRemove": [{"hooks": [{"type": "command", "command": "fish \"<HOOKS>/worktree_remove.fish\""}]}]
+   ```
+
+   where `<HOOKS>` is `$CLAUDE_PROJECT_DIR/scripts/hooks` for a repo-local
+   install, or the absolute `${CLAUDE_PLUGIN_ROOT}/scripts/hooks` path resolved
+   NOW for a plugin install (plugin paths change on update — re-run this setup
+   after updating the plugin). EnterWorktree then creates a real jj-workflow
+   feature workspace (claim commit + workspace dir; the git-worktree logic is
+   fully replaced), and removal maps to `workflow abandon` (archived to the
+   `.abandoned` bucket, never deleted). These hooks are per-repo ON PURPOSE:
+   registered globally they would hijack EnterWorktree in plain-git repos.
+
+6. Sanity check: `workflow` with no arguments prints usage (the plugin's `bin/`
    is on PATH). The PreToolUse guard hook ships with this plugin and needs no
    registration.

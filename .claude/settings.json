@@ -13,6 +13,26 @@
           }
         ]
       }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/worktree_create.fish\""
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/worktree_remove.fish\""
+          }
+        ]
+      }
     ]
   }
 }

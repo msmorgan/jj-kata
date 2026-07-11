@@ -42,7 +42,10 @@ the `immutable_heads()` repo-config alias (the actual trunk protection, which is
 per-repo state a plugin can't carry) and walks the optional config. Every
 command targets the jj workspace you run it from, so one global copy serves all
 repos and workspaces. Use `--scope project` on install to enable it for one
-repo/team instead of globally.
+repo/team instead of globally. Setup can also wire Claude Code's EnterWorktree
+isolation (background sessions, worktree-isolated subagents) to jj-workflow
+workspaces via per-repo `WorktreeCreate`/`WorktreeRemove` hooks — isolation then
+creates a real feature workspace and removal maps to `workflow abandon`.
 
 ### Repo-local (no Claude Code required)
 
@@ -79,6 +82,12 @@ It also sets the repo-config `immutable_heads()` alias that protects the trunk l
 2. Copy `jjworkflow.example.toml` → `jjworkflow.toml` and edit if defaults don't fit.
 3. Add a `scripts/provision-workspace` executable if new workspaces need shared or
    generated directories (see [Appendix](#appendix-example-provision-workspace-hook)).
+4. Optional, for repos where Claude Code background sessions run: register
+   `scripts/hooks/worktree_create.fish` / `worktree_remove.fish` as
+   `WorktreeCreate`/`WorktreeRemove` hooks in `.claude/settings.json` (this repo's
+   own settings file is the template) — EnterWorktree then creates jj-workflow
+   feature workspaces instead of git worktrees. Per-repo only: registered
+   globally these hooks would hijack EnterWorktree in plain-git repos.
 
 ---
 
