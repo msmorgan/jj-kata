@@ -34,9 +34,12 @@ end
 cd "$droot"; or exit 1
 
 # base_ref is ignored deliberately: feature workspaces always start from the
-# trunk tip (default@-) — that is the jj-workflow model.
+# trunk tip (default@-) — that is the jj-workflow model. --or-start claims the
+# matching ticket/census row when the worktree name names one, so a background
+# session pointed at a ticket picks it up properly; anything else is an
+# ad-hoc start.
 set -l self (path dirname (path resolve (status filename)))
-fish "$self/../workflow" start "$name" >&2
+fish "$self/../workflow" claim --or-start "$name" >&2
 or exit 1
 
 # Report where it landed — ask jj rather than recomputing the config.

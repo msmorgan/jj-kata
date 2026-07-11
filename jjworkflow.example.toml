@@ -5,11 +5,11 @@
 # workspace needs. Default: scripts/provision-workspace
 provision_hook = "scripts/provision-workspace"
 
-# Directory that holds feature workspaces and the .integrated/.abandoned archive
-# buckets. Relative paths resolve against the repo root; absolute paths are used
-# as-is. If it points INSIDE the repo (e.g. ".claude/worktrees"), gitignore that
-# directory — otherwise jj snapshots every child workspace into the
-# coordinator's working copy. Default: ".." (siblings of the repo dir)
+# Directory that holds feature workspaces. Relative paths resolve against the
+# repo root; absolute paths are used as-is. If it points INSIDE the repo (e.g.
+# ".claude/worktrees"), gitignore that directory — otherwise jj snapshots every
+# child workspace into the coordinator's working copy. Default: ".." (siblings
+# of the repo dir)
 workspace_dir = ".."
 
 # Project ticket/census tool `claim` consults for unknown names: must support

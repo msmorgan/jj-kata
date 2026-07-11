@@ -25,6 +25,12 @@ Key rules:
   the trunk tip; `integrate` re-joins the claim.
 - Recover a shifted or divergent feature workspace with `workflow repair`,
   run from inside it. Walk conflicts with `workflow resolve`.
+- A workspace created through EnterWorktree (WorktreeCreate hook) is a normal
+  feature workspace — the hook claims the matching ticket if the worktree name
+  names one. Finish by committing (`jj commit -m`), exiting the worktree
+  KEEPING it, then `workflow integrate NAME` from the coordinator; picking
+  "remove" instead abandons it (commits recoverable via the op log, directory
+  deleted).
 - Resolve alphabetized-list conflicts with `conflicts auto`; inspect any
   conflict with `conflicts show`; pick a side per file with
   `conflicts accept FILE snapshot|diff|base|stack`.

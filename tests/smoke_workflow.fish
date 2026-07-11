@@ -74,26 +74,14 @@ popd
     echo >&2 "smoke: integrate failed"
     exit 1
 end
-test ! -d ../feat-x; or begin
-    echo >&2 "smoke: ../feat-x was not archived after integrate"
+test ! -e ../feat-x; or begin
+    echo >&2 "smoke: ../feat-x still exists after integrate"
     exit 1
 end
-test -d ../.integrated/feat-x; or begin
-    echo >&2 "smoke: ../feat-x did not land in ../.integrated/"
-    exit 1
-end
-echo "ok: workspace archived after integrate"
-
-# The archive keeps tracked work but not ignored junk (jj `git clean -fdX`).
-test -f ../.integrated/feat-x/note.txt; or begin
-    echo >&2 "smoke: archived workspace lost tracked note.txt"
-    exit 1
-end
-not test -e ../.integrated/feat-x/scratch.tmp
-and not test -e ../.integrated/feat-x/junk.d
+not test -e ../.integrated
 or begin
-    echo >&2 "smoke: ignored junk survived into the archive"
+    echo >&2 "smoke: unexpected archive bucket created"
     exit 1
 end
-echo "ok: ignored files stripped from archive"
+echo "ok: workspace deleted after integrate (no archive)"
 echo "SMOKE PASS"

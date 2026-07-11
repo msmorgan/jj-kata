@@ -101,8 +101,6 @@ workspaces, by default each a sibling directory at the same level:
   myproj/           ← coordinator (the `default` workspace); run scripts/workflow from here
   feature-a/        ← feature workspace (created by claim/start)
   feature-b/
-  .integrated/      ← archived workspaces after integrate
-  .abandoned/       ← archived workspaces after abandon
 ```
 
 The coordinator's **workspace name** is always `default` (jj's initial workspace), but
@@ -111,16 +109,14 @@ after the project (as above) so IDEs and agents see a unique root instead of yet
 `default/`. Nothing hardcodes a `../default` path: scripts resolve the coordinator with
 `jj workspace root --name default`. Feature workspace directories are created by the
 toolkit and always match their workspace name (`../NAME` by default). Set
-`workspace_dir` in `jjworkflow.toml` to put them (and the archive buckets) somewhere
-else — relative paths resolve against the repo root, absolute paths are used as-is. If
-it points inside the repo (e.g. `.claude/worktrees`), **gitignore that directory**, or
-jj will snapshot every child workspace into the coordinator's working copy.
+`workspace_dir` in `jjworkflow.toml` to put them somewhere else — relative paths
+resolve against the repo root, absolute paths are used as-is. If it points inside the
+repo (e.g. `.claude/worktrees`), **gitignore that directory**, or jj will snapshot
+every child workspace into the coordinator's working copy.
 
-The archive buckets are created on demand, beside the feature workspaces. On btrfs they are made **subvolumes**, so
-they stay out of snapshots of the containing volume and can be dropped wholesale with
-`btrfs subvolume delete` (or emptied and `rmdir`'d, where deletion needs root); on any
-other filesystem they are plain directories. Retired workspaces are stripped of
-ignored files before archiving, so the buckets hold sources, not build junk.
+Workspace directories are transient: `integrate` and `abandon` delete them outright
+once done — the work lives in trunk (integrate) or stays recoverable via the op log
+until gc (abandon). Nothing is archived.
 
 ---
 
@@ -240,9 +236,8 @@ scripts/workflow integrate NAME
    "claim under `default@`, feature branching off it" shape the fold below relies on.
 2. **Fold** — moves `default@` onto the feature tip.
 3. **Complete** — moves the owned ticket(s) from `wip/` → `done/` in a final commit.
-4. **Archive** — strips the workspace's ignored files (the jj analogue of
-   `git clean -fdX`, so build junk and other bulky generated state isn't archived),
-   forgets the workspace, and moves its directory to `../.integrated/`.
+4. **Retire** — forgets the workspace and deletes its directory (the work is in
+   `default@`'s history now; the checkout copy and build junk have no further use).
 
 If a conflict arises during the refresh step, integrate stops (exit 2) and leaves the
 conflict in place in `../NAME`. Resolve it there and re-run `integrate NAME`.
@@ -255,9 +250,9 @@ scripts/workflow abandon NAME
 ```
 
 Discards the feature, reverts every owned ticket back to its triage folder, and
-archives the workspace to `../.abandoned/` (ignored/generated files stripped first,
-as in integrate's archive step). Op-restore safe: the claim commit's abandonment
-rolls back the ticket moves automatically.
+deletes the workspace directory. The abandoned commits stay recoverable via the op
+log until gc; the claim commit's abandonment rolls back the ticket moves
+automatically.
 
 ### Refreshing (keeping current with trunk)
 

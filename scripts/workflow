@@ -26,6 +26,10 @@ Usage: $(status filename) <command> [<args>]
                          to take on extra todos after a workspace is already going.
                          (NAME's workspace goes stale; run `workspace update-stale`
                          there.)
+    claim NAME --or-start
+                         Claim NAME if it names a claimable ticket/census row,
+                         else fall back to `start NAME` (what the Claude Code
+                         worktree hook calls).
     start NAME           Spin up an ad-hoc workspace named NAME, with no todo to claim.
     abandon WORKSPACE    Abandon WORKSPACE and forget its todo claim.
     refresh [WORKSPACE]  From a feature workspace (no WORKSPACE): rebase its stack onto
@@ -76,6 +80,33 @@ function __ticket_triage_path --argument-names name
     return 1
 end
 
+# Resolved path of the project's ticket/census tool (jjworkflow.toml todo_cmd,
+# relative to the repo root unless absolute; default scripts/todo).
+function __todo_cmd
+    set -l cmd (__jjworkflow_config todo_cmd scripts/todo)
+    string match -q -- '/*' $cmd; or set cmd $project_dir/$cmd
+    echo $cmd
+end
+
+# NAME's ticket lifecycle state: triage | wip | done | census | unknown.
+function __ticket_state --argument-names name
+    set -l tickets "$project_dir/docs/tickets"
+    if __ticket_triage_path $name >/dev/null
+        echo triage
+    else if test -f "$tickets/wip/$name.md"
+        echo wip
+    else if test -f "$tickets/done/$name.md"
+        echo done
+    else
+        set -l cmd (__todo_cmd)
+        if test -x "$cmd"; and "$cmd" iscensus $name >/dev/null 2>&1
+            echo census
+        else
+            echo unknown
+        end
+    end
+end
+
 # Roots of NAME's feature stack — the commits only NAME@ has. Correct whether
 # the stack sits on its claim or was DETACHED onto the trunk tip by a no-arg
 # refresh. (A `children(NAME)` lookup resolves to a TRUNK commit on a detached
@@ -105,33 +136,28 @@ function __claim_todo
     # before the move or census mint lands in it.
     mkdir -p "$tickets/wip"
     or return
-    if set -l src (__ticket_triage_path $name)
-        mv "$src" "$tickets/wip/$name.md"
-        return                           # propagate mv's status — never mask a failure
+    switch (__ticket_state $name)
+        case triage
+            mv (__ticket_triage_path $name) "$tickets/wip/$name.md"
+            # switch propagates mv's status — never mask a failure
+        case wip
+            echo >&2 "$(status filename): '$name' is already claimed (in wip/)."
+            return 1
+        case done
+            echo >&2 "$(status filename): '$name' is already done."
+            return 1
+        case census
+            set -l cmd (__todo_cmd)
+            "$cmd" mint $name >"$tickets/wip/$name.md"
+            and test -s "$tickets/wip/$name.md"
+            and return 0
+            rm -f "$tickets/wip/$name.md"
+            echo >&2 "$(status filename): minting '$name' from the census failed."
+            return 1
+        case unknown
+            echo >&2 "$(status filename): no ticket or census row named '$name'."
+            return 1
     end
-    if test -f "$tickets/wip/$name.md"
-        echo >&2 "$(status filename): '$name' is already claimed (in wip/)."
-        return 1
-    end
-    if test -f "$tickets/done/$name.md"
-        echo >&2 "$(status filename): '$name' is already done."
-        return 1
-    end
-    # Not a ticket — mint a wip ticket only if NAME is a real census mechanic.
-    # The census tool is project-provided (jjworkflow.toml `todo_cmd`, resolved
-    # against the repo root; default scripts/todo). No tool → nothing to mint.
-    set -l todo_cmd (__jjworkflow_config todo_cmd scripts/todo)
-    string match -q -- '/*' $todo_cmd; or set todo_cmd $project_dir/$todo_cmd
-    if test -x "$todo_cmd"; and "$todo_cmd" iscensus $name >/dev/null 2>&1
-        "$todo_cmd" mint $name >"$tickets/wip/$name.md"
-        and test -s "$tickets/wip/$name.md"
-        and return 0
-        rm -f "$tickets/wip/$name.md"
-        echo >&2 "$(status filename): minting '$name' from the census failed."
-        return 1
-    end
-    echo >&2 "$(status filename): no ticket or census row named '$name'."
-    return 1
 end
 
 # Finish each NAMED ticket: wip/ -> done/. Tolerant — a name with no wip/ ticket
@@ -148,67 +174,6 @@ function __check_todo
     end
 end
 
-# jj's `git clean -fdX`, for a workspace about to be retired: delete untracked
-# on-disk files, then prune emptied dirs. Snapshotting first (file list without
-# --ignore-working-copy) makes untracked == gitignored, so nothing real is
-# deleted. Must run while jj still knows the workspace (after `workspace forget`
-# there's no tracked list). Best-effort — a failure means a fat archive — but an
-# EMPTY tracked list aborts: a real workspace tracks scripts/ at minimum, so
-# empty means the listing failed, and "everything untracked" would mean everything.
-function __clean_ignored --argument-names ws_dir
-    command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
-    # jj prints paths relative to CWD — run from the workspace root so the
-    # tracked list lines up with find's %P (both ws-relative, NUL-joinable).
-    set -l prev_pwd "$PWD"
-    cd "$ws_dir"; or return 0
-    set -l tracked (command jj -R "$ws_dir" file list 2>/dev/null)
-    cd "$prev_pwd"
-    set -q tracked[1]; or return 0
-    # Disk inventory via find, not fish globs (globs skip dotfiles, and junk
-    # is often dot-prefixed). .jj/.git are workspace plumbing, never junk.
-    set -l junk (comm -z -23 \
-        (find "$ws_dir" -mindepth 1 \( -name .jj -o -name .git \) -prune -o \( -type f -o -type l \) -printf '%P\0' | sort -z | psub) \
-        (printf '%s\0' $tracked | sort -z | psub) | string split0)
-    if set -q junk[1]
-        printf '%s\0' $ws_dir/$junk | xargs -0 -r rm -f --
-    end
-    # Prune dirs the deletions emptied, deepest first (a child sorts after its
-    # parent, so the reverse sort visits it first); non-empty ones are kept.
-    find "$ws_dir" -mindepth 1 \( -name .jj -o -name .git \) -prune -o -type d -print0 |
-        sort -zr | xargs -0 -r rmdir --ignore-fail-on-non-empty -- 2>/dev/null
-    return 0
-end
-
-# Create an archive bucket — on btrfs a SUBVOLUME (excluded from parent-volume
-# snapshots, droppable wholesale); anything short of that quietly degrades to a
-# plain directory.
-function __ensure_bucket --argument-names dest
-    test -d "$dest"; and return 0
-    if command -q btrfs; and test "$(stat -f -c %T (path dirname $dest) 2>/dev/null)" = btrfs
-        btrfs subvolume create "$dest" >/dev/null 2>&1
-        and return 0
-    end
-    mkdir -p "$dest"
-end
-
-# Retire a workspace dir into a sibling bucket instead of deleting it. Callers
-# strip ignored/generated files first via __clean_ignored (it needs jj access,
-# gone once the workspace is forgotten). Tracked symlinks into other workspaces
-# may break (fine — gc the bucket later), but nothing tracked is destroyed.
-function __retire_ws --argument-names ws_dir bucket
-    test -d "$ws_dir"; or return 0
-    set -l dest (__workspace_base)/$bucket
-    __ensure_bucket $dest
-    set -l base (path basename $ws_dir)
-    set -l target $dest/$base
-    set -l n 1
-    while test -e $target
-        set target $dest/$base.$n
-        set n (math $n + 1)
-    end
-    mv "$ws_dir" $target
-end
-
 # Read a flat `key = "value"` (or `key = value`) line from jjworkflow.toml, or
 # echo DEFAULT. Deliberately dumb — no TOML parser dependency; flat keys only.
 function __jjworkflow_config --argument-names key default
@@ -223,9 +188,9 @@ function __jjworkflow_config --argument-names key default
     echo $default
 end
 
-# Base directory holding feature workspaces (and the archive buckets beside
-# them). jjworkflow.toml `workspace_dir`, resolved against the project root
-# unless absolute; default `..` — workspaces as siblings of the project dir.
+# Base directory holding feature workspaces. jjworkflow.toml `workspace_dir`,
+# resolved against the project root unless absolute; default `..` — workspaces
+# as siblings of the project dir.
 # An in-repo base (e.g. `.claude/worktrees`) MUST be gitignored, or jj would
 # snapshot every child workspace into the coordinator's working copy.
 function __workspace_base
@@ -327,9 +292,13 @@ end
 function __workflow_claim
     # -S/--strict-longopts: no abbreviation — only the exact `--into` is accepted, so a
     # typo like `--in` errors loudly instead of silently standing in for `--into`.
-    argparse -S 'into=' -- $argv
+    argparse -S 'into=' or-start -- $argv
     or return
     if set -q _flag_into
+        if set -q _flag_or_start
+            echo >&2 "$(status filename): --or-start and --into don't combine."
+            return 2
+        end
         __workflow_adopt "$_flag_into" $argv
     else
         # One workspace per TODO on this path — extra TODOs would be silently
@@ -338,7 +307,15 @@ function __workflow_claim
             echo >&2 "$(status filename): 'claim' without --into starts ONE workspace for ONE todo — claim them one at a time, or fold extras into an existing workspace with 'claim TODO... --into NAME'."
             return 2
         end
-        __workflow_start --claim-todo $argv
+        # --or-start (the EnterWorktree hook's mode): claim when NAME names a
+        # claimable ticket/census row, else fall back to an ad-hoc start. A
+        # wip/done NAME falls back too — start refuses on its own if the
+        # workspace or dir already exists.
+        if set -q _flag_or_start; and not contains -- (__ticket_state $argv[1]) triage census
+            __workflow_start $argv
+        else
+            __workflow_start --claim-todo $argv
+        end
     end
 end
 
@@ -411,10 +388,6 @@ function __workflow_abandon
         return 1
     end
 
-    # Strip ignored files NOW — after `workspace forget` jj can't tell tracked
-    # from ignored. A rollback then costs only regenerable files.
-    __clean_ignored "$ws_dir"
-
     set savepoint (__savepoint)
     and begin
         # Abandon the claim AND its stack; default's line just reparents onto the
@@ -436,7 +409,9 @@ function __workflow_abandon
             return 1
         end
     end
-    and __retire_ws "$ws_dir" .abandoned
+    # The commits stay recoverable via the op log until gc; the dir is just a
+    # checkout copy plus build junk — delete it outright, no archive.
+    and rm -rf "$ws_dir"
 end
 
 # refresh, keyed on where it runs:
@@ -684,9 +659,6 @@ function __integrate_steps
     and if set -q slugs[1]
         jj commit -m "complete $(string join ' ' $slugs)" $move_paths
     end
-    # Strip ignored files while jj still knows the workspace (`workspace forget`
-    # below cuts that off) — the archive mv shouldn't drag build junk along.
-    and __clean_ignored "$ws_dir"
     # Drop the now-folded claim bookmark (its commit lives on in default@'s history;
     # the ref is just clutter). Before workspace forget so a failure still rolls back.
     and jj bookmark forget "$name"
@@ -709,7 +681,9 @@ function __workflow_integrate
     __integrate_steps "$name"
     switch $status
         case 0
-            __retire_ws "$ws_dir" .integrated
+            # The work is folded into default@ — the dir holds only a checkout
+            # copy and build junk now. Delete it outright, no archive.
+            rm -rf "$ws_dir"
         case 69
             # Expected stop (conflict or uncommitted work) — state left in place for
             # the user to resolve. Do NOT roll back.

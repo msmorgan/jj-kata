@@ -37,14 +37,14 @@ end
 scripts/workflow integrate feat-z >/dev/null 2>&1
 or begin; echo >&2 "smoke-wsdir: integrate failed (rc=$status)"; exit 1; end
 test -f $coord/note.txt; or begin; echo >&2 "smoke-wsdir: integrated work missing from trunk"; exit 1; end
-test -d $coord/.claude/worktrees/.integrated/feat-z
-or begin; echo >&2 "smoke-wsdir: archive bucket not beside the workspaces"; exit 1; end
+not test -e $coord/.claude/worktrees/feat-z
+or begin; echo >&2 "smoke-wsdir: workspace dir not deleted after integrate"; exit 1; end
 
-# Abandon bucket lands there too.
+# Abandon deletes under the configured base too.
 scripts/workflow start feat-q >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: second start failed"; exit 1; end
 scripts/workflow abandon feat-q >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: abandon failed"; exit 1; end
-test -d $coord/.claude/worktrees/.abandoned/feat-q
-or begin; echo >&2 "smoke-wsdir: abandon bucket not beside the workspaces"; exit 1; end
+not test -e $coord/.claude/worktrees/feat-q
+or begin; echo >&2 "smoke-wsdir: workspace dir not deleted after abandon"; exit 1; end
 
 echo "SMOKE-WSDIR PASS"
 rm -rf $work

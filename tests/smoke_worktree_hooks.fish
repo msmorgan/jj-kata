@@ -10,6 +10,8 @@ mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 jj git init >/dev/null 2>&1; or begin; echo >&2 "smoke-wt: jj init failed"; exit 1; end
 $tk/install.fish --copy $coord >/dev/null; or begin; echo >&2 "smoke-wt: install failed"; exit 1; end
+mkdir -p docs/tickets/planned docs/tickets/wip docs/tickets/done
+echo '# tick-x' >docs/tickets/planned/tick-x.md
 jj commit -m "install toolkit" >/dev/null 2>&1; or begin; echo >&2 "smoke-wt: commit failed"; exit 1; end
 
 set -l create $coord/scripts/hooks/worktree_create.fish
@@ -27,6 +29,20 @@ or begin; echo >&2 "smoke-wt: create returned '$out', want $work/bg-test"; exit 
 test -d $work/bg-test; or begin; echo >&2 "smoke-wt: workspace dir missing"; exit 1; end
 jj workspace list -T 'name ++ "\n"' | string match -q bg-test
 or begin; echo >&2 "smoke-wt: workspace not registered"; exit 1; end
+# bg-test names no ticket → ad-hoc start, nothing claimed.
+not test -e $coord/docs/tickets/wip/bg-test.md
+or begin; echo >&2 "smoke-wt: ad-hoc create minted a ticket"; exit 1; end
+
+# Create whose name matches a planned ticket: hook claims it (planned → wip).
+set -l tickpayload (jq -n --arg cwd $coord --arg n tick-x \
+    '{hook_event_name: "WorktreeCreate", cwd: $cwd, worktree_name: $n,
+      worktree_path: ($cwd + "/.claude/worktrees/" + $n), base_ref: "main"}')
+set -l tickout (printf '%s' $tickpayload | fish $create)
+or begin; echo >&2 "smoke-wt: ticket create hook failed (rc=$status)"; exit 1; end
+test "$tickout" = "$work/tick-x"
+or begin; echo >&2 "smoke-wt: ticket create returned '$tickout'"; exit 1; end
+test -f $coord/docs/tickets/wip/tick-x.md
+or begin; echo >&2 "smoke-wt: matching ticket was not claimed to wip"; exit 1; end
 
 # The create hook works from anywhere in the repo, not just the coordinator.
 set -l payload2 (jq -n --arg cwd $work/bg-test --arg n bg-two \
@@ -36,7 +52,7 @@ set -l out2 (printf '%s' $payload2 | fish $create)
 or begin; echo >&2 "smoke-wt: create-from-feature-ws failed (rc=$status)"; exit 1; end
 test "$out2" = "$work/bg-two"; or begin; echo >&2 "smoke-wt: got '$out2'"; exit 1; end
 
-# Remove: maps to abandon — workspace forgotten, dir archived, exit 0.
+# Remove: maps to abandon — workspace forgotten, dir deleted, exit 0.
 echo scratch >$work/bg-test/scratch.txt
 set -l rmpayload (jq -n --arg cwd $coord --arg p $work/bg-test \
     '{hook_event_name: "WorktreeRemove", cwd: $cwd, worktree_name: "bg-test", worktree_path: $p}')
@@ -44,8 +60,8 @@ printf '%s' $rmpayload | fish $remove
 or begin; echo >&2 "smoke-wt: remove hook failed (rc=$status)"; exit 1; end
 jj workspace list -T 'name ++ "\n"' | string match -q bg-test
 and begin; echo >&2 "smoke-wt: workspace still registered after remove"; exit 1; end
-test -d $work/.abandoned/bg-test
-or begin; echo >&2 "smoke-wt: workspace not archived to .abandoned"; exit 1; end
+not test -e $work/bg-test
+or begin; echo >&2 "smoke-wt: workspace dir not deleted after remove"; exit 1; end
 
 # Remove for a path that is not a workspace of this repo: silent no-op, exit 0.
 set -l noop (jq -n --arg cwd $coord \

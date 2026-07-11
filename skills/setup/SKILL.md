@@ -44,10 +44,13 @@ is idempotent; report what was already in place.
    install, or the absolute `${CLAUDE_PLUGIN_ROOT}/scripts/hooks` path resolved
    NOW for a plugin install (plugin paths change on update — re-run this setup
    after updating the plugin). EnterWorktree then creates a real jj-workflow
-   feature workspace (claim commit + workspace dir; the git-worktree logic is
-   fully replaced), and removal maps to `workflow abandon` (archived to the
-   `.abandoned` bucket, never deleted). These hooks are per-repo ON PURPOSE:
-   registered globally they would hijack EnterWorktree in plain-git repos.
+   feature workspace — claiming the matching ticket when the worktree name
+   names one (`claim --or-start`); the git-worktree logic is fully replaced.
+   Removal maps to `workflow abandon` (commits stay recoverable via the op
+   log; the directory is deleted). Finish flow for such a workspace: commit,
+   exit the worktree keeping it, then `workflow integrate NAME` from the
+   coordinator. These hooks are per-repo ON PURPOSE: registered globally they
+   would hijack EnterWorktree in plain-git repos.
 
 6. Sanity check: `workflow` with no arguments prints usage (the plugin's `bin/`
    is on PATH). The PreToolUse guard hook ships with this plugin and needs no
