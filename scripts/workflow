@@ -3,6 +3,16 @@
 source (status dirname)/lib/setup.fish jj flock
 or return
 
+# Every jj call below resolves its workspace from CWD, while $project_dir (the
+# lock file, ticket paths) comes from this script copy's location. A sibling-path
+# invocation (`../other/scripts/workflow …`) would silently operate on the CWD
+# workspace under the OTHER workspace's lock — refuse the mismatch.
+set -l __cwd_ws (jj workspace root 2>/dev/null)
+if test -z "$__cwd_ws"; or test "$(path resolve $__cwd_ws)" != "$project_dir"
+    echo >&2 "$(status filename): CWD is in workspace '$__cwd_ws', but this copy belongs to $project_dir — run that workspace's own scripts/workflow from inside it."
+    return 1
+end
+
 # Most commands run from default. The exceptions run IN the affected feature
 # workspace: `repair`/`converge`/`resolve` heal staleness / divergence /
 # refresh-conflicts there, and `refresh` (no-arg) rebases the current workspace's
@@ -216,6 +226,10 @@ function __workflow_start
         echo >&2 "$(status filename): a workspace NAME is required."
         return 2
     end
+    if set -q argv[2]
+        echo >&2 "$(status filename): expected exactly one NAME (got: $argv)."
+        return 2
+    end
     set ws_dir (path dirname $project_dir)/$name
     # Refuse a pre-existing dir up front: `jj workspace add` would fail mid-sequence
     # with a cryptic "destination exists", and knowing it's absent now lets the
@@ -281,6 +295,12 @@ function __workflow_claim
     if set -q _flag_into
         __workflow_adopt "$_flag_into" $argv
     else
+        # One workspace per TODO on this path — extra TODOs would be silently
+        # dropped by __workflow_start (it reads only $argv[1]). Refuse instead.
+        if set -q argv[2]
+            echo >&2 "$(status filename): 'claim' without --into starts ONE workspace for ONE todo — claim them one at a time, or fold extras into an existing workspace with 'claim TODO... --into NAME'."
+            return 2
+        end
         __workflow_start --claim-todo $argv
     end
 end
@@ -356,12 +376,16 @@ function __workflow_abandon
     set ws_dir (jj workspace root --name "$name")
     or return
     # Capture both targets by change-id up front: the claim commit (before
-    # `bookmark forget` drops NAME) and the feature-stack root (same revset refresh
-    # uses, before `workspace forget` dissolves NAME@). Guard the root — an empty
-    # "$root":: would expand to `::` and abandon the entire repo.
+    # `bookmark forget` drops NAME) and the feature-stack roots — the commits only
+    # NAME@ has (`default@..NAME@`, captured before `workspace forget` dissolves
+    # NAME@). That stays correct whether the stack still sits on its claim or a
+    # no-arg refresh DETACHED it onto the trunk tip; the old `children($name) &
+    # ::$name@` form resolved to a TRUNK commit on a detached stack, and its `::`
+    # then swept default's line — sibling claims, default@ and all. Guard against
+    # an empty list — an empty root with `::` appended would abandon the repo.
     set claim (jj log --no-graph -r "$name" -T 'change_id.short()')
-    set root (jj log --no-graph -r "roots(children($name) & ::$name@)" -T 'change_id.short()')
-    if test -z "$root"
+    set roots (jj log --no-graph -r "roots(default@..$name@)" -T 'change_id.short() ++ "\n"')
+    if not set -q roots[1]
         echo >&2 "$(status filename): could not locate $name's feature root."
         return 1
     end
@@ -373,18 +397,21 @@ function __workflow_abandon
 
     set savepoint (jj op log -G -n1 -T 'id.short()')
     and begin
-        # Abandon the claim commit AND its feature stack ("$root"::), but not the
-        # default line — abandoning the claim reparents that onto the claim's parent.
-        # workspace-forget runs first and drops the workspace's empty trailing WC. For
-        # a claim with NO work yet that empty WC *is* $root, so it's gone afterward and
-        # only the claim is left to abandon; guard on $root still resolving to handle
-        # both the fresh-claim and has-work cases.
+        # Abandon the claim commit AND its feature stack, but not the default
+        # line — abandoning the claim reparents that onto the claim's parent.
+        # workspace-forget runs first and drops the workspace's empty trailing WC.
+        # For a claim with NO work yet that empty WC *is* the only root, so it's
+        # gone afterward and only the claim is left to abandon; keep just the
+        # roots that still resolve ($live:: expands to nothing when none do).
         jj workspace forget "$name"
         and jj bookmark forget "$name"
-        and if jj log --no-graph -r "$root" --ignore-working-copy >/dev/null 2>&1
-            jj abandon "$claim" "$root"::
-        else
-            jj abandon "$claim"
+        and begin
+            set -l live
+            for r in $roots
+                jj log --no-graph -r "$r" --ignore-working-copy >/dev/null 2>&1
+                and set -a live $r
+            end
+            jj abandon "$claim" $live::
         end
         or begin
             echo >&2 "Failed... restoring to $savepoint"
@@ -417,6 +444,13 @@ function __workflow_refresh
     if set -q _flag_all
         if set -q argv[1]
             echo >&2 "$(status filename): 'refresh --all' takes no WORKSPACE name (got '$argv[1]')."
+            return 2
+        end
+        # Reorder rewrites default's shared line — it must hold DEFAULT's lock. From
+        # a feature workspace this run re-exec'd under that workspace's private lock,
+        # which serializes against nothing that touches default.
+        if test -z "$on_default"
+            echo >&2 "$(status filename): 'refresh --all' rewrites default's shared line — run it from the default workspace."
             return 2
         end
         # Every workspace but the default coordinator, in jj's (alphabetical) order.
@@ -452,7 +486,14 @@ function __workflow_refresh
         # From default with a name → the old reorder-under-default@.
         __refresh_reorder "$name"
     else
-        # From a feature workspace with an explicit name (should be this one) → detach.
+        # From a feature workspace with an explicit name — ONLY its own: this run's
+        # flock is the INVOKING workspace's, so detaching another feature's stack
+        # from here would race that workspace's own refresh/integrate unserialized.
+        # (Basename == workspace name holds for toolkit-created feature workspaces.)
+        if test "$name" != (path basename (jj workspace root))
+            echo >&2 "$(status filename): refresh '$name' from the default workspace (reorder), or run a no-arg refresh inside $name's own workspace (detach) — refreshing it from here would hold the wrong lock."
+            return 2
+        end
         __refresh_detach "$name"
     end
 end
@@ -470,7 +511,12 @@ function __refresh_detach
     # An empty stack (`default@..$name@` resolves to nothing — the feature is already
     # fully in default@'s ancestry) means there's nothing to refresh. `jj rebase` would
     # error on an empty -r set, so short-circuit; still clear any staleness.
-    if test -z (jj log --no-graph -r "default@..$name@" -T 'change_id.short()' --ignore-working-copy)
+    # A FAILED `jj log` must be a hard error, not "nothing to refresh": `set` keeps
+    # the substitution's status, and an unquoted `test -z (…)` would have read the
+    # failure's empty output as an already-integrated stack and returned success.
+    set -l stack (jj log --no-graph -r "default@..$name@" -T 'change_id.short()' --ignore-working-copy)
+    or return 1
+    if test -z "$stack"
         command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
         return 0
     end
@@ -501,12 +547,19 @@ end
 function __refresh_reorder
     set name $argv[1]
     set ws_dir (jj workspace root --name "$name"); or return 1
-    # Feature-stack root: the claim commit's child on the workspace's line (the workspace
-    # WC itself when no feature commits exist yet). Capture it before the move — its
+    # Feature-stack root: the first commit only NAME@ has — the claim's child when
+    # the stack sits on its claim, the detached stack's root after a no-arg refresh
+    # (the reorder below then re-attaches it). The old `children($name) & ::$name@`
+    # form resolved to a TRUNK commit on a detached stack, and `rebase -s` would
+    # have dragged default's line onto the claim. Capture it before the move — its
     # change id survives the rebase even though the commit id won't.
-    set root (jj log --no-graph -r "roots(children($name) & ::$name@)" -T 'change_id.short()'); or return 1
-    if test -z "$root"
+    set root (jj log --no-graph -r "roots(default@..$name@)" -T 'change_id.short() ++ "\n"'); or return 1
+    if not set -q root[1]
         echo >&2 "$(status filename): could not locate $name's feature root."
+        return 1
+    end
+    if set -q root[2]
+        echo >&2 "$(status filename): $name's stack has multiple roots — reorder can't carry it in one piece; integrate it, or simplify the stack by hand."
         return 1
     end
 
@@ -539,6 +592,15 @@ end
 function __integrate_steps
     set name $argv[1]
     set -l ws_dir (jj workspace root --name "$name"); or return
+    # Snapshot NAME's on-disk working copy first: every read below runs from
+    # default with --ignore-working-copy, so edits made in the workspace after the
+    # agent's last jj command would otherwise be invisible — the fold would skip
+    # them and the final orphan-abandon would drop them from history. update-stale
+    # first so a stale workspace (e.g. after `claim --into`) doesn't fail the
+    # snapshot.
+    command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
+    command jj -R "$ws_dir" status >/dev/null
+    or return 1
     # Refresh first: detach the feature stack onto the current trunk tip. Always the
     # DETACH path (never the from-default reorder), so the fork_point re-join below has a
     # detached feature to thread the claim back into. This re-establishes currency even
@@ -632,6 +694,19 @@ function __integrate_steps
     end
 
     jj rebase -r @ -d "$name"@-
+    # A fold conflict (default@'s in-flight strays vs. the feature) is recorded
+    # with exit 0, like every jj rebase conflict. Its siblings (__refresh_detach,
+    # the re-join) leave theirs in the feature workspace as 69 — but this one sits
+    # on default@ ITSELF, and proceeding would retire the workspace around a
+    # permanently conflicted trunk tip. Fail (1) so the caller rolls it all back.
+    and begin
+        set -l fold_conflict (jj log --no-graph -r '@ & conflicts()' -T 'change_id.short()' --ignore-working-copy)
+        test -z "$fold_conflict"
+        or begin
+            echo >&2 "$(status filename): folding default@ onto $name's tip conflicts — rolling back; commit or clear default@'s in-flight edits, then re-integrate."
+            false
+        end
+    end
     and __check_todo $slugs
     and if set -q slugs[1]
         jj commit -m "complete $(string join ' ' $slugs)" $move_paths

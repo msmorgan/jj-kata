@@ -49,7 +49,10 @@ echo "Installed toolkit ($mode) into $target/scripts/"
 if test $alias_set = 1
     echo "Set repo config: immutable_heads() = builtin_immutable_heads() | (default@ ~ @)"
 else
-    echo "WARNING: could not set the immutable_heads() alias — set it by hand (see below)."
+    echo >&2 "ERROR: could not set the immutable_heads() alias — the repo has NO trunk"
+    echo >&2 "protection until it is set. Set it by hand, then re-check with 'jj config list --repo':"
+    echo >&2 "    jj -R $target config set --repo 'revset-aliases.\"immutable_heads()\"' \\"
+    echo >&2 "      'builtin_immutable_heads() | (default@ ~ @)'"
 end
 echo
 echo "Manual follow-ups:"
@@ -61,3 +64,9 @@ echo "       jj config set --repo 'revset-aliases.\"immutable_heads()\"' \\"
 echo "         'builtin_immutable_heads() | (default@ ~ @)'"
 echo "  3. If defaults don't fit, copy jjworkflow.example.toml -> jjworkflow.toml and edit."
 echo "  4. Add a scripts/provision-workspace hook if new workspaces need shared dirs."
+
+# An install without the immutability alias is NOT a success: any feature
+# workspace could rewrite the shared trunk line with plain jj commands. The
+# scripts are in place, but exit nonzero so automation can't scroll past it.
+test $alias_set = 1
+or exit 1

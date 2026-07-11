@@ -129,10 +129,20 @@ def _parse_sides(inner, n):
             result["snap_header"] = sec[0]
             result["snapshot"] = list(sec[1:])
 
+    # jj materializes an N-sided conflict as N-1 %%% diff sections (or several
+    # +++ ones). The loop above CONCATENATES them into one diff_side/diff_base,
+    # so any per-side resolution built from those lists would be garbage — flag
+    # the hunk so accept/auto decline it instead of silently corrupting the file.
+    result["many_sided"] = (
+        sum(1 for kind, _ in sections if kind == "diff") > 1
+        or sum(1 for kind, _ in sections if kind == "snapshot") > 1
+    )
+
     # Both sides are purely additive relative to the base when the diff has no
     # removals and the snapshot equals the base (neither side deleted anything).
     result["stackable"] = (
         not has_removal
+        and not result["many_sided"]
         and result["diff_side"] != result["diff_base"]  # diff-side actually added something
         and result["snapshot"] != []
     )
@@ -161,6 +171,10 @@ def _sorted_merge_resolution(hunk, lines):
     Resolve `hunk` iff it is two pure-add edits into an already-sorted run of >=3
     lines. Return (new_file_lines, n_adds) on success, else (None, reason).
     """
+    # A many-sided hunk's parsed sides are concatenations of several sides —
+    # nothing built from them is a valid resolution.
+    if hunk.get("many_sided"):
+        return None, "many-sided conflict"
     # 1. Both sides must be pure adds.
     if hunk.get("has_removal"):
         return None, "removal present"
@@ -309,7 +323,13 @@ def cmd_accept(args):
         return
 
     key_map = {"snapshot": "snapshot", "diff": "diff_side", "base": "diff_base"}
+    resolved = skipped = 0
     for h in reversed(hunks):
+        # A many-sided hunk's parsed sides are concatenated garbage — leave it.
+        if h["many_sided"]:
+            print(f"  {filepath} hunk {h['hunk']}/{h['total']}: left (many-sided conflict — resolve by hand)")
+            skipped += 1
+            continue
         if side in key_map:
             resolution = h[key_map[side]]
         elif side == "stack":
@@ -318,9 +338,14 @@ def cmd_accept(args):
         else:  # stack-snap-first
             resolution = h["snapshot"] + h["diff_side"]
         lines[h["_start"]:h["_end"] + 1] = resolution
+        resolved += 1
 
-    path.write_text("".join(lines))
-    print(f"Resolved {len(hunks)} hunk(s) in {filepath} (accepted {side} side).")
+    if resolved:
+        path.write_text("".join(lines))
+    left = f", {skipped} many-sided hunk(s) left" if skipped else ""
+    print(f"Resolved {resolved} hunk(s) in {filepath} (accepted {side} side){left}.")
+    if skipped:
+        sys.exit(1)
 
 
 def _report(filepath, hunk, status, msg):
