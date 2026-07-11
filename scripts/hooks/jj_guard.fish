@@ -14,9 +14,9 @@
 # Exit 2 + stderr blocks the tool call; exit 0 allows it. Anything we can't parse
 # is allowed (don't interfere with non-Bash tools or malformed payloads).
 
-set -l payload (cat | string collect)
-test (printf '%s' $payload | jq -r '.tool_name // ""') = Bash; or exit 0
-set -l cmd (printf '%s' $payload | jq -r '.tool_input.command // ""')
+# One jq pass: emit the command only for Bash payloads. A non-Bash tool (or
+# malformed payload) yields nothing, so $cmd stays empty and nothing matches.
+set -l cmd (jq -r 'select(.tool_name == "Bash") | .tool_input.command // ""')
 
 # Match against a DE-QUOTED copy of the command: shell quoting is invisible to a
 # raw-text regex, so `"git" …`, `jj "--ignore-immutable"` or `jj --'config'`
@@ -27,17 +27,20 @@ set -l cmd (printf '%s' $payload | jq -r '.tool_input.command // ""')
 # --config) may now false-positive; for a guard, fail-closed is the right bias.
 set -l flat (string replace -a -- '\\' '' $cmd | string replace -a -- "'" '' | string replace -a -- '"' '')
 
-# git at a command position (start, or after ; & | && || newline ( or a
-# command/exec/sudo/… wrapper): refused outright. `jj git push` is fine — there
+# Command position: start of line, or after ; & | && || ( or a
+# command/exec/sudo/… wrapper, with an optional path prefix.
+set -l cmdpos '(?:^|&&|\|\||[;&|\n(])\s*(?:(?:command|exec|builtin|env|sudo|time|nice|nohup|xargs)\s+)*(?:[^\s;&|()`]*/)?'
+
+# git at a command position: refused outright. `jj git push` is fine — there
 # `git` follows `jj`, which isn't a command-position wrapper, so it won't match.
-if string match -rq -- '(?:^|&&|\|\||[;&|\n(])\s*(?:(?:command|exec|builtin|env|sudo|time|nice|nohup|xargs)\s+)*(?:[^\s;&|()`]*/)?git(?:\s|$)' $flat
+if string match -rq -- $cmdpos'git(?:\s|$)' $flat
     echo >&2 "jj-guard: git is banned in this jj repo — use jj, not git."
     exit 2
 end
 
 # A jj invocation carrying a guard-bypassing flag is refused. Scoped to commands
 # that actually invoke jj, so an unrelated tool's --config elsewhere is ignored.
-if string match -rq -- '(?:^|&&|\|\||[;&|\n(])\s*(?:(?:command|exec|builtin|env|sudo|time|nice|nohup|xargs)\s+)*(?:[^\s;&|()`]*/)?jj(?:\s|$)' $flat
+if string match -rq -- $cmdpos'jj(?:\s|$)' $flat
     if set -l flag (string match -r -- '(?:^|\s)(--ignore-immutable|--config(?:-file)?)(?:[=\s]|$)' $flat)
         echo >&2 "jj-guard: refusing $flag[2] — it would bypass the repo's immutable_heads guard."
         exit 2

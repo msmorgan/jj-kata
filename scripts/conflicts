@@ -251,6 +251,25 @@ def _resolve_path(filepath):
     return None
 
 
+def _resolve_targets(files):
+    """Default to every conflicted file. Returns (filepath, path) pairs, warning
+    about and skipping paths that don't resolve — or None when there was nothing
+    to target at all (already reported to the user)."""
+    if not files:
+        files = _conflicted_files()
+        if not files:
+            print("No conflicts found.")
+            return None
+    out = []
+    for filepath in files:
+        path = _resolve_path(filepath)
+        if path is None:
+            print(f"Not found: {filepath}", file=sys.stderr)
+            continue
+        out.append((filepath, path))
+    return out
+
+
 def cmd_list(_args):
     r = subprocess.run([JJ, "resolve", "--list"], capture_output=True, text=True, cwd=PROJECT_ROOT)
     sys.stdout.write(r.stdout)
@@ -261,19 +280,12 @@ def cmd_list(_args):
 
 def cmd_show(args):
     as_json = "--json" in args
-    files = [a for a in args if a != "--json"]
-    if not files:
-        files = _conflicted_files()
-    if not files:
-        print("No conflicts found.")
+    targets = _resolve_targets([a for a in args if a != "--json"])
+    if targets is None:
         return
 
     all_hunks = []
-    for filepath in files:
-        path = _resolve_path(filepath)
-        if path is None:
-            print(f"Not found: {filepath}", file=sys.stderr)
-            continue
+    for _, path in targets:
         hunks, _ = parse_file(path)
         all_hunks.extend(hunks)
 
@@ -386,18 +398,11 @@ def _auto_resolve_file(path, filepath, dry):
 
 def cmd_auto(args):
     dry = "--dry-run" in args
-    files = [a for a in args if not a.startswith("--")]
-    if not files:
-        files = _conflicted_files()
-    if not files:
-        print("No conflicts found.")
+    targets = _resolve_targets([a for a in args if not a.startswith("--")])
+    if targets is None:
         return
     total_resolved = total_left = 0
-    for filepath in files:
-        path = _resolve_path(filepath)
-        if path is None:
-            print(f"Not found: {filepath}", file=sys.stderr)
-            continue
+    for filepath, path in targets:
         r, l = _auto_resolve_file(path, filepath, dry)
         total_resolved += r
         total_left += l

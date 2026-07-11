@@ -20,8 +20,6 @@ $tk/install.fish $coord >/dev/null; or begin
     echo >&2 "smoke: install failed"
     exit 1
 end
-git config user.email t@t 2>/dev/null
-git config user.name t 2>/dev/null
 
 # Ignore patterns for the archive-clean check further down: retiring a workspace
 # must strip its ignored/generated files (jj's `git clean -fdX`).

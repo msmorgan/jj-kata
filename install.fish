@@ -19,7 +19,6 @@ set target (path resolve $target)
 set -l mode symlink
 set -q _flag_copy; and set mode copy
 
-mkdir -p "$target/scripts/hooks" "$target/scripts/lib"
 for f in (find $src -type f)
     set -l rel (string replace "$src/" '' $f)
     set -l dest "$target/scripts/$rel"
