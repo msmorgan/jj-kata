@@ -3,8 +3,6 @@
 source (status dirname)/lib/setup.fish jj flock
 or return
 
-alias jj (status dirname)/jj
-
 # Most commands run from default. The exceptions run IN the affected feature
 # workspace: `repair`/`converge`/`resolve` heal staleness / divergence /
 # refresh-conflicts there, and `refresh` (no-arg) rebases the current workspace's
@@ -350,7 +348,7 @@ function __workflow_adopt
         return 1
     end
 
-    echo >&2 "$(status filename): folded "(string join ', ' $tickets)" into $into's claim. Its workspace ($ws_dir) is now stale — run 'scripts/jj workspace update-stale' there (commit first) before the next commit."
+    echo >&2 "$(status filename): folded "(string join ', ' $tickets)" into $into's claim. Its workspace ($ws_dir) is now stale — run 'jj workspace update-stale' there (commit first) before the next commit."
 end
 
 function __workflow_abandon
@@ -596,7 +594,7 @@ function __integrate_steps
         # with a fresh empty commit IN the feature workspace, so the work becomes
         # $name@- and the fold below (default@ onto $name@-, drop the empty tip)
         # picks it up — exactly as if the agent had run `jj new` themselves.
-        "$ws_dir/scripts/jj" new
+        command jj -R "$ws_dir" new
         or begin
             echo >&2 "$(status filename): couldn't cap $name's described work with an empty commit."
             return 1

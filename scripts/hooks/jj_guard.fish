@@ -1,14 +1,15 @@
 #!/usr/bin/env fish
-# scripts/hooks/jj_guard.fish — PreToolUse(Bash) guard.
+# scripts/hooks/jj_guard.fish — PreToolUse(Bash) guard for a jj-workflow repo.
 #
-# Two rules, both about routing through the project's own tooling:
-#   1. jj must go through a RELATIVE scripts/jj — `scripts/jj`, `./scripts/jj`, or
-#      `../<ws>/scripts/jj` (a sibling). The wrapper pins the workspace (-R) by the
-#      script's OWN location and, outside `default`, marks the default line
-#      immutable, so a stray rebase or abandon can't rewrite shared history or
-#      another worktree. Bare/other `jj` skips all that; an ABSOLUTE path to
-#      scripts/jj targets the wrong workspace from the wrong cwd. Both are refused.
-#   2. git is banned — this is a jj repo; git mutations corrupt/confuse the state.
+# Immutability itself now lives in repo config, not a wrapper:
+#   immutable_heads() = builtin_immutable_heads() | (default@ ~ @)
+# `@` resolves per-workspace, so that one shared alias locks the whole default
+# line from every FEATURE workspace while leaving the `default` coordinator open
+# (there default@ ~ @ is empty). jj is invoked directly. This hook is the single
+# enforcement layer, with two bans:
+#   1. git — this is a jj repo; git mutations corrupt/confuse the state.
+#   2. jj with --config / --config-file / --ignore-immutable — the three flags
+#      that would override the immutable_heads guard.
 #
 # Exit 2 + stderr blocks the tool call; exit 0 allows it. Anything we can't parse
 # is allowed (don't interfere with non-Bash tools or malformed payloads).
@@ -17,23 +18,21 @@ set -l payload (cat | string collect)
 test (printf '%s' $payload | jq -r '.tool_name // ""') = Bash; or exit 0
 set -l cmd (printf '%s' $payload | jq -r '.tool_input.command // ""')
 
-# Every jj invocation (bare `jj`, or `<path>/jj`, at a command position — start, or
-# after ; & | && || newline ( or a command/exec/sudo/… wrapper) must be a relative,
-# dot-anchored scripts/jj.
-for hit in (string match -rga -- '(?:^|&&|\|\||[;&|\n(])\s*(?:(?:command|exec|builtin|env|sudo|time|nice|nohup|xargs)\s+)*((?:[^\s;&|()`]*/)?jj)(?:\s|$)' $cmd)
-    # Allow any RELATIVE scripts/jj — `scripts/jj`, `./scripts/jj` (this workspace),
-    # or `../<ws>/scripts/jj` (a sibling) — i.e. one resolved from where you ARE.
-    # scripts/jj pins -R by its OWN location, so an ABSOLUTE path silently targets
-    # the workspace it lives in, not your cwd; that footgun (and bare `jj`) is refused.
-    string match -rq -- '^(?!/)(?:[^/]+/)*scripts/jj$' $hit; and continue
-    echo >&2 "jj-guard: call jj via a relative scripts/jj (scripts/jj, ./scripts/jj, ../<ws>/scripts/jj), not '$hit' — an absolute path or bare jj targets the wrong workspace."
+# git at a command position (start, or after ; & | && || newline ( or a
+# command/exec/sudo/… wrapper): refused outright. `jj git push` is fine — there
+# `git` follows `jj`, which isn't a command-position wrapper, so it won't match.
+if string match -rq -- '(?:^|&&|\|\||[;&|\n(])\s*(?:(?:command|exec|builtin|env|sudo|time|nice|nohup|xargs)\s+)*(?:[^\s;&|()`]*/)?git(?:\s|$)' $cmd
+    echo >&2 "jj-guard: git is banned in this jj repo — use jj, not git."
     exit 2
 end
 
-# git: refused outright.
-if string match -rq -- '(?:^|&&|\|\||[;&|\n(])\s*(?:(?:command|exec|builtin|env|sudo|time|nice|nohup|xargs)\s+)*(?:[^\s;&|()`]*/)?git(?:\s|$)' $cmd
-    echo >&2 "jj-guard: git is banned in this jj repo — use scripts/jj / the jj tooling, not git."
-    exit 2
+# A jj invocation carrying a guard-bypassing flag is refused. Scoped to commands
+# that actually invoke jj, so an unrelated tool's --config elsewhere is ignored.
+if string match -rq -- '(?:^|&&|\|\||[;&|\n(])\s*(?:(?:command|exec|builtin|env|sudo|time|nice|nohup|xargs)\s+)*(?:[^\s;&|()`]*/)?jj(?:\s|$)' $cmd
+    if set -l flag (string match -r -- '(?:^|\s)(--ignore-immutable|--config(?:-file)?)(?:[=\s]|$)' $cmd)
+        echo >&2 "jj-guard: refusing $flag[2] — it would bypass the repo's immutable_heads guard."
+        exit 2
+    end
 end
 
 exit 0

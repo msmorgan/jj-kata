@@ -6,3 +6,5 @@ __pycache__/
 .pytest_cache/
 # build scratch (for consumer dogfooding)
 target/
+# throwaway passthrough shim (this session only; not part of the toolkit)
+.tool/

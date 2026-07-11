@@ -1,9 +1,9 @@
 # jj-workflow
 
 A toolkit for multi-workspace [Jujutsu (jj)](https://github.com/jj-vcs/jj) development.
-It enforces trunk immutability, routes all jj calls through a workspace-pinned wrapper,
-and manages a claim→integrate feature lifecycle where each in-flight feature lives in
-its own isolated workspace.
+It enforces trunk immutability through repo config (no wrapper), and manages a
+claim→integrate feature lifecycle where each in-flight feature lives in its own
+isolated workspace.
 
 ---
 
@@ -11,7 +11,7 @@ its own isolated workspace.
 
 1. [Installation](#installation)
 2. [Repository shape](#repository-shape)
-3. [The `scripts/jj` wrapper](#the-scriptsjj-wrapper)
+3. [Trunk immutability (repo config)](#trunk-immutability-repo-config)
 4. [The `jj_guard` hook (AI-agent enforcement)](#the-jj_guard-hook)
 5. [Feature workflow](#feature-workflow)
    - [Claim / start](#claiming-and-starting-features)
@@ -40,7 +40,6 @@ This installs into `your-repo/scripts/`:
 
 ```
 scripts/
-  jj                          ← workspace-pinned jj wrapper
   workflow                    ← claim/integrate lifecycle manager
   conflicts                   ← conflict inspector + resolver
   todo                        ← ticket dependency graph
@@ -51,10 +50,14 @@ scripts/
     todo_graph.pl             ← dependency graph engine
 ```
 
+It also sets the repo-config `immutable_heads()` alias that protects the trunk line
+(see [Trunk immutability](#trunk-immutability-repo-config)).
+
 **Manual follow-ups after install:**
 
 1. Register `scripts/hooks/jj_guard.fish` as a Claude Code PreToolUse(Bash) hook in
-   `.claude/settings.json` (see [The jj_guard hook](#the-jj_guard-hook)).
+   `.claude/settings.json`, and set env `JJ_EDITOR=false` there (see
+   [The jj_guard hook](#the-jj_guard-hook)).
 2. Copy `jjworkflow.example.toml` → `jjworkflow.toml` and edit if defaults don't fit.
 3. Add a `scripts/provision-workspace` executable if new workspaces need shared or
    generated directories (see [Appendix](#appendix-example-provision-workspace-hook)).
@@ -90,49 +93,61 @@ ignored files before archiving, so the buckets hold sources, not build junk.
 
 ---
 
-## The `scripts/jj` wrapper
+## Trunk immutability (repo config)
 
-**Always run jj through `scripts/jj` — never bare `jj`, `command jj`, or `git`.**
+Immutability lives in **one shared repo-config alias**, not a wrapper. `install.fish`
+sets it:
 
-The wrapper does three things:
+```toml
+# .jj/repo config (jj config set --repo)
+revset-aliases.'immutable_heads()' = "builtin_immutable_heads() | (default@ ~ @)"
+```
 
-1. **Workspace pinning.** Passes `-R $project_dir` to every jj invocation, so scripts
-   running from any working directory always address the correct workspace.
+The trick is that `@` resolves **per workspace**, so this single alias yields different
+protection depending on where jj runs:
 
-2. **Trunk immutability (outside `default`).** In any workspace other than `default`,
-   it sets `immutable_heads() = default@-` — the last committed point on the default
-   line. jj then refuses, per-operation, any rebase/abandon/squash that would reach
-   shared history or another feature's commits. Your own feature work (commits above
-   your claim bookmark) stays freely rewritable. The `default` workspace is left
-   unguarded so a human coordinator can always go in and fix things.
+- **In a feature workspace**, `@` is that feature's working copy, so `default@ ~ @`
+  reduces to `default@`. Its ancestors — the whole trunk line plus every claim commit —
+  become immutable. jj refuses, per-operation, any rebase/abandon/squash that would
+  reach shared history or another feature. Your own feature work (commits above your
+  claim, not ancestors of `default@`) stays freely rewritable.
+- **In the `default` coordinator**, `@` *is* `default@`, so `default@ ~ @` is empty and
+  the alias falls back to `builtin_immutable_heads()` (trunk only). The claim commits
+  above trunk stay mutable, so a human coordinator can always go in and fix things.
 
-3. **Flag rejection.** The flags `--config`, `--config-file`, and `--ignore-immutable`
-   are refused; they would bypass the guard.
+Because the mechanism is native jj config, you invoke `jj` directly from any
+workspace — no wrapper, no `-R` pinning. Scripts pass `-R <dir>` explicitly only when
+they address *another* workspace. The `--config`, `--config-file`, and
+`--ignore-immutable` flags would each bypass this alias; the `jj_guard` hook refuses
+them (see below).
 
 ---
 
 ## The `jj_guard` hook
 
-`scripts/hooks/jj_guard.fish` is a Claude Code `PreToolUse(Bash)` hook that enforces
-the routing rules for AI agents:
+`scripts/hooks/jj_guard.fish` is a Claude Code `PreToolUse(Bash)` hook that keeps an AI
+agent from stepping outside the immutability model. It enforces two bans:
 
-- **jj must be invoked via a relative `scripts/jj`** — `scripts/jj`, `./scripts/jj`,
-  or `../<ws>/scripts/jj` (a sibling workspace). An absolute path or bare `jj` is
-  refused: an absolute path silently targets the workspace the script lives in, not
-  your current working directory.
 - **`git` is banned outright.** This is a jj repository; git mutations corrupt or
-  confuse the op log and working-copy state.
+  confuse the op log and working-copy state. (`jj git push` and friends are fine —
+  there `git` follows `jj`, not at a command position.)
+- **jj with a guard-bypassing flag is refused** — `--config`, `--config-file`, or
+  `--ignore-immutable`. Each would override the repo's `immutable_heads()` alias.
 
-Register it in `.claude/settings.json`:
+Bare `jj` is allowed; immutability is enforced by config, not by routing.
+
+Register it in `.claude/settings.json`, and set `JJ_EDITOR=false` so a stray
+editor-opening command can't hang the agent (the toolkit always passes `-m`):
 
 ```json
 {
+  "env": { "JJ_EDITOR": "false" },
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "fish scripts/hooks/jj_guard.fish" }
+          { "type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_guard.fish\"" }
         ]
       }
     ]
@@ -174,7 +189,7 @@ scripts/workflow claim TICKET_A TICKET_B --into NAME
 
 `claim TICKET_A ... --into NAME` folds extra tickets into an existing workspace's
 claim commit. The workspace goes stale (its parent was rewritten); run
-`scripts/jj workspace update-stale` there before the next commit.
+`jj workspace update-stale` there before the next commit.
 
 **Claim eagerly** — before any exploration, brainstorming, or spec work. This
 establishes your baseline and provisions the workspace so builds and tests work
@@ -406,9 +421,9 @@ Here is a generic example that symlinks a shared `data/` directory from the coor
 set -euo pipefail
 ws_dir="$1"
 # The coordinator's dir name is not fixed (see Repository shape) — resolve it
-# via jj rather than assuming ../default. The new workspace's own wrapper is
-# already checked out, so route through it per the toolkit's jj rule.
-default_dir="$("$ws_dir/scripts/jj" workspace root --name default)"
+# via jj rather than assuming ../default. Pass -R so it addresses the new
+# workspace regardless of where the hook is invoked from.
+default_dir="$(jj -R "$ws_dir" workspace root --name default)"
 
 # Symlink shared read-only data back to the coordinator checkout.
 # The symlink is excluded by .git/info/exclude in the default workspace (shared
@@ -432,5 +447,5 @@ workspaces because they have no `.git` of their own).
 Verify a newly provisioned workspace is clean:
 
 ```bash
-scripts/jj st   # must report no changes
+jj st   # must report no changes
 ```

@@ -35,7 +35,7 @@ jj commit -m "install toolkit" >/dev/null; or begin
 end
 
 # The default workspace resolves to the renamed coordinator dir, not ../default.
-test "$(./scripts/jj workspace root --name default)" = "$coord"; or begin
+test "$(jj workspace root --name default)" = "$coord"; or begin
     echo >&2 "smoke: workspace root --name default != $coord"
     exit 1
 end
@@ -57,7 +57,7 @@ echo hello >note.txt
 echo scratch >scratch.tmp
 mkdir junk.d
 echo blob >junk.d/blob.bin
-./scripts/jj describe -m "feat: note" >/dev/null; or begin
+jj describe -m "feat: note" >/dev/null; or begin
     echo >&2 "smoke: describe failed"
     popd
     exit 1

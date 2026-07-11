@@ -1,0 +1,18 @@
+{
+  "env": {
+    "JJ_EDITOR": "false"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_guard.fish\""
+          }
+        ]
+      }
+    ]
+  }
+}

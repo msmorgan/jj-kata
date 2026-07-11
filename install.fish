@@ -34,10 +34,30 @@ end
 # Drop the example config so the follow-up below is actionable.
 cp "$here/jjworkflow.example.toml" "$target/jjworkflow.example.toml"
 
+# Immutability lives in repo config, not a wrapper: the default line is immutable
+# from every feature workspace, open in the `default` coordinator. `@` resolves
+# per-workspace, so this one shared alias yields per-workspace behavior.
+#   immutable_heads() = builtin_immutable_heads() | (default@ ~ @)
+# In `default`, default@ ~ @ is empty -> coordinator open. In a feature workspace
+# it is default@ -> the whole trunk/claim line is protected.
+set -l alias_set 1
+jj -R "$target" config set --repo \
+    'revset-aliases."immutable_heads()"' 'builtin_immutable_heads() | (default@ ~ @)'
+or set alias_set 0
+
 echo "Installed toolkit ($mode) into $target/scripts/"
+if test $alias_set = 1
+    echo "Set repo config: immutable_heads() = builtin_immutable_heads() | (default@ ~ @)"
+else
+    echo "WARNING: could not set the immutable_heads() alias — set it by hand (see below)."
+end
 echo
 echo "Manual follow-ups:"
 echo "  1. Register the PreToolUse(Bash) guard scripts/hooks/jj_guard.fish in the"
-echo "     target's Claude settings (.claude/settings.json)."
-echo "  2. If defaults don't fit, copy jjworkflow.example.toml -> jjworkflow.toml and edit."
-echo "  3. Add a scripts/provision-workspace hook if new workspaces need shared dirs."
+echo "     target's Claude settings (.claude/settings.json), and set env JJ_EDITOR=false"
+echo "     there (the toolkit always passes -m; this is a belt-and-braces guard)."
+echo "  2. If step 'Set repo config' above did not run, set the alias yourself:"
+echo "       jj config set --repo 'revset-aliases.\"immutable_heads()\"' \\"
+echo "         'builtin_immutable_heads() | (default@ ~ @)'"
+echo "  3. If defaults don't fit, copy jjworkflow.example.toml -> jjworkflow.toml and edit."
+echo "  4. Add a scripts/provision-workspace hook if new workspaces need shared dirs."

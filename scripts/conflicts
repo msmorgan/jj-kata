@@ -28,8 +28,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-JJ = str(SCRIPT_DIR / "jj")
+JJ = "jj"
 
 _START = re.compile(r"^(<{7,}) conflict (\d+) of (\d+)$")
 
