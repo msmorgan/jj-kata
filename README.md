@@ -28,6 +28,24 @@ isolated workspace.
 
 ## Installation
 
+### As a Claude Code plugin (recommended)
+
+```
+/plugin marketplace add msmorgan/jj-workflow
+/plugin install jj-workflow@jj-workflow
+```
+
+This puts `workflow` and `conflicts` on the Bash tool's PATH (`bin/`), registers
+the PreToolUse guard hook automatically (it activates only inside jj repos), and
+ships the usage skill. Then, once per repo, run `/jj-workflow:setup` — it sets
+the `immutable_heads()` repo-config alias (the actual trunk protection, which is
+per-repo state a plugin can't carry) and walks the optional config. Every
+command targets the jj workspace you run it from, so one global copy serves all
+repos and workspaces. Use `--scope project` on install to enable it for one
+repo/team instead of globally.
+
+### Repo-local (no Claude Code required)
+
 ```bash
 # Symlink mode — updates to jj-workflow propagate to your repo automatically.
 ./install.fish /path/to/your/repo

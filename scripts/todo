@@ -1,5 +1,5 @@
 #!/usr/bin/env fish
-source (status dirname)/lib/setup.fish perl
+source (path dirname (path resolve (status filename)))/lib/setup.fish perl
 or return
 
 # Roots overridable for tests; default to this workspace's docs/tickets.

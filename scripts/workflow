@@ -1,21 +1,15 @@
 #!/usr/bin/env fish
 
-source (status dirname)/lib/setup.fish jj flock
+# Resolve this script's real location first (it may be invoked through a
+# symlink, e.g. a plugin's bin/), then let setup.fish derive $project_dir from
+# the CWD's jj workspace root — every command targets where you RUN it.
+source (path dirname (path resolve (status filename)))/lib/setup.fish flock
 or return
-
-# jj resolves the workspace from CWD, but $project_dir (lock file, ticket paths)
-# comes from this copy's location — a sibling-path invocation (`../other/scripts/
-# workflow …`) would act on the CWD workspace under the wrong lock. Refuse.
-set -l __cwd_ws (jj workspace root 2>/dev/null)
-if test -z "$__cwd_ws"; or test "$(path resolve $__cwd_ws)" != "$project_dir"
-    echo >&2 "$(status filename): CWD is in workspace '$__cwd_ws', but this copy belongs to $project_dir — run that workspace's own scripts/workflow from inside it."
-    return 1
-end
 
 # Most commands run from default. repair/converge/resolve heal a feature
 # workspace in place, and no-arg refresh rebases the current feature stack —
 # none touch default's shared line, so they're safe from any workspace.
-if not contains -- "$argv[1]" repair converge resolve refresh; and test "$(jj workspace root)" != "$(jj workspace root --name default)"
+if not contains -- "$argv[1]" repair converge resolve refresh; and test "$project_dir" != "$(path resolve (jj workspace root --name default))"
     echo >&2 "$(status filename): intended to be run from default workspace only (except 'refresh'/'repair'/'converge'/'resolve')."
     return 1
 end
@@ -124,8 +118,12 @@ function __claim_todo
         return 1
     end
     # Not a ticket — mint a wip ticket only if NAME is a real census mechanic.
-    if "$scripts_dir/todo" iscensus $name >/dev/null 2>&1
-        "$scripts_dir/todo" mint $name >"$tickets/wip/$name.md"
+    # The census tool is project-provided (jjworkflow.toml `todo_cmd`, resolved
+    # against the repo root; default scripts/todo). No tool → nothing to mint.
+    set -l todo_cmd (__jjworkflow_config todo_cmd scripts/todo)
+    string match -q -- '/*' $todo_cmd; or set todo_cmd $project_dir/$todo_cmd
+    if test -x "$todo_cmd"; and "$todo_cmd" iscensus $name >/dev/null 2>&1
+        "$todo_cmd" mint $name >"$tickets/wip/$name.md"
         and test -s "$tickets/wip/$name.md"
         and return 0
         rm -f "$tickets/wip/$name.md"
@@ -454,7 +452,7 @@ function __workflow_refresh
     argparse -S a/all -- $argv
     or return
 
-    set -l on_default (test "$(jj workspace root)" = "$(jj workspace root --name default)"; and echo 1)
+    set -l on_default (test "$project_dir" = "$(path resolve (jj workspace root --name default))"; and echo 1)
 
     if set -q _flag_all
         if set -q argv[1]
@@ -494,7 +492,7 @@ function __workflow_refresh
             echo >&2 "$(status filename): refresh needs a WORKSPACE name (or --all), or run it from a feature workspace."
             return 2
         end
-        __refresh_detach (path basename (jj workspace root))
+        __refresh_detach (path basename $project_dir)
     else if test -n "$on_default"
         # From default with a name → the old reorder-under-default@.
         __refresh_reorder "$name"
@@ -503,7 +501,7 @@ function __workflow_refresh
         # flock is the INVOKING workspace's, so detaching another feature's stack
         # from here would race that workspace's own refresh/integrate unserialized.
         # (Basename == workspace name holds for toolkit-created feature workspaces.)
-        if test "$name" != (path basename (jj workspace root))
+        if test "$name" != (path basename $project_dir)
             echo >&2 "$(status filename): refresh '$name' from the default workspace (reorder), or run a no-arg refresh inside $name's own workspace (detach) — refreshing it from here would hold the wrong lock."
             return 2
         end
@@ -779,7 +777,7 @@ end
 function __workflow_resolve
     # Dir basename == workspace name holds for toolkit-created FEATURE
     # workspaces, and resolve's contract is to run from one.
-    set -l name (path basename (jj workspace root))
+    set -l name (path basename $project_dir)
     set -l tipbm "$name-tip"
     set -l savepoint (__savepoint)
 
@@ -830,7 +828,7 @@ end
 # Exit 0 = clean (re-integrate); 1 = on a conflicted commit, remove its markers
 # and re-run; 2 = a human is needed.
 function __workflow_repair
-    set -l name (path basename (jj workspace root))
+    set -l name (path basename $project_dir)
     # Clear a stale working copy — that's what surfaces a divergence or conflicts.
     jj workspace update-stale 2>/dev/null
     set -l div (jj log -G -r "$name::$name@ & divergent()")

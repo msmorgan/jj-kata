@@ -1,0 +1,14 @@
+{
+  "name": "jj-workflow",
+  "owner": {
+    "name": "Michael Morgan"
+  },
+  "description": "Marketplace for the jj-workflow plugin — a parallel-agent feature workflow for jj (Jujutsu) repos.",
+  "plugins": [
+    {
+      "name": "jj-workflow",
+      "source": "./",
+      "description": "Parallel-agent feature workflow for jj repos (claim → work in a workspace → integrate), with trunk-immutability guard and conflict tooling."
+    }
+  ]
+}

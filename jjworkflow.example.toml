@@ -11,3 +11,10 @@ provision_hook = "scripts/provision-workspace"
 # directory — otherwise jj snapshots every child workspace into the
 # coordinator's working copy. Default: ".." (siblings of the repo dir)
 workspace_dir = ".."
+
+# Project ticket/census tool `claim` consults for unknown names: must support
+# `<todo_cmd> iscensus SLUG` (exit 0 iff SLUG is mintable) and
+# `<todo_cmd> mint SLUG` (print a wip ticket file). Relative paths resolve
+# against the repo root. Missing/non-executable → census minting is simply off.
+# Default: scripts/todo
+todo_cmd = "scripts/todo"

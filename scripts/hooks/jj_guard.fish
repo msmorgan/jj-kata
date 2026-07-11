@@ -14,9 +14,22 @@
 # Exit 2 + stderr blocks the tool call; exit 0 allows it. Anything we can't parse
 # is allowed (don't interfere with non-Bash tools or malformed payloads).
 
-# One jq pass: emit the command only for Bash payloads. A non-Bash tool (or
-# malformed payload) yields nothing, so $cmd stays empty and nothing matches.
-set -l cmd (jq -r 'select(.tool_name == "Bash") | .tool_input.command // ""')
+# One jq pass: emit cwd (first line) then the command, only for Bash payloads.
+# A non-Bash tool (or malformed payload) yields nothing → nothing matches.
+set -l out (jq -r 'select(.tool_name == "Bash") | (.cwd // ""), (.tool_input.command // "")')
+set -l cwd $out[1]
+set -l cmd $out[2..]
+
+# A plugin install enables this hook in EVERY project — act only inside a jj
+# repo. Walk up from the command's cwd (falling back to the hook's own) looking
+# for a .jj dir; anywhere else, git is none of our business.
+test -n "$cwd"; or set cwd $PWD
+set -l d $cwd
+while not test -d "$d/.jj"
+    set -l parent (path dirname $d)
+    test "$parent" = "$d"; and exit 0    # hit the filesystem root: not a jj repo
+    set d $parent
+end
 
 # Match against a DE-QUOTED copy of the command: shell quoting is invisible to a
 # raw-text regex, so `"git" …`, `jj "--ignore-immutable"` or `jj --'config'`
