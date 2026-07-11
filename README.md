@@ -67,7 +67,7 @@ It also sets the repo-config `immutable_heads()` alias that protects the trunk l
 ## Repository shape
 
 The toolkit expects one `default` workspace (the coordinator) plus any number of feature
-workspaces, each a sibling directory at the same level:
+workspaces, by default each a sibling directory at the same level:
 
 ```
 ~/code/myproj/
@@ -83,9 +83,13 @@ its **directory name** is yours to choose — pick it when you clone/init, and n
 after the project (as above) so IDEs and agents see a unique root instead of yet another
 `default/`. Nothing hardcodes a `../default` path: scripts resolve the coordinator with
 `jj workspace root --name default`. Feature workspace directories are created by the
-toolkit and always match their workspace name (`../NAME`).
+toolkit and always match their workspace name (`../NAME` by default). Set
+`workspace_dir` in `jjworkflow.toml` to put them (and the archive buckets) somewhere
+else — relative paths resolve against the repo root, absolute paths are used as-is. If
+it points inside the repo (e.g. `.claude/worktrees`), **gitignore that directory**, or
+jj will snapshot every child workspace into the coordinator's working copy.
 
-The archive buckets are created on demand. On btrfs they are made **subvolumes**, so
+The archive buckets are created on demand, beside the feature workspaces. On btrfs they are made **subvolumes**, so
 they stay out of snapshots of the containing volume and can be dropped wholesale with
 `btrfs subvolume delete` (or emptied and `rmdir`'d, where deletion needs root); on any
 other filesystem they are plain directories. Retired workspaces are stripped of
@@ -182,7 +186,7 @@ scripts/workflow claim TICKET_A TICKET_B --into NAME
 - Moves the ticket file from its triage folder (`critical/`, `planned/`, or `maybe/`)
   into `docs/tickets/wip/`, inside a new claim commit bookmarked `NAME` on
   `default@`'s linear history.
-- Creates the `../NAME` workspace.
+- Creates the `NAME` workspace directory under the workspace base (`../NAME` by default).
 - Runs the provision hook (if configured) to populate shared/generated directories.
 
 `start NAME` does the same without a ticket — useful for exploratory or ad-hoc work.

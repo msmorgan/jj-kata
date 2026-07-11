@@ -172,7 +172,7 @@ end
 # may break (fine — gc the bucket later), but nothing tracked is destroyed.
 function __retire_ws --argument-names ws_dir bucket
     test -d "$ws_dir"; or return 0
-    set -l dest (path dirname $project_dir)/$bucket
+    set -l dest (__workspace_base)/$bucket
     __ensure_bucket $dest
     set -l base (path basename $ws_dir)
     set -l target $dest/$base
@@ -198,6 +198,20 @@ function __jjworkflow_config --argument-names key default
     echo $default
 end
 
+# Base directory holding feature workspaces (and the archive buckets beside
+# them). jjworkflow.toml `workspace_dir`, resolved against the project root
+# unless absolute; default `..` — workspaces as siblings of the project dir.
+# An in-repo base (e.g. `.claude/worktrees`) MUST be gitignored, or jj would
+# snapshot every child workspace into the coordinator's working copy.
+function __workspace_base
+    set -l dir (__jjworkflow_config workspace_dir ..)
+    if string match -q -- '/*' $dir
+        path resolve -- $dir
+    else
+        path resolve -- $project_dir/$dir
+    end
+end
+
 # Give a fresh workspace whatever gitignored/generated shared state the consuming
 # project needs. `jj workspace add` only checks out tracked files, so projects
 # hook in their own provisioning: an executable at $provision_hook (default
@@ -214,8 +228,9 @@ function __provision_ws --argument-names ws_dir
     end
 end
 
-# Spin up a NAME-bookmarked base commit on default@- with a ../NAME workspace on
-# top, leaving default's @ put. With -t/--claim-todo, also tick NAME's todo box
+# Spin up a NAME-bookmarked base commit on default@- with a NAME workspace dir
+# (under the configured workspace base, default ../NAME) on top, leaving
+# default's @ put. With -t/--claim-todo, also tick NAME's todo box
 # into the base commit (so abandoning the base reverts the tick automatically).
 function __workflow_start
     argparse t/claim-todo -- $argv
@@ -230,7 +245,7 @@ function __workflow_start
         echo >&2 "$(status filename): expected exactly one NAME (got: $argv)."
         return 2
     end
-    set ws_dir (path dirname $project_dir)/$name
+    set ws_dir (__workspace_base)/$name
     # Refuse a pre-existing dir up front: `jj workspace add` would fail mid-sequence
     # with a cryptic "destination exists", and knowing it's absent now lets the
     # rollback below safely delete the partial workspace it creates.
@@ -238,6 +253,9 @@ function __workflow_start
         echo >&2 "$(status filename): workspace dir '$ws_dir' already exists — remove or rename it, then retry."
         return 1
     end
+    # A custom base may not exist yet (first workspace under it).
+    mkdir -p (path dirname $ws_dir)
+    or return 1
 
     set -l verb start
     set -q _flag_claim_todo; and set verb claim
@@ -808,7 +826,7 @@ end
 # working-copy DIVERGENCE (not a refresh conflict), use `converge` instead.
 function __workflow_resolve
     # Dir basename == workspace name holds only for FEATURE workspaces (claim/start
-    # create ../NAME). The default workspace's dir name is free — but resolve's
+    # create <base>/NAME). The default workspace's dir name is free — but resolve's
     # contract is to run from a feature workspace, so basename is safe here.
     set -l name (path basename (jj workspace root))
     set -l tipbm "$name-tip"
@@ -864,7 +882,7 @@ end
 # human is needed (divergent halves hold different work, or a jj step rolled back).
 function __workflow_repair
     # Basename == workspace name: safe only because repair runs from a feature
-    # workspace (toolkit-created as ../NAME); default's dir name is unconstrained.
+    # workspace (toolkit-created as <base>/NAME); default's dir name is unconstrained.
     set -l name (path basename (jj workspace root))
     # Clear a stale working copy — that's what surfaces a divergence or conflicts.
     jj workspace update-stale 2>/dev/null
