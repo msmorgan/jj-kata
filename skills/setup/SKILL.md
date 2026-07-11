@@ -46,11 +46,13 @@ is idempotent; report what was already in place.
    after updating the plugin). EnterWorktree then creates a real jj-workflow
    feature workspace — claiming the matching ticket when the worktree name
    names one (`claim --or-start`); the git-worktree logic is fully replaced.
-   Removal maps to `workflow abandon` (commits stay recoverable via the op
-   log; the directory is deleted). Finish flow for such a workspace: commit,
-   exit the worktree keeping it, then `workflow integrate NAME` from the
-   coordinator. These hooks are per-repo ON PURPOSE: registered globally they
-   would hijack EnterWorktree in plain-git repos.
+   Removal maps to plain `workflow abandon`: integrated or untouched ad-hoc
+   workspaces are dropped (dir deleted), while one holding un-integrated work
+   is refused and kept. Finish flow for such a workspace: commit, `workflow
+   integrate NAME` from the coordinator (the workspace survives, parked on the
+   integrated tip), then exit the worktree choosing "remove" to clean it up.
+   These hooks are per-repo ON PURPOSE: registered globally they would hijack
+   EnterWorktree in plain-git repos.
 
 6. Sanity check: `workflow` with no arguments prints usage (the plugin's `bin/`
    is on PATH). The PreToolUse guard hook ships with this plugin and needs no

@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
-# Smoke: `workspace_dir` in jjworkflow.toml relocates feature workspaces AND the
-# archive buckets. Exercises the hardest case — an in-repo, gitignored base —
-# and checks it never leaks into the coordinator's snapshots.
+# Smoke: `workspace_dir` in jjworkflow.toml relocates feature workspaces.
+# Exercises the hardest case — an in-repo, gitignored base — and checks it
+# never leaks into the coordinator's snapshots.
 
 set -l tk (path resolve (status dirname)/..)
 set -l work (mktemp -d)
@@ -37,8 +37,12 @@ end
 scripts/workflow integrate feat-z >/dev/null 2>&1
 or begin; echo >&2 "smoke-wsdir: integrate failed (rc=$status)"; exit 1; end
 test -f $coord/note.txt; or begin; echo >&2 "smoke-wsdir: integrated work missing from trunk"; exit 1; end
+test -d $coord/.claude/worktrees/feat-z
+or begin; echo >&2 "smoke-wsdir: workspace dir not kept after integrate"; exit 1; end
+scripts/workflow abandon feat-z >/dev/null 2>&1
+or begin; echo >&2 "smoke-wsdir: post-integrate abandon failed (rc=$status)"; exit 1; end
 not test -e $coord/.claude/worktrees/feat-z
-or begin; echo >&2 "smoke-wsdir: workspace dir not deleted after integrate"; exit 1; end
+or begin; echo >&2 "smoke-wsdir: workspace dir not deleted after abandon"; exit 1; end
 
 # Abandon deletes under the configured base too.
 scripts/workflow start feat-q >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: second start failed"; exit 1; end

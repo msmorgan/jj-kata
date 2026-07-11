@@ -52,16 +52,33 @@ set -l out2 (printf '%s' $payload2 | fish $create)
 or begin; echo >&2 "smoke-wt: create-from-feature-ws failed (rc=$status)"; exit 1; end
 test "$out2" = "$work/bg-two"; or begin; echo >&2 "smoke-wt: got '$out2'"; exit 1; end
 
-# Remove: maps to abandon — workspace forgotten, dir deleted, exit 0.
+# Remove maps to PLAIN abandon: a workspace holding un-integrated work is
+# refused — still registered, dir intact — while the hook itself exits 0.
 echo scratch >$work/bg-test/scratch.txt
 set -l rmpayload (jq -n --arg cwd $coord --arg p $work/bg-test \
     '{hook_event_name: "WorktreeRemove", cwd: $cwd, worktree_name: "bg-test", worktree_path: $p}')
-printf '%s' $rmpayload | fish $remove
-or begin; echo >&2 "smoke-wt: remove hook failed (rc=$status)"; exit 1; end
+printf '%s' $rmpayload | fish $remove 2>/dev/null
+or begin; echo >&2 "smoke-wt: remove hook exited nonzero"; exit 1; end
 jj workspace list -T 'name ++ "\n"' | string match -q bg-test
-and begin; echo >&2 "smoke-wt: workspace still registered after remove"; exit 1; end
+or begin; echo >&2 "smoke-wt: workspace with work was dropped by remove"; exit 1; end
+test -d $work/bg-test
+or begin; echo >&2 "smoke-wt: workspace dir with work deleted by remove"; exit 1; end
+
+# An untouched ad-hoc workspace sweeps clean (harness unchanged-worktree cleanup).
+set -l rmpayload2 (jq -n --arg cwd $coord --arg p $work/bg-two \
+    '{hook_event_name: "WorktreeRemove", cwd: $cwd, worktree_name: "bg-two", worktree_path: $p}')
+printf '%s' $rmpayload2 | fish $remove
+or begin; echo >&2 "smoke-wt: remove hook (untouched ws) exited nonzero"; exit 1; end
+jj workspace list -T 'name ++ "\n"' | string match -q bg-two
+and begin; echo >&2 "smoke-wt: untouched workspace still registered after remove"; exit 1; end
+not test -e $work/bg-two
+or begin; echo >&2 "smoke-wt: untouched workspace dir not deleted"; exit 1; end
+
+# --force is the explicit path for discarding real work.
+scripts/workflow abandon --force bg-test >/dev/null 2>&1
+or begin; echo >&2 "smoke-wt: abandon --force failed (rc=$status)"; exit 1; end
 not test -e $work/bg-test
-or begin; echo >&2 "smoke-wt: workspace dir not deleted after remove"; exit 1; end
+or begin; echo >&2 "smoke-wt: bg-test dir survived abandon --force"; exit 1; end
 
 # Remove for a path that is not a workspace of this repo: silent no-op, exit 0.
 set -l noop (jq -n --arg cwd $coord \

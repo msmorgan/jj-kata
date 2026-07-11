@@ -31,7 +31,9 @@ Usage: $(status filename) <command> [<args>]
                          else fall back to `start NAME` (what the Claude Code
                          worktree hook calls).
     start NAME           Spin up an ad-hoc workspace named NAME, with no todo to claim.
-    abandon WORKSPACE    Abandon WORKSPACE and forget its todo claim.
+    abandon WORKSPACE    Drop WORKSPACE and delete its directory. Refuses if the
+                         workspace holds un-integrated work; `abandon --force` discards
+                         the claim and stack outright (recoverable via op log until gc).
     refresh [WORKSPACE]  From a feature workspace (no WORKSPACE): rebase its stack onto
                          the trunk tip (default@-), detaching it from its claim (integrate
                          re-joins). From default with a WORKSPACE: reorder that claim to
@@ -40,7 +42,9 @@ Usage: $(status filename) <command> [<args>]
     refresh --all        Reorder EVERY non-default workspace's claim under default@ (prep
                          for a push), stopping at the first that conflicts or fails.
     integrate WORKSPACE  Refresh, re-join the claim to the feature, fold WORKSPACE's
-                         work into default@, then drop the workspace.
+                         work into default@. The workspace is KEPT, its WC parked as a
+                         fresh change on the integrated tip — resume work there, or
+                         drop it with `abandon WORKSPACE`.
     repair               Run FROM a feature workspace: one-stop "my branch shifted under me"
                          recovery = update-stale + converge + resolve. Exit 0 clean; exit 1 fix
                          the conflict markers (jj st) and re-run; exit 2 needs a human.
@@ -374,14 +378,39 @@ function __workflow_adopt
 end
 
 function __workflow_abandon
+    argparse -S force -- $argv
+    or return 2
     set name $argv[1]
     set ws_dir (jj workspace root --name "$name")
     or return
-    # Capture both targets by change-id up front: the claim commit (before
-    # `bookmark forget` drops NAME) and the feature-stack roots (before
-    # `workspace forget` dissolves NAME@). Guard against an empty list — an
-    # empty root with `::` appended would abandon the entire repo.
-    set claim (jj log --no-graph -r "$name" -T 'change_id.short()')
+    # The claim bookmark doubles as the "not yet integrated" marker: integrate
+    # forgets it once the work is folded into trunk. Resolve it exactly — a
+    # bare `-r "$name"` would also match a same-named tag or substring.
+    set claim (jj log --no-graph -r "bookmarks(exact:\"$name\")" -T 'change_id.short()' --ignore-working-copy 2>/dev/null)
+
+    # Plain abandon only drops what is already banked in trunk (integrated) or
+    # worthless (nothing but empty commits — an untouched ad-hoc workspace).
+    # Anything with real changes needs `integrate`, or an explicit --force.
+    if not set -q _flag_force
+        # Snapshot NAME's on-disk state first: the work check reads with
+        # --ignore-working-copy and would miss edits made after the last jj
+        # command ran in that workspace.
+        command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
+        command jj -R "$ws_dir" status >/dev/null
+        or return 1
+        set -l work (jj log --no-graph -r "(default@..$name@) ~ empty()" -T 'change_id.short() ++ " "' --ignore-working-copy 2>/dev/null)
+        if test -n "$work"
+            if test -n "$claim"
+                echo >&2 "$(status filename): $name has un-integrated work (its claim bookmark still exists). Run `integrate $name` first, or `abandon --force $name` to discard it."
+            else
+                echo >&2 "$(status filename): $name has new work since its last integrate. Integrate again, or `abandon --force $name` to discard it."
+            end
+            return 2
+        end
+    end
+
+    # Guard against an empty roots list — an empty root with `::` appended
+    # would abandon the entire repo.
     set roots (__feature_roots "$name")
     if not set -q roots[1]
         echo >&2 "$(status filename): could not locate $name's feature root."
@@ -395,14 +424,21 @@ function __workflow_abandon
         # WC — for a fresh claim that WC *is* the only root — so keep just the
         # roots that still resolve ($live:: expands to nothing when none do).
         jj workspace forget "$name"
-        and jj bookmark forget "$name"
+        and begin
+            test -z "$claim"; or jj bookmark forget "$name"
+        end
         and begin
             set -l live
             for r in $roots
                 jj log --no-graph -r "$r" --ignore-working-copy >/dev/null 2>&1
                 and set -a live $r
             end
-            jj abandon "$claim" $live::
+            # Post-integrate there may be nothing left to abandon: no claim, and
+            # workspace-forget already dropped the empty WC. A bare `jj abandon`
+            # would target default's @ — skip instead.
+            if test -n "$claim"; or set -q live[1]
+                jj abandon $claim $live::
+            end
         end
         or begin
             __rollback $savepoint
@@ -559,9 +595,9 @@ function __integrate_steps
     set -l ws_dir (jj workspace root --name "$name"); or return
     # Snapshot NAME's on-disk working copy first: every read below runs from
     # default with --ignore-working-copy, so edits after the agent's last jj
-    # command would otherwise be invisible — and the final orphan-abandon would
-    # drop them from history. update-stale first so a stale workspace (e.g.
-    # after `claim --into`) doesn't fail the snapshot.
+    # command would otherwise be invisible to the in-flight-work checks below.
+    # update-stale first so a stale workspace (e.g. after `claim --into`)
+    # doesn't fail the snapshot.
     command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
     command jj -R "$ws_dir" status >/dev/null
     or return 1
@@ -618,10 +654,10 @@ function __integrate_steps
     # else: empty + undescribed — already the clean trailing-commit shape.
 
     # Fold: move default's @ onto the feature tip, finish the todo as the final
-    # commit. `jj workspace forget` is the point of no return — op restore can't
-    # un-forget — so it runs LAST, after every fail-able step. A failure before it
-    # rolls back cleanly; forget itself then drops the now-empty WC for us.
-    set -l orphan (jj log --no-graph -r "$name"@ -T 'change_id.short()')
+    # commit. Nothing here is irreversible — every fail-able step rolls back via
+    # the op-log savepoint. Capture the workspace's WC by change id: it survives
+    # integrate and gets re-parked on the new trunk tip at the end.
+    set -l ws_wc (jj log --no-graph -r "$name"@ -T 'change_id.short()')
     # The tickets this claim owns = the wip/ files its claim commit adds (one,
     # several after `claim --into`, none for an ad-hoc `start`) — read off the
     # claim's own diff so a multi-ticket claim finishes them ALL. jj prints diff
@@ -659,15 +695,14 @@ function __integrate_steps
     and if set -q slugs[1]
         jj commit -m "complete $(string join ' ' $slugs)" $move_paths
     end
-    # Drop the now-folded claim bookmark (its commit lives on in default@'s history;
-    # the ref is just clutter). Before workspace forget so a failure still rolls back.
+    # Drop the now-folded claim bookmark: its commit lives on in default@'s
+    # history, and the bookmark's ABSENCE is what tells a later plain `abandon`
+    # this workspace is integrated and safe to drop.
     and jj bookmark forget "$name"
-    and jj workspace forget "$name"
-    # forget already drops the empty WC; clean up only if it somehow survived, and
-    # never let that become a post-forget failure (op restore can't un-forget).
-    and if jj log --no-graph -r "$orphan" >/dev/null 2>&1
-        jj abandon "$orphan"
-    end
+    # KEEP the workspace — park its WC as a fresh empty change on the new trunk
+    # tip (a no-op when no completion commit ran, since the fold left it there).
+    # The workspace stays usable for follow-up work; `abandon NAME` retires it.
+    and jj rebase -r "$ws_wc" -d @-
 end
 
 function __workflow_integrate
@@ -681,9 +716,12 @@ function __workflow_integrate
     __integrate_steps "$name"
     switch $status
         case 0
-            # The work is folded into default@ — the dir holds only a checkout
-            # copy and build junk now. Delete it outright, no archive.
-            rm -rf "$ws_dir"
+            # Work folded into default@. The workspace survives with its WC
+            # parked on the integrated tip; its on-disk pointer was rewritten
+            # under it, so clear the staleness before anyone works there.
+            command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
+            echo >&2 "kept workspace $name at $ws_dir — resume work there, or drop it with: workflow abandon $name"
+            return 0
         case 69
             # Expected stop (conflict or uncommitted work) — state left in place for
             # the user to resolve. Do NOT roll back.

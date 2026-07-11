@@ -45,7 +45,8 @@ repos and workspaces. Use `--scope project` on install to enable it for one
 repo/team instead of globally. Setup can also wire Claude Code's EnterWorktree
 isolation (background sessions, worktree-isolated subagents) to jj-workflow
 workspaces via per-repo `WorktreeCreate`/`WorktreeRemove` hooks — isolation then
-creates a real feature workspace and removal maps to `workflow abandon`.
+creates a real feature workspace and removal maps to plain `workflow abandon`
+(dropping only integrated or untouched workspaces; un-integrated work is kept).
 
 ### Repo-local (no Claude Code required)
 
@@ -114,9 +115,11 @@ resolve against the repo root, absolute paths are used as-is. If it points insid
 repo (e.g. `.claude/worktrees`), **gitignore that directory**, or jj will snapshot
 every child workspace into the coordinator's working copy.
 
-Workspace directories are transient: `integrate` and `abandon` delete them outright
-once done — the work lives in trunk (integrate) or stays recoverable via the op log
-until gc (abandon). Nothing is archived.
+Workspace directories are transient, but only `abandon` deletes them: `integrate`
+keeps the workspace (its working copy parked on the integrated tip, ready for
+follow-up work), and a plain `abandon NAME` then retires it. Plain `abandon`
+refuses a workspace with un-integrated work; `abandon --force` discards it (the
+commits stay recoverable via the op log until gc). Nothing is archived.
 
 ---
 
@@ -236,8 +239,10 @@ scripts/workflow integrate NAME
    "claim under `default@`, feature branching off it" shape the fold below relies on.
 2. **Fold** — moves `default@` onto the feature tip.
 3. **Complete** — moves the owned ticket(s) from `wip/` → `done/` in a final commit.
-4. **Retire** — forgets the workspace and deletes its directory (the work is in
-   `default@`'s history now; the checkout copy and build junk have no further use).
+4. **Park** — drops the claim bookmark (the work is in `default@`'s history now)
+   and re-parents the workspace's working copy as a fresh empty change on the
+   integrated tip. The workspace and its directory are KEPT — resume follow-up
+   work there, or retire it with `workflow abandon NAME`.
 
 If a conflict arises during the refresh step, integrate stops (exit 2) and leaves the
 conflict in place in `../NAME`. Resolve it there and re-run `integrate NAME`.
@@ -249,10 +254,12 @@ conflict in place in `../NAME`. Resolve it there and re-run `integrate NAME`.
 scripts/workflow abandon NAME
 ```
 
-Discards the feature, reverts every owned ticket back to its triage folder, and
-deletes the workspace directory. The abandoned commits stay recoverable via the op
-log until gc; the claim commit's abandonment rolls back the ticket moves
-automatically.
+Retires the workspace and deletes its directory. The plain form is safe by
+design: it refuses (exit 2) if the workspace still holds un-integrated work —
+only an already-integrated workspace, or an untouched ad-hoc one, is dropped.
+`abandon --force NAME` discards the feature outright: the claim and stack are
+abandoned (recoverable via the op log until gc), and the claim commit's
+abandonment rolls every owned ticket back to its triage folder automatically.
 
 ### Refreshing (keeping current with trunk)
 

@@ -52,6 +52,12 @@ test -f $coord/mech-x.txt; or begin; echo >&2 "smoke-bin: work missing from trun
 test -f $coord/docs/tickets/done/mech-x.md
 or begin; echo >&2 "smoke-bin: ticket not finished to done/"; exit 1; end
 
+# Integrate keeps the workspace; plain abandon (claim bookmark gone) retires it.
+test -d $work/mech-x; or begin; echo >&2 "smoke-bin: workspace dropped by integrate"; exit 1; end
+$tk/bin/workflow abandon mech-x >/dev/null 2>&1
+or begin; echo >&2 "smoke-bin: post-integrate abandon failed (rc=$status)"; exit 1; end
+not test -e $work/mech-x; or begin; echo >&2 "smoke-bin: workspace dir survived abandon"; exit 1; end
+
 # conflicts via bin/ resolves the repo from CWD too ("No conflicts found." on a
 # clean tree; `list` intentionally propagates jj's nonzero no-conflict status).
 $tk/bin/conflicts show 2>/dev/null | string match -q 'No conflicts found.'
