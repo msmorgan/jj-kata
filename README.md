@@ -189,8 +189,9 @@ scripts/workflow integrate NAME
 
 `integrate` performs these steps in order:
 
-1. **Refresh** — reorders NAME's claim commit to sit just under `default@`, carrying
-   the feature stack and workspace working copy with it.
+1. **Refresh + re-join** — detaches the feature stack onto the current trunk tip
+   (`default@-`), then re-joins the claim to the now-current feature, rebuilding the
+   "claim under `default@`, feature branching off it" shape the fold below relies on.
 2. **Fold** — moves `default@` onto the feature tip.
 3. **Complete** — moves the owned ticket(s) from `wip/` → `done/` in a final commit.
 4. **Archive** — strips the workspace's ignored files (the jj analogue of
@@ -215,16 +216,28 @@ rolls back the ticket moves automatically.
 ### Refreshing (keeping current with trunk)
 
 ```bash
-# Refresh one workspace (run from default):
+# From the feature workspace — the common "get review-ready" call (no NAME):
+scripts/workflow refresh
+
+# From default, target one workspace by name:
 scripts/workflow refresh NAME
 
-# Refresh all non-default workspaces — HUMAN OPERATOR ONLY:
+# Reorder all non-default workspaces — HUMAN OPERATOR ONLY:
 scripts/workflow refresh --all
 ```
 
-`refresh NAME` reorders NAME's claim commit to sit just under the current `default@`,
-carrying the feature stack. A conflict is left in place for you to resolve — it does
-not roll back.
+`refresh` has two shapes, by where it runs:
+
+- **From the feature workspace, no NAME (the common case)** — rebases the feature stack
+  onto the trunk tip (`default@-`), *detaching* it from its claim commit (which stays
+  put in default's line; `integrate` re-joins it). This is the in-place "get current
+  before review" call an agent makes; it takes the workspace's own private lock, so it's
+  effectively instant.
+- **`refresh NAME` from default** — reorders NAME's claim to sit just under `default@`,
+  feature carried along (the old behavior).
+
+Both bring the feature current with trunk. A conflict is left in place for you to
+resolve — it does not roll back. Always refresh before any review step.
 
 > **`refresh --all` is human-only.** It rewrites every workspace's claim at once.
 > Never run it as an AI agent: a concurrent `integrate` could fold a stale half into

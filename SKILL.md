@@ -9,5 +9,6 @@ This repo uses the jj-workflow toolkit. Read `README.md` for the full model. Key
 
 - Run jj only through a relative `scripts/jj` (never bare `jj`/`git`).
 - Each feature = a `scripts/workflow claim NAME` (or `start NAME`) → work in `../NAME` → `scripts/workflow integrate NAME`.
+- Before review, get current with trunk: run `scripts/workflow refresh` (no arg) from inside the feature workspace — detaches the stack onto the trunk tip; `integrate` re-joins the claim.
 - Recover a shifted/divergent feature workspace with `scripts/workflow repair`.
 - Resolve alphabetized-list conflicts with `scripts/conflicts auto`; inspect any conflict with `scripts/conflicts show`.

@@ -62,6 +62,14 @@ echo blob >junk.d/blob.bin
     popd
     exit 1
 end
+# refresh from INSIDE the child workspace, no NAME — must be allowed (guard) and
+# succeed (detach path; a no-op here since trunk hasn't advanced).
+./scripts/workflow refresh; or begin
+    echo >&2 "smoke: refresh from child workspace failed"
+    popd
+    exit 1
+end
+echo "ok: refresh from child workspace"
 popd
 
 ./scripts/workflow integrate feat-x >/dev/null; or begin
