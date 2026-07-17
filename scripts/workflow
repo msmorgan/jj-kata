@@ -409,27 +409,35 @@ function __workflow_abandon
         end
     end
 
-    # Guard against an empty roots list — an empty root with `::` appended
-    # would abandon the entire repo.
-    set roots (__feature_roots "$name")
-    if not set -q roots[1]
-        echo >&2 "$(status filename): could not locate $name's feature root."
+    # Capture the doomed stack — exactly `default@..$name@` (everything on
+    # NAME's side of the coordinator, the same set the refusal gate reads)
+    # by change id, BEFORE workspace-forget dissolves $name@. Never append
+    # `::` to it: descendants are not necessarily ours — integrate reorders
+    # and stale-WC recovery can stack foreign claims/commits above a feature,
+    # and the old unbounded `roots()::` sweep followed them into two other
+    # features' work (2026-07-16). A commit of ours that escapes this bound
+    # (a side fork off the stack, outside $name@'s ancestry) survives as
+    # recoverable debris instead of foreign work being destroyed — the safe
+    # failure direction.
+    set stack (jj log --no-graph -r "default@..$name@" -T 'change_id.short() ++ "\n"' --ignore-working-copy)
+    or begin
+        echo >&2 "$(status filename): could not resolve $name@'s stack."
         return 1
     end
 
     set savepoint (__savepoint)
     and begin
-        # Abandon the claim AND its stack; default's line just reparents onto the
-        # claim's parent. workspace-forget runs first and drops the empty trailing
-        # WC — for a fresh claim that WC *is* the only root — so keep just the
-        # roots that still resolve ($live:: expands to nothing when none do).
+        # Abandon the claim AND the captured stack; default's line just reparents
+        # onto the claim's parent. workspace-forget runs first and drops the empty
+        # trailing WC — for a fresh claim that WC *is* the whole stack — so keep
+        # just the members that still resolve.
         jj workspace forget "$name"
         and begin
             test -z "$claim"; or jj bookmark forget "$name"
         end
         and begin
             set -l live
-            for r in $roots
+            for r in $stack
                 jj log --no-graph -r "$r" --ignore-working-copy >/dev/null 2>&1
                 and set -a live $r
             end
@@ -437,7 +445,7 @@ function __workflow_abandon
             # workspace-forget already dropped the empty WC. A bare `jj abandon`
             # would target default's @ — skip instead.
             if test -n "$claim"; or set -q live[1]
-                jj abandon $claim $live::
+                jj abandon $claim $live
             end
         end
         or begin

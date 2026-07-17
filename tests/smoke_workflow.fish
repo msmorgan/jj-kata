@@ -115,4 +115,58 @@ test ! -e ../feat-x; or begin
     exit 1
 end
 echo "ok: plain abandon retires integrated workspace"
+
+# Regression: `abandon --force` sweeps ONLY `default@..NAME@ | NAME` — foreign
+# work stacked on top of the doomed feature must survive (2026-07-16 incident:
+# the old unbounded `roots()::` sweep followed descendants into another
+# feature's commits).
+./scripts/workflow start feat-y >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-y failed"
+    exit 1
+end
+pushd ../feat-y
+echo y1 >y.txt
+jj commit -m "feat-y work" >/dev/null; or begin
+    echo >&2 "smoke: feat-y commit failed"
+    popd
+    exit 1
+end
+set -l w_id (jj log --no-graph -r @- -T 'change_id.short()')
+popd
+./scripts/workflow start feat-z >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-z failed"
+    exit 1
+end
+pushd ../feat-z
+echo z1 >z.txt
+jj commit -m "feat-z work" >/dev/null; or begin
+    echo >&2 "smoke: feat-z commit failed"
+    popd
+    exit 1
+end
+set -l z_id (jj log --no-graph -r @- -T 'change_id.short()')
+# Stack feat-z's commit on top of feat-y's work — simulating any state where
+# foreign commits sit above the doomed stack.
+jj rebase -r $z_id -d $w_id >/dev/null; or begin
+    echo >&2 "smoke: stacking feat-z on feat-y failed"
+    popd
+    exit 1
+end
+popd
+./scripts/workflow abandon --force feat-y >/dev/null 2>&1; or begin
+    echo >&2 "smoke: abandon --force feat-y failed"
+    exit 1
+end
+# feat-y's own work is gone…
+jj log --no-graph -r $w_id -T '' --ignore-working-copy >/dev/null 2>&1
+and begin
+    echo >&2 "smoke: feat-y work survived --force abandon"
+    exit 1
+end
+# …but feat-z's commit survives, reparented past the abandoned stack.
+jj log --no-graph -r $z_id -T '' --ignore-working-copy >/dev/null 2>&1; or begin
+    echo >&2 "smoke: abandon --force swept foreign feat-z commit"
+    exit 1
+end
+echo "ok: abandon --force bounded to its own stack"
 echo "SMOKE PASS"
