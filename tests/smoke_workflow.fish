@@ -169,4 +169,39 @@ jj log --no-graph -r $z_id -T '' --ignore-working-copy >/dev/null 2>&1; or begin
     exit 1
 end
 echo "ok: abandon --force bounded to its own stack"
+
+# Regression: default-side line rewrites bank other workspaces' un-snapshotted
+# edits first (__snapshot_workspaces) — otherwise the rewrite rebases a stale
+# WC commit and the edit gets re-snapshotted into the hidden predecessor by
+# that workspace's next command (working-copy divergence).
+./scripts/workflow start feat-p >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-p failed"
+    exit 1
+end
+pushd ../feat-p
+echo p1 >p.txt
+jj commit -m "feat-p work" >/dev/null; or begin
+    echo >&2 "smoke: feat-p commit failed"
+    popd
+    exit 1
+end
+popd
+./scripts/workflow start feat-w >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-w failed"
+    exit 1
+end
+# Un-snapshotted edit: no jj command touches feat-w after this write.
+echo dirty >../feat-w/dirty.txt
+# feat-w's claim sits above feat-p's, so integrating feat-p reorders the line
+# under feat-w — the staleness event under test.
+./scripts/workflow integrate feat-p >/dev/null 2>&1; or begin
+    echo >&2 "smoke: integrate feat-p failed"
+    exit 1
+end
+jj diff -r feat-w@ --name-only | string match -q dirty.txt
+or begin
+    echo >&2 "smoke: feat-w's un-snapshotted edit missing from its WC commit after reorder"
+    exit 1
+end
+echo "ok: default-side rewrite banks other workspaces' edits first"
 echo "SMOKE PASS"

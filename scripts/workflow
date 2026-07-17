@@ -119,6 +119,21 @@ function __feature_roots --argument-names name
     jj log --no-graph -r "roots(default@..$name@)" -T 'change_id.short() ++ "\n"'
 end
 
+# Bank every workspace's on-disk edits into its WC commit before an operation
+# that rewrites default's shared line (integrate, reorder refresh, abandon).
+# The rewrite rebases the other workspaces' WC commits; an edit still sitting
+# un-snapshotted on disk would otherwise be re-snapshotted into the OLD
+# (hidden) commit by that workspace's next command — the two-successor
+# working-copy divergence. Runs under the caller's flock. An already-stale
+# workspace refuses the snapshot — skip it: its own session owns that
+# recovery, and its WC is banked as of its last op anyway.
+function __snapshot_workspaces
+    for ws in (jj workspace list -T 'name ++ "\n"')
+        set -l root (jj workspace root --name $ws 2>/dev/null); or continue
+        command jj -R "$root" util snapshot >/dev/null 2>&1
+    end
+end
+
 # Scan REVSET for recorded conflicts (a conflicted rebase exits 0). If any:
 # leave them in place and return the 69 "expected stop" sentinel (wrapper maps
 # it to exit 2; integrate refuses to fold past it). Else 0.
@@ -383,6 +398,7 @@ function __workflow_abandon
     set name $argv[1]
     set ws_dir (jj workspace root --name "$name")
     or return
+    __snapshot_workspaces
     # The claim bookmark doubles as the "not yet integrated" marker: integrate
     # forgets it once the work is folded into trunk. Resolve it exactly — a
     # bare `-r "$name"` would also match a same-named tag or substring.
@@ -494,6 +510,7 @@ function __workflow_refresh
             echo >&2 "$(status filename): no non-default workspaces to refresh."
             return 0
         end
+        __snapshot_workspaces
         for ws in $targets
             echo >&2 "$(status filename): refreshing $ws"
             __refresh_reorder "$ws"; or return    # stop at the first conflict/failure
@@ -514,6 +531,7 @@ function __workflow_refresh
         __refresh_detach (path basename $project_dir)
     else if test -n "$on_default"
         # From default with a name → the old reorder-under-default@.
+        __snapshot_workspaces
         __refresh_reorder "$name"
     else
         # From a feature workspace with an explicit name — ONLY its own: this run's
@@ -717,6 +735,7 @@ function __workflow_integrate
     set name $argv[1]
     set ws_dir (jj workspace root --name "$name")
     or return
+    __snapshot_workspaces
 
     set savepoint (__savepoint)
     or return
