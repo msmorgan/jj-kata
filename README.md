@@ -216,6 +216,9 @@ scripts/workflow claim TICKET_A TICKET_B --into NAME
 - Runs the provision hook (if configured) to populate shared/generated directories.
 
 `start NAME` does the same without a ticket — useful for exploratory or ad-hoc work.
+(Internally `claim` IS `start` + `claim --into`: the workspace primitive and the
+ticket-fold primitive compose under one lock hold, so ticket moves have exactly one
+mechanism — the fold into the claim commit.)
 
 `claim TICKET_A ... --into NAME` folds extra tickets into an existing workspace's
 claim commit. The workspace goes stale (its parent was rewritten); run
@@ -243,6 +246,10 @@ scripts/workflow integrate NAME
    and re-parents the workspace's working copy as a fresh empty change on the
    integrated tip. The workspace and its directory are KEPT — resume follow-up
    work there, or retire it with `workflow abandon NAME`.
+
+An ad-hoc claim that never adopted a ticket is an empty commit by then — integrate
+**elides** it (abandons the empty claim link), so trunk history carries only real
+work. Ticketed claims are non-empty (they carry their ticket moves) and stay.
 
 If a conflict arises during the refresh step, integrate stops (exit 2) and leaves the
 conflict in place in `../NAME`. Resolve it there and re-run `integrate NAME`.

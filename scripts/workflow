@@ -237,12 +237,10 @@ end
 
 # Spin up a NAME-bookmarked base commit on default@- with a NAME workspace dir
 # (under the configured workspace base, default ../NAME) on top, leaving
-# default's @ put. With -t/--claim-todo, also tick NAME's todo box
-# into the base commit (so abandoning the base reverts the tick automatically).
+# default's @ put. The base commit starts EMPTY; ticket ownership is always
+# folded in afterwards by __workflow_adopt (claim = start + adopt), so this is
+# the single workspace-creation path and adopt the single ticket-move path.
 function __workflow_start
-    argparse t/claim-todo -- $argv
-    or return
-
     set name "$argv[1]"
     if test -z $name
         echo >&2 "$(status filename): a workspace NAME is required."
@@ -264,32 +262,15 @@ function __workflow_start
     mkdir -p (path dirname $ws_dir)
     or return 1
 
-    set -l verb start
-    set -q _flag_claim_todo; and set verb claim
-
     set savepoint (__savepoint)
     and begin
         jj bookmark create __tip
-        and jj new @- -m "$verb $name"
+        and jj new @- -m "start $name"
         and jj bookmark create $name
-        and if set -q _flag_claim_todo
-            # Move the ticket into wip/ and snapshot it into the claim right
-            # away — default is shared, and pinning now shrinks the window in
-            # which a concurrent op could swallow the move before it's committed.
-            __claim_todo $name
-            and jj status >/dev/null
-        end
         and jj workspace add "$ws_dir" -r $name
         and jj rebase -r __tip -d $name
         and jj edit __tip
         and jj bookmark forget __tip
-        # A claimed todo MUST leave its ticket move in the claim commit. If the
-        # commit still came out empty, a concurrent default op ate the snapshot
-        # anyway — roll back and have the user retry rather than mint an empty claim.
-        and if set -q _flag_claim_todo; and jj log --no-graph -r $name -T 'empty' --ignore-working-copy | string match -q true
-            echo >&2 "$(status filename): $name's claim commit is empty — the ticket move was lost (a concurrent op on default). Nothing kept; re-run 'claim $name'."
-            false
-        end
         or begin
             __rollback $savepoint
             # op restore drops the workspace from jj's view but leaves the dir
@@ -319,6 +300,8 @@ function __workflow_claim
             return 2
         end
         __workflow_adopt "$_flag_into" $argv
+        or return
+        echo >&2 "$(status filename): folded "(string join ', ' $argv)" into $_flag_into's claim. Its workspace is now stale — run 'jj workspace update-stale' there (commit first) before the next commit."
     else
         # One workspace per TODO on this path — extra TODOs would be silently
         # dropped by __workflow_start (it reads only $argv[1]). Refuse instead.
@@ -333,8 +316,41 @@ function __workflow_claim
         if set -q _flag_or_start; and not contains -- (__ticket_state $argv[1]) triage census
             __workflow_start $argv
         else
-            __workflow_start --claim-todo $argv
+            __claim_fresh $argv[1]
         end
+    end
+end
+
+# claim TODO (fresh): one lock-held composition of the two primitives — start an
+# empty-claim workspace, adopt TODO's ticket-move into the claim, heal the
+# transient staleness the adopt squash leaves on the brand-new workspace. All-or-
+# nothing: any failure rewinds past the start too, so no half-claimed workspace
+# survives.
+function __claim_fresh --argument-names name
+    set -l savepoint (__savepoint)
+    or return
+    __workflow_start "$name"
+    or return
+    set -l ws_dir (jj workspace root --name "$name")
+    __workflow_adopt "$name" "$name"
+    # Keep the historical surface: a ticketed claim reads "claim NAME" in the
+    # log, not "start NAME". Before the heal — describe rewrites the claim too.
+    and jj describe -r "$name" -m "claim $name"
+    and command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
+    # The adopt MUST leave the ticket move in the claim commit; empty here means
+    # a concurrent op on default ate the snapshot — retry rather than keep an
+    # empty claim posing as a ticketed one.
+    and begin
+        not jj log --no-graph -r "$name" -T 'empty' --ignore-working-copy | string match -q true
+        or begin
+            echo >&2 "$(status filename): $name's claim commit is empty — the ticket move was lost (a concurrent op on default). Nothing kept; re-run 'claim $name'."
+            false
+        end
+    end
+    or begin
+        __rollback $savepoint
+        rm -rf "$ws_dir"
+        return 1
     end
 end
 
@@ -345,6 +361,7 @@ end
 # claim, so default@'s unrelated in-flight strays stay put. `abandon` reverts the
 # folded moves for free; `integrate` finishes them all. Leaves NAME's workspace
 # stale — routine; one `workspace update-stale` there (commit first) clears it.
+# Callers own the messaging/healing: `claim --into` warns, `__claim_fresh` heals.
 function __workflow_adopt
     set -l into $argv[1]
     set -l tickets $argv[2..]
@@ -389,7 +406,6 @@ function __workflow_adopt
         return 1
     end
 
-    echo >&2 "$(status filename): folded "(string join ', ' $tickets)" into $into's claim. Its workspace ($ws_dir) is now stale — run 'jj workspace update-stale' there (commit first) before the next commit."
 end
 
 function __workflow_abandon
@@ -725,6 +741,15 @@ function __integrate_steps
     # history, and the bookmark's ABSENCE is what tells a later plain `abandon`
     # this workspace is integrated and safe to drop.
     and jj bookmark forget "$name"
+    # An ad-hoc claim that never adopted a ticket is an EMPTY link in the
+    # integrated chain — elide it so trunk history carries only real work.
+    # ($claim_cid is a change id, stable across the rejoin/fold rewrites;
+    # ticketed claims are non-empty by construction, and abandoning an empty
+    # commit cannot conflict.)
+    and begin
+        not jj log --no-graph -r "$claim_cid" -T 'empty' --ignore-working-copy | string match -q true
+        or jj abandon -r "$claim_cid"
+    end
     # KEEP the workspace — park its WC as a fresh empty change on the new trunk
     # tip (a no-op when no completion commit ran, since the fold left it there).
     # The workspace stays usable for follow-up work; `abandon NAME` retires it.

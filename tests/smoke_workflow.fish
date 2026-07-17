@@ -105,6 +105,15 @@ or begin
 end
 echo "ok: integrate keeps workspace, WC parked on default@-"
 
+# An ad-hoc claim that never adopted a ticket is ELIDED from trunk at integrate
+# — no empty "start feat-x" link left in the integrated chain.
+test -z "$(jj log --no-graph -r 'description("start feat-x")' -T 'change_id' --ignore-working-copy)"
+or begin
+    echo >&2 "smoke: empty 'start feat-x' claim commit survived integrate"
+    exit 1
+end
+echo "ok: empty ad-hoc claim elided at integrate"
+
 # Post-integrate plain abandon drops it (the claim bookmark is gone).
 ./scripts/workflow abandon feat-x >/dev/null 2>&1; or begin
     echo >&2 "smoke: post-integrate abandon failed (rc=$status)"

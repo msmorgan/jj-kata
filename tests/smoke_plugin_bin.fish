@@ -37,6 +37,12 @@ or begin; echo >&2 "smoke-bin: claim failed (rc=$status)"; exit 1; end
 test -d $work/mech-x; or begin; echo >&2 "smoke-bin: workspace missing"; exit 1; end
 grep -q 'ticket: mech-x' $work/mech-x/docs/tickets/wip/mech-x.md
 or begin; echo >&2 "smoke-bin: minted ticket missing from claim"; exit 1; end
+# Fresh claim hands over a NON-stale workspace (claim = start + adopt, with the
+# adopt-squash staleness healed) whose claim commit carries the ticket move.
+jj -R $work/mech-x st >/dev/null
+or begin; echo >&2 "smoke-bin: fresh-claim workspace is stale"; exit 1; end
+jj log --no-graph -r mech-x -T 'empty' --ignore-working-copy | string match -q false
+or begin; echo >&2 "smoke-bin: mech-x claim commit is empty"; exit 1; end
 
 # Work in the feature workspace, refresh via bin/ from inside it (CWD targeting).
 cd $work/mech-x; or exit 1
