@@ -10,16 +10,19 @@
 # logic for every repo it is active in, so enabling it globally would hijack
 # EnterWorktree in plain-git projects.
 #
-# stdin:  {"cwd": …, "worktree_name": …, "worktree_path": …, "base_ref": …}
+# stdin:  {"cwd": …, "name": …} (observed harness payload, 2026-07-17; older
+#         builds/specs used worktree_name/worktree_path/base_ref — accepted as
+#         fallbacks)
 # stdout: the created workspace directory (the harness trusts this path and
-#         ignores its own worktree_path suggestion). Nonzero exit fails the
-#         EnterWorktree call.
+#         ignores its own worktree-path suggestion). Nonzero exit fails the
+#         EnterWorktree call — there is NO fallback to native git worktrees; a
+#         registered hook fully replaces them, even in a colocated git repo.
 
 set -l payload (cat | string collect)
-set -l name (printf '%s' $payload | jq -r '.worktree_name // ""')
+set -l name (printf '%s' $payload | jq -r '.name // .worktree_name // ""')
 set -l cwd (printf '%s' $payload | jq -r '.cwd // ""')
 if test -z "$name"
-    echo >&2 "worktree_create: no worktree_name in hook payload."
+    echo >&2 "worktree_create: no name in hook payload."
     exit 1
 end
 test -n "$cwd"; and cd "$cwd"

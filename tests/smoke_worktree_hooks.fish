@@ -18,10 +18,10 @@ set -l create $coord/scripts/hooks/worktree_create.fish
 set -l remove $coord/scripts/hooks/worktree_remove.fish
 
 # Create: hook must print the workspace dir (the harness trusts this path and
-# ignores its own .claude/worktrees suggestion).
+# ignores its own .claude/worktrees suggestion). Payload is the REAL harness
+# shape (observed 2026-07-17): just {cwd, name}.
 set -l payload (jq -n --arg cwd $coord --arg n bg-test \
-    '{hook_event_name: "WorktreeCreate", cwd: $cwd, worktree_name: $n,
-      worktree_path: ($cwd + "/.claude/worktrees/" + $n), base_ref: "main"}')
+    '{hook_event_name: "WorktreeCreate", cwd: $cwd, name: $n}')
 set -l out (printf '%s' $payload | fish $create)
 or begin; echo >&2 "smoke-wt: create hook failed (rc=$status)"; exit 1; end
 test "$out" = "$work/bg-test"
@@ -34,6 +34,7 @@ not test -e $coord/docs/tickets/wip/bg-test.md
 or begin; echo >&2 "smoke-wt: ad-hoc create minted a ticket"; exit 1; end
 
 # Create whose name matches a planned ticket: hook claims it (planned → wip).
+# Deliberately uses the LEGACY worktree_name/worktree_path keys — fallback coverage.
 set -l tickpayload (jq -n --arg cwd $coord --arg n tick-x \
     '{hook_event_name: "WorktreeCreate", cwd: $cwd, worktree_name: $n,
       worktree_path: ($cwd + "/.claude/worktrees/" + $n), base_ref: "main"}')
@@ -46,8 +47,7 @@ or begin; echo >&2 "smoke-wt: matching ticket was not claimed to wip"; exit 1; e
 
 # The create hook works from anywhere in the repo, not just the coordinator.
 set -l payload2 (jq -n --arg cwd $work/bg-test --arg n bg-two \
-    '{hook_event_name: "WorktreeCreate", cwd: $cwd, worktree_name: $n,
-      worktree_path: "ignored", base_ref: "main"}')
+    '{hook_event_name: "WorktreeCreate", cwd: $cwd, name: $n}')
 set -l out2 (printf '%s' $payload2 | fish $create)
 or begin; echo >&2 "smoke-wt: create-from-feature-ws failed (rc=$status)"; exit 1; end
 test "$out2" = "$work/bg-two"; or begin; echo >&2 "smoke-wt: got '$out2'"; exit 1; end
@@ -55,8 +55,8 @@ test "$out2" = "$work/bg-two"; or begin; echo >&2 "smoke-wt: got '$out2'"; exit 
 # Remove maps to PLAIN abandon: a workspace holding un-integrated work is
 # refused — still registered, dir intact — while the hook itself exits 0.
 echo scratch >$work/bg-test/scratch.txt
-set -l rmpayload (jq -n --arg cwd $coord --arg p $work/bg-test \
-    '{hook_event_name: "WorktreeRemove", cwd: $cwd, worktree_name: "bg-test", worktree_path: $p}')
+set -l rmpayload (jq -n --arg cwd $coord \
+    '{hook_event_name: "WorktreeRemove", cwd: $cwd, name: "bg-test"}')
 printf '%s' $rmpayload | fish $remove 2>/dev/null
 or begin; echo >&2 "smoke-wt: remove hook exited nonzero"; exit 1; end
 jj workspace list -T 'name ++ "\n"' | string match -q bg-test
@@ -65,8 +65,9 @@ test -d $work/bg-test
 or begin; echo >&2 "smoke-wt: workspace dir with work deleted by remove"; exit 1; end
 
 # An untouched ad-hoc workspace sweeps clean (harness unchanged-worktree cleanup).
+# LEGACY path-only payload — covers the basename-of-worktree_path fallback.
 set -l rmpayload2 (jq -n --arg cwd $coord --arg p $work/bg-two \
-    '{hook_event_name: "WorktreeRemove", cwd: $cwd, worktree_name: "bg-two", worktree_path: $p}')
+    '{hook_event_name: "WorktreeRemove", cwd: $cwd, worktree_path: $p}')
 printf '%s' $rmpayload2 | fish $remove
 or begin; echo >&2 "smoke-wt: remove hook (untouched ws) exited nonzero"; exit 1; end
 jj workspace list -T 'name ++ "\n"' | string match -q bg-two
