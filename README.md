@@ -197,6 +197,14 @@ Exit 2 from the hook blocks the tool call with the error on stderr; exit 0 allow
 workspace — except `repair`, `converge`, and `resolve`, which run from the affected
 feature workspace.
 
+> **Never pipe a `workflow` command into `tail`, `head`, `grep`, `less`, or
+> anything else.** Its exit status is load-bearing — `0` success, `2` refusal
+> (un-integrated work, an empty/undescribed change), `69` conflict stop, `75`
+> lock timeout — and a pipe reports the downstream command's status instead,
+> silently masking a refusal or conflict as success. Run it bare and check its
+> own exit code; to capture output, redirect to a file (`workflow integrate NAME
+> >out.log 2>&1`) rather than piping.
+
 ### Claiming and starting features
 
 ```bash
@@ -254,7 +262,7 @@ An ad-hoc claim that never adopted a ticket is an empty commit by then — integ
 **elides** it (abandons the empty claim link), so trunk history carries only real
 work. Ticketed claims are non-empty (they carry their ticket moves) and stay.
 
-If a conflict arises during the refresh step, integrate stops (exit 2) and leaves the
+If a conflict arises during the refresh step, integrate stops (exit 69) and leaves the
 conflict in place in `../NAME`. Resolve it there and re-run `integrate NAME`.
 
 ### Dropping a feature

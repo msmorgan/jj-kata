@@ -12,6 +12,13 @@ its repo, its lock — so always `cd` into the workspace you mean.
 
 Key rules:
 
+- **NEVER pipe a `workflow` command into `tail`/`head`/`grep`/`less` or any
+  other command.** The workflow's exit status is load-bearing — 0 success,
+  2 refusal (e.g. un-integrated work, empty/undescribed change), 69 conflict
+  stop, 75 lock timeout — and a pipe replaces it with the downstream command's
+  status, silently masking a refusal or conflict as success. Run it bare and
+  read its own exit code and stderr. If you must capture output, redirect to a
+  file (`workflow integrate NAME >out.log 2>&1`) and check `$status`, never pipe.
 - Run `jj` directly; trunk immutability is enforced by a repo-config
   `immutable_heads()` alias, not a wrapper. Never run `git` (blocked by the
   guard hook), and never pass `--config`/`--config-file`/`--ignore-immutable`
