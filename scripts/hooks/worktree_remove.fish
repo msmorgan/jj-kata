@@ -1,9 +1,9 @@
 #!/usr/bin/env fish
 # WorktreeRemove hook: retire the jj-workflow workspace that the paired
-# WorktreeCreate hook made for EnterWorktree. Maps to plain `workflow abandon`:
+# WorktreeCreate hook made for EnterWorktree. Maps to plain `workflow drop`:
 # an integrated (or untouched ad-hoc) workspace is dropped and its directory
 # deleted; one still holding un-integrated work is REFUSED — workspace and
-# commits stay put until it's integrated or `abandon --force`d by hand.
+# commits stay put until it's integrated or `drop --force`d by hand.
 #
 # The harness fires this on session-exit "remove", unchanged-subagent cleanup,
 # and its periodic sweep; the exit status is advisory (cleanup proceeds), so
@@ -32,5 +32,5 @@ jj workspace list --ignore-working-copy -T 'name ++ "\n"' 2>/dev/null | string m
 or exit 0
 
 set -l self (path dirname (path resolve (status filename)))
-fish "$self/../workflow" abandon "$name" >&2
+fish "$self/../workflow" drop "$name" >&2
 exit 0

@@ -22,7 +22,7 @@ $tk/install.fish $coord >/dev/null; or begin
 end
 
 # Ignore patterns for the junk files created below: ignored build litter must
-# not register as "work" anywhere (abandon's refusal check, integrate).
+# not register as "work" anywhere (drop's refusal check, integrate).
 printf '*.tmp\njunk.d/\n' >.gitignore
 
 # Commit the installed scripts so jj tracks them and they propagate to new workspaces.
@@ -70,17 +70,17 @@ end
 echo "ok: refresh from child workspace"
 popd
 
-# Plain abandon must refuse while feat-x still holds un-integrated work.
-./scripts/workflow abandon feat-x >/dev/null 2>&1
+# Plain drop must refuse while feat-x still holds un-integrated work.
+./scripts/workflow drop feat-x >/dev/null 2>&1
 and begin
-    echo >&2 "smoke: plain abandon dropped un-integrated work"
+    echo >&2 "smoke: plain drop dropped un-integrated work"
     exit 1
 end
 test -d ../feat-x; or begin
-    echo >&2 "smoke: refused abandon still deleted the workspace dir"
+    echo >&2 "smoke: refused drop still deleted the workspace dir"
     exit 1
 end
-echo "ok: plain abandon refuses un-integrated work"
+echo "ok: plain drop refuses un-integrated work"
 
 ./scripts/workflow integrate feat-x >/dev/null 2>&1; or begin
     echo >&2 "smoke: integrate failed"
@@ -114,18 +114,18 @@ or begin
 end
 echo "ok: empty ad-hoc claim elided at integrate"
 
-# Post-integrate plain abandon drops it (the claim bookmark is gone).
-./scripts/workflow abandon feat-x >/dev/null 2>&1; or begin
-    echo >&2 "smoke: post-integrate abandon failed (rc=$status)"
+# Post-integrate plain drop drops it (the claim bookmark is gone).
+./scripts/workflow drop feat-x >/dev/null 2>&1; or begin
+    echo >&2 "smoke: post-integrate drop failed (rc=$status)"
     exit 1
 end
 test ! -e ../feat-x; or begin
-    echo >&2 "smoke: ../feat-x still exists after abandon"
+    echo >&2 "smoke: ../feat-x still exists after drop"
     exit 1
 end
-echo "ok: plain abandon retires integrated workspace"
+echo "ok: plain drop retires integrated workspace"
 
-# Regression: `abandon --force` sweeps ONLY `default@..NAME@ | NAME` — foreign
+# Regression: `drop --force` sweeps ONLY `default@..NAME@ | NAME` — foreign
 # work stacked on top of the doomed feature must survive (2026-07-16 incident:
 # the old unbounded `roots()::` sweep followed descendants into another
 # feature's commits).
@@ -162,22 +162,22 @@ jj rebase -r $z_id -d $w_id >/dev/null; or begin
     exit 1
 end
 popd
-./scripts/workflow abandon --force feat-y >/dev/null 2>&1; or begin
-    echo >&2 "smoke: abandon --force feat-y failed"
+./scripts/workflow drop --force feat-y >/dev/null 2>&1; or begin
+    echo >&2 "smoke: drop --force feat-y failed"
     exit 1
 end
 # feat-y's own work is gone…
 jj log --no-graph -r $w_id -T '' --ignore-working-copy >/dev/null 2>&1
 and begin
-    echo >&2 "smoke: feat-y work survived --force abandon"
+    echo >&2 "smoke: feat-y work survived --force drop"
     exit 1
 end
-# …but feat-z's commit survives, reparented past the abandoned stack.
+# …but feat-z's commit survives, reparented past the droped stack.
 jj log --no-graph -r $z_id -T '' --ignore-working-copy >/dev/null 2>&1; or begin
-    echo >&2 "smoke: abandon --force swept foreign feat-z commit"
+    echo >&2 "smoke: drop --force swept foreign feat-z commit"
     exit 1
 end
-echo "ok: abandon --force bounded to its own stack"
+echo "ok: drop --force bounded to its own stack"
 
 # Regression: default-side line rewrites bank other workspaces' un-snapshotted
 # edits first (__snapshot_workspaces) — otherwise the rewrite rebases a stale

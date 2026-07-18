@@ -39,16 +39,16 @@ or begin; echo >&2 "smoke-wsdir: integrate failed (rc=$status)"; exit 1; end
 test -f $coord/note.txt; or begin; echo >&2 "smoke-wsdir: integrated work missing from trunk"; exit 1; end
 test -d $coord/.claude/worktrees/feat-z
 or begin; echo >&2 "smoke-wsdir: workspace dir not kept after integrate"; exit 1; end
-scripts/workflow abandon feat-z >/dev/null 2>&1
-or begin; echo >&2 "smoke-wsdir: post-integrate abandon failed (rc=$status)"; exit 1; end
+scripts/workflow drop feat-z >/dev/null 2>&1
+or begin; echo >&2 "smoke-wsdir: post-integrate drop failed (rc=$status)"; exit 1; end
 not test -e $coord/.claude/worktrees/feat-z
-or begin; echo >&2 "smoke-wsdir: workspace dir not deleted after abandon"; exit 1; end
+or begin; echo >&2 "smoke-wsdir: workspace dir not deleted after drop"; exit 1; end
 
-# Abandon deletes under the configured base too.
+# Drop deletes under the configured base too.
 scripts/workflow start feat-q >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: second start failed"; exit 1; end
-scripts/workflow abandon feat-q >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: abandon failed"; exit 1; end
+scripts/workflow drop feat-q >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: drop failed"; exit 1; end
 not test -e $coord/.claude/worktrees/feat-q
-or begin; echo >&2 "smoke-wsdir: workspace dir not deleted after abandon"; exit 1; end
+or begin; echo >&2 "smoke-wsdir: workspace dir not deleted after drop"; exit 1; end
 
 echo "SMOKE-WSDIR PASS"
 rm -rf $work

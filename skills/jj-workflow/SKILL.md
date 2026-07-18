@@ -20,8 +20,10 @@ Key rules:
   (ad-hoc), run from the `default` coordinator workspace → work in the NAME
   workspace (default: a sibling dir; see `workspace_dir` in jjworkflow.toml) →
   `workflow integrate NAME` back on the coordinator. Integrate KEEPS the
-  workspace, parked on the integrated tip; `workflow abandon NAME` retires it
-  (refusing if un-integrated work remains — `--force` discards).
+  workspace, parked on the integrated tip; the default next step is
+  `workflow drop NAME` to retire it so the directory doesn't dangle (keep it
+  only for follow-up work). Drop refuses if un-integrated work remains —
+  `--force` discards.
 - Before any review step, get current with trunk: run `workflow refresh`
   (no argument) from inside the feature workspace — it detaches the stack onto
   the trunk tip; `integrate` re-joins the claim.
@@ -31,7 +33,7 @@ Key rules:
   feature workspace — the hook claims the matching ticket if the worktree name
   names one. Finish by committing (`jj commit -m`), then `workflow integrate
   NAME` from the coordinator — the workspace survives, so exit the worktree
-  choosing "remove" and the hook's plain abandon cleans it up. Removing a
+  choosing "remove" and the hook's plain drop cleans it up. Removing a
   worktree that still holds un-integrated work is refused (workspace and
   commits kept), never silently discarded.
 - Resolve alphabetized-list conflicts with `conflicts auto`; inspect any

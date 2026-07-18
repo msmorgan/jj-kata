@@ -46,7 +46,7 @@ is idempotent; report what was already in place.
    after updating the plugin). EnterWorktree then creates a real jj-workflow
    feature workspace — claiming the matching ticket when the worktree name
    names one (`claim --or-start`); the git-worktree logic is fully replaced.
-   Removal maps to plain `workflow abandon`: integrated or untouched ad-hoc
+   Removal maps to plain `workflow drop`: integrated or untouched ad-hoc
    workspaces are dropped (dir deleted), while one holding un-integrated work
    is refused and kept. Finish flow for such a workspace: commit, `workflow
    integrate NAME` from the coordinator (the workspace survives, parked on the

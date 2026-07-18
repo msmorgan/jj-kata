@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
 # Smoke: the Claude Code WorktreeCreate/WorktreeRemove hook adapters. Feeds the
 # harness's stdin payloads to the hook scripts and checks that EnterWorktree
-# would get a real jj-workflow workspace and that removal maps to abandon.
+# would get a real jj-workflow workspace and that removal maps to drop.
 
 set -l tk (path resolve (status dirname)/..)
 set -l work (mktemp -d)
@@ -52,7 +52,7 @@ set -l out2 (printf '%s' $payload2 | fish $create)
 or begin; echo >&2 "smoke-wt: create-from-feature-ws failed (rc=$status)"; exit 1; end
 test "$out2" = "$work/bg-two"; or begin; echo >&2 "smoke-wt: got '$out2'"; exit 1; end
 
-# Remove maps to PLAIN abandon: a workspace holding un-integrated work is
+# Remove maps to PLAIN drop: a workspace holding un-integrated work is
 # refused — still registered, dir intact — while the hook itself exits 0.
 echo scratch >$work/bg-test/scratch.txt
 set -l rmpayload (jq -n --arg cwd $coord \
@@ -76,10 +76,10 @@ not test -e $work/bg-two
 or begin; echo >&2 "smoke-wt: untouched workspace dir not deleted"; exit 1; end
 
 # --force is the explicit path for discarding real work.
-scripts/workflow abandon --force bg-test >/dev/null 2>&1
-or begin; echo >&2 "smoke-wt: abandon --force failed (rc=$status)"; exit 1; end
+scripts/workflow drop --force bg-test >/dev/null 2>&1
+or begin; echo >&2 "smoke-wt: drop --force failed (rc=$status)"; exit 1; end
 not test -e $work/bg-test
-or begin; echo >&2 "smoke-wt: bg-test dir survived abandon --force"; exit 1; end
+or begin; echo >&2 "smoke-wt: bg-test dir survived drop --force"; exit 1; end
 
 # Remove for a path that is not a workspace of this repo: silent no-op, exit 0.
 set -l noop (jq -n --arg cwd $coord \

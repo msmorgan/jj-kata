@@ -16,7 +16,7 @@ isolated workspace.
 5. [Feature workflow](#feature-workflow)
    - [Claim / start](#claiming-and-starting-features)
    - [Integrate](#integrating-a-feature)
-   - [Abandon](#abandoning-a-feature)
+   - [Drop](#dropping-a-feature)
    - [Refresh](#refreshing-keeping-current-with-trunk)
 6. [Ticket folders as status](#ticket-folders-as-status)
 7. [Recovery (repair / converge / resolve)](#recovery)
@@ -45,7 +45,7 @@ repos and workspaces. Use `--scope project` on install to enable it for one
 repo/team instead of globally. Setup can also wire Claude Code's EnterWorktree
 isolation (background sessions, worktree-isolated subagents) to jj-workflow
 workspaces via per-repo `WorktreeCreate`/`WorktreeRemove` hooks — isolation then
-creates a real feature workspace and removal maps to plain `workflow abandon`
+creates a real feature workspace and removal maps to plain `workflow drop`
 (dropping only integrated or untouched workspaces; un-integrated work is kept).
 
 ### Repo-local (no Claude Code required)
@@ -115,11 +115,13 @@ resolve against the repo root, absolute paths are used as-is. If it points insid
 repo (e.g. `.claude/worktrees`), **gitignore that directory**, or jj will snapshot
 every child workspace into the coordinator's working copy.
 
-Workspace directories are transient, but only `abandon` deletes them: `integrate`
+Workspace directories are transient, but only `drop` deletes them: `integrate`
 keeps the workspace (its working copy parked on the integrated tip, ready for
-follow-up work), and a plain `abandon NAME` then retires it. Plain `abandon`
-refuses a workspace with un-integrated work; `abandon --force` discards it (the
-commits stay recoverable via the op log until gc). Nothing is archived.
+follow-up work), and running `drop NAME` afterward is the default next step —
+it retires the workspace so the directory doesn't dangle. Keep the workspace
+around only when you have follow-up work for it. Plain `drop` refuses a
+workspace with un-integrated work; `drop --force` discards it (the commits stay
+recoverable via the op log until gc). Nothing is archived.
 
 ---
 
@@ -244,8 +246,9 @@ scripts/workflow integrate NAME
 3. **Complete** — moves the owned ticket(s) from `wip/` → `done/` in a final commit.
 4. **Park** — drops the claim bookmark (the work is in `default@`'s history now)
    and re-parents the workspace's working copy as a fresh empty change on the
-   integrated tip. The workspace and its directory are KEPT — resume follow-up
-   work there, or retire it with `workflow abandon NAME`.
+   integrated tip. The workspace and its directory are KEPT — the default next
+   step is `workflow drop NAME` to retire it (so the directory doesn't dangle);
+   keep it only to resume follow-up work there.
 
 An ad-hoc claim that never adopted a ticket is an empty commit by then — integrate
 **elides** it (abandons the empty claim link), so trunk history carries only real
@@ -254,17 +257,18 @@ work. Ticketed claims are non-empty (they carry their ticket moves) and stay.
 If a conflict arises during the refresh step, integrate stops (exit 2) and leaves the
 conflict in place in `../NAME`. Resolve it there and re-run `integrate NAME`.
 
-### Abandoning a feature
+### Dropping a feature
 
 ```bash
 # Run from default:
-scripts/workflow abandon NAME
+scripts/workflow drop NAME
 ```
 
-Retires the workspace and deletes its directory. The plain form is safe by
+Retires the workspace and deletes its directory — the default next step after
+`integrate NAME`, so the directory doesn't dangle. The plain form is safe by
 design: it refuses (exit 2) if the workspace still holds un-integrated work —
-only an already-integrated workspace, or an untouched ad-hoc one, is dropped.
-`abandon --force NAME` discards the feature outright: the claim and stack are
+only an already-integrated workspace, or an untouched ad-hoc one, is removed.
+`drop --force NAME` discards the feature outright: the claim and stack are
 abandoned (recoverable via the op log until gc), and the claim commit's
 abandonment rolls every owned ticket back to its triage folder automatically.
 
@@ -322,9 +326,9 @@ scripts/todo check           # detect cycles and dangling dependency references
 scripts/todo needs SLUG      # print SLUG's direct needs, one per line
 ```
 
-Ticket moves happen inside jj commits, so `abandon` reverts them automatically:
+Ticket moves happen inside jj commits, so `drop` reverts them automatically:
 
-- `claim`: ticket move is baked into the claim commit → `abandon` reverts it.
+- `claim`: ticket move is baked into the claim commit → `drop` reverts it.
 - `integrate`: ticket move to `done/` is baked into the completion commit.
 
 ---

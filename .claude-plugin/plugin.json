@@ -2,7 +2,7 @@
   "name": "jj-workflow",
   "displayName": "jj Workflow",
   "description": "Parallel-agent feature workflow for jj repos: claim/start feature workspaces, refresh against trunk, integrate back — with a config-based trunk-immutability guard, a git/flag-ban hook, and conflict tooling.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Michael Morgan"
   },

@@ -2,7 +2,7 @@
 # WorktreeCreate hook: back Claude Code's EnterWorktree with a jj-workflow
 # feature workspace instead of a git worktree — a background session that
 # isolates before editing gets the toolkit's native model (claim commit +
-# workspace under the configured base), and `workflow integrate`/`abandon`
+# workspace under the configured base), and `workflow integrate`/`drop`
 # close the loop.
 #
 # Register PER-REPO (the setup skill offers this), never in a plugin's global
