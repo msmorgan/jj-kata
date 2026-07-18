@@ -30,7 +30,9 @@ Key rules:
   workspace, parked on the integrated tip; the default next step is
   `workflow drop NAME` to retire it so the directory doesn't dangle (keep it
   only for follow-up work). Drop refuses if un-integrated work remains —
-  `--force` discards.
+  `--force` discards. To clear a backlog of forgotten directories,
+  `workflow drop --integrated` sweeps every integrated, empty workspace at once
+  (skips un-integrated ones and any resumed with new work; `--dry-run` previews).
 - Before any review step, get current with trunk: run `workflow refresh`
   (no argument) from inside the feature workspace — it detaches the stack onto
   the trunk tip; `integrate` re-joins the claim.

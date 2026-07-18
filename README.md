@@ -270,6 +270,10 @@ conflict in place in `../NAME`. Resolve it there and re-run `integrate NAME`.
 ```bash
 # Run from default:
 scripts/workflow drop NAME
+
+# Sweep every integrated, empty workspace in one go — the bulk cleanup:
+scripts/workflow drop --integrated
+scripts/workflow drop --integrated --dry-run   # preview; deletes nothing
 ```
 
 Retires the workspace and deletes its directory — the default next step after
@@ -279,6 +283,15 @@ only an already-integrated workspace, or an untouched ad-hoc one, is removed.
 `drop --force NAME` discards the feature outright: the claim and stack are
 abandoned (recoverable via the op log until gc), and the claim commit's
 abandonment rolls every owned ticket back to its triage folder automatically.
+
+**`drop --integrated`** is the same safe, plain drop applied to every workspace
+at once, for when integrated directories have piled up (agents routinely forget
+to clean up after themselves). It removes only workspaces that are **both**
+already integrated (their claim bookmark is gone) **and** empty relative to
+trunk — never `default`, never the workspace you run it from, never an
+un-integrated one, and never an integrated one someone has since resumed work
+in (those are reported as kept). It takes no NAME and never force-drops. Add
+`--dry-run` to list what it would remove without touching anything.
 
 ### Refreshing (keeping current with trunk)
 

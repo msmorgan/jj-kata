@@ -35,6 +35,10 @@ Usage: $(status filename) <command> [<args>]
                          step after integrate). Refuses if the workspace holds
                          un-integrated work; `drop --force` discards the claim and
                          stack outright (recoverable via op log until gc).
+    drop --integrated    Sweep EVERY integrated, empty workspace at once — the bulk
+                         post-integrate cleanup. Skips `default`, the one you're in,
+                         un-integrated workspaces, and any resumed with new work.
+                         `drop --integrated --dry-run` lists what it would drop.
     refresh [WORKSPACE]  From a feature workspace (no WORKSPACE): rebase its stack onto
                          the trunk tip (default@-), detaching it from its claim (integrate
                          re-joins). From default with a WORKSPACE: reorder that claim to
@@ -410,31 +414,81 @@ function __workflow_adopt
 
 end
 
-function __workflow_drop
-    argparse -S force -- $argv
-    or return 2
-    set name $argv[1]
-    set ws_dir (jj workspace root --name "$name")
-    or return
-    __snapshot_workspaces
-    # The claim bookmark doubles as the "not yet integrated" marker: integrate
-    # forgets it once the work is folded into trunk. Resolve it exactly — a
-    # bare `-r "$name"` would also match a same-named tag or substring.
-    set claim (jj log --no-graph -r "bookmarks(exact:\"$name\")" -T 'change_id.short()' --ignore-working-copy 2>/dev/null)
+# The un-integrated-work probe, shared by the single-workspace gate and the
+# --integrated sweep so both judge "safe to drop?" identically. Prints the
+# non-empty commits in default@..NAME@ (empty output = clean, nothing to lose).
+# Callers MUST snapshot NAME first (see __snapshot_one) — this reads with
+# --ignore-working-copy and would otherwise miss edits since NAME's last command.
+function __unintegrated_work --argument-names name
+    jj log --no-graph -r "(default@..$name@) ~ empty()" -T 'change_id.short() ++ " "' --ignore-working-copy 2>/dev/null
+end
 
-    # Plain drop (no --force) only removes what is already banked in trunk (integrated) or
-    # worthless (nothing but empty commits — an untouched ad-hoc workspace).
-    # Anything with real changes needs `integrate`, or an explicit --force.
+# Bank NAME's on-disk edits into its WC commit so a later --ignore-working-copy
+# read sees them. Non-zero if the workspace can't be read.
+function __snapshot_one --argument-names ws_dir
+    command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
+    command jj -R "$ws_dir" status >/dev/null
+end
+
+# Name of the workspace this command runs FROM — matches its root against each
+# per-name root. Empty if unresolvable. Lets the sweep never delete its own cwd.
+function __current_workspace_name
+    set -l here (jj workspace root 2>/dev/null)
+    or return 1
+    for n in (jj workspace list -T 'name ++ "\n"' --ignore-working-copy 2>/dev/null)
+        test "$(jj workspace root --name $n 2>/dev/null)" = "$here"
+        and begin
+            echo $n
+            return 0
+        end
+    end
+    return 1
+end
+
+function __workflow_drop
+    argparse -S force integrated dry-run -- $argv
+    or return 2
+
+    if set -q _flag_integrated
+        if set -q _flag_force
+            echo >&2 "$(status filename): --integrated never force-drops — it only sweeps already-integrated, empty workspaces. Target one explicitly with `drop --force NAME`."
+            return 2
+        end
+        if set -q argv[1]
+            echo >&2 "$(status filename): `drop --integrated` sweeps every integrated workspace — don't pass a NAME."
+            return 2
+        end
+        if set -q _flag_dry_run
+            __drop_sweep --dry-run
+        else
+            __drop_sweep
+        end
+        return
+    end
+
+    if set -q _flag_dry_run
+        echo >&2 "$(status filename): --dry-run only applies to `drop --integrated`."
+        return 2
+    end
+
+    set -l name $argv[1]
+    if test -z "$name"
+        echo >&2 "$(status filename): a workspace NAME is required (or `drop --integrated` to sweep integrated ones)."
+        return 2
+    end
+    set -l ws_dir (jj workspace root --name "$name")
+    or return
+
+    # Plain drop (no --force) only removes what is already banked in trunk (integrated)
+    # or worthless (nothing but empty commits — an untouched ad-hoc workspace). Anything
+    # with real changes needs `integrate`, or an explicit --force. Snapshot NAME first:
+    # __unintegrated_work reads --ignore-working-copy and would miss unsaved edits.
     if not set -q _flag_force
-        # Snapshot NAME's on-disk state first: the work check reads with
-        # --ignore-working-copy and would miss edits made after the last jj
-        # command ran in that workspace.
-        command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
-        command jj -R "$ws_dir" status >/dev/null
+        __snapshot_one "$ws_dir"
         or return 1
-        set -l work (jj log --no-graph -r "(default@..$name@) ~ empty()" -T 'change_id.short() ++ " "' --ignore-working-copy 2>/dev/null)
-        if test -n "$work"
-            if test -n "$claim"
+        if test -n "$(__unintegrated_work $name)"
+            # The claim bookmark doubles as the "not yet integrated" marker.
+            if test -n "$(jj log --no-graph -r "bookmarks(exact:\"$name\")" -T 'change_id.short()' --ignore-working-copy 2>/dev/null)"
                 echo >&2 "$(status filename): $name has un-integrated work (its claim bookmark still exists). Run `integrate $name` first, or `drop --force $name` to discard it."
             else
                 echo >&2 "$(status filename): $name has new work since its last integrate. Integrate again, or `drop --force $name` to discard it."
@@ -442,6 +496,19 @@ function __workflow_drop
             return 2
         end
     end
+
+    __drop_one "$name" "$ws_dir"
+end
+
+# Remove ONE workspace: forget it, abandon its claim + captured stack, delete its
+# dir. Assumes the caller already cleared it as safe (integrated/empty) or is
+# force-dropping. Snapshots every workspace first so the default-line rewrite below
+# never rebases a stale sibling WC.
+function __drop_one --argument-names name ws_dir
+    __snapshot_workspaces
+    # Resolve the claim exactly — a bare `-r "$name"` would also match a same-named
+    # tag or substring. Its ABSENCE is what marks NAME already integrated.
+    set -l claim (jj log --no-graph -r "bookmarks(exact:\"$name\")" -T 'change_id.short()' --ignore-working-copy 2>/dev/null)
 
     # Capture the doomed stack — exactly `default@..$name@` (everything on
     # NAME's side of the coordinator, the same set the refusal gate reads)
@@ -490,6 +557,63 @@ function __workflow_drop
     # The commits stay recoverable via the op log until gc; the dir is just a
     # checkout copy plus build junk — delete it outright, no archive.
     and rm -rf "$ws_dir"
+end
+
+# `drop --integrated`: sweep every integrated (claim bookmark gone), empty feature
+# workspace — the routine post-integrate cleanup agents forget to run. NEVER touches
+# `default`, the workspace you run FROM, an un-integrated one (bookmark still there),
+# or an integrated one someone resumed work in. --dry-run reports the same verdicts
+# and deletes nothing. Runs under the same workflow lock as a plain drop (the whole
+# sweep is one locked op), so its per-workspace drops don't race other lifecycle ops.
+function __drop_sweep
+    argparse -S dry-run -- $argv
+    or return 2
+    set -l current (__current_workspace_name)
+    set -l dropped
+    set -l kept
+    set -l failed
+    for name in (jj workspace list -T 'name ++ "\n"' --ignore-working-copy 2>/dev/null)
+        test "$name" = default; and continue
+        test "$name" = "$current"; and continue
+        # Still holds a claim bookmark → not integrated yet → leave it alone.
+        test -z "$(jj log --no-graph -r "bookmarks(exact:\"$name\")" -T 'change_id.short()' --ignore-working-copy 2>/dev/null)"
+        or continue
+        set -l ws_dir (jj workspace root --name "$name")
+        or continue
+        # Snapshot, then keep any integrated workspace that has since gained work. A
+        # snapshot failure counts as "unsafe" — keep it; never sweep on a blind read.
+        __snapshot_one "$ws_dir"
+        set -l snap_ok $status
+        if test $snap_ok -ne 0; or test -n "$(__unintegrated_work $name)"
+            set -a kept "$name"
+            continue
+        end
+        if set -q _flag_dry_run
+            set -a dropped "$name"
+            continue
+        end
+        if __drop_one "$name" "$ws_dir"
+            set -a dropped "$name"
+        else
+            set -a failed "$name"
+        end
+    end
+
+    set -l verb dropped
+    set -q _flag_dry_run; and set verb "would drop"
+    if set -q dropped[1]
+        echo >&2 "$(status filename): $verb "(count $dropped)" integrated workspace(s): $dropped"
+    else
+        echo >&2 "$(status filename): no integrated workspaces to drop."
+    end
+    if set -q kept[1]
+        echo >&2 "$(status filename): kept "(count $kept)" workspace(s) with work since integrate: $kept"
+    end
+    if set -q failed[1]
+        echo >&2 "$(status filename): FAILED to drop: $failed"
+        return 1
+    end
+    return 0
 end
 
 # refresh, keyed on where it runs:
