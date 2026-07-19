@@ -35,21 +35,46 @@
 # (`jj commit -m '--config'`) still refuses, and `jj foo -- --config` treats the
 # positional as a flag. Both are contrived; the common message case is fixed.
 
-# One jq pass: emit cwd (first line) then the command, only for Bash payloads.
-# A non-Bash tool (or malformed payload) yields nothing → nothing matches.
-set -l out (jq -r 'select(.tool_name == "Bash") | (.cwd // ""), (.tool_input.command // "")')
-set -l cwd $out[1]
-# The command may itself span lines; rejoin everything after the cwd line.
-set -l cmd (string join \n -- $out[2..])
+# Read stdin payload
+set -l payload (cat | string join \n)
+
+# Detect platform
+set -l is_claude (echo "$payload" | jq -r 'if .tool_name == "Bash" then "true" else "false" end')
+set -l is_gemini (echo "$payload" | jq -r 'if .toolCall.name == "run_command" then "true" else "false" end')
+
+if test "$is_claude" != "true" -a "$is_gemini" != "true"
+    # Neither Claude nor Gemini terminal tool call, let it pass
+    exit 0
+end
+
+set -l cwd ""
+set -l cmd ""
+if test "$is_claude" = "true"
+    set cwd (echo "$payload" | jq -r '.cwd // ""')
+    set cmd (echo "$payload" | jq -r '.tool_input.command // ""')
+else if test "$is_gemini" = "true"
+    set cwd (echo "$payload" | jq -r '.toolCall.args.Cwd // ""')
+    # If Cwd is empty or null, fall back to workspacePaths[0]
+    if test -z "$cwd" -o "$cwd" = "null"
+        set cwd (echo "$payload" | jq -r '.workspacePaths[0] // ""')
+    end
+    set cmd (echo "$payload" | jq -r '.toolCall.args.CommandLine // ""')
+end
 
 # A plugin install enables this hook in EVERY project — act only inside a jj
 # repo. Walk up from the command's cwd (falling back to the hook's own) looking
 # for a .jj dir; anywhere else, git is none of our business.
-test -n "$cwd"; or set cwd $PWD
+test -n "$cwd" -a "$cwd" != "null"; or set cwd $PWD
 set -l d $cwd
 while not test -d "$d/.jj"
     set -l parent (path dirname $d)
-    test "$parent" = "$d"; and exit 0    # hit the filesystem root: not a jj repo
+    if test "$parent" = "$d"
+        # Not a jj repo: allow execution
+        if test "$is_gemini" = "true"
+            echo '{"decision": "allow"}'
+        end
+        exit 0
+    end
     set d $parent
 end
 
@@ -59,7 +84,12 @@ end
 # flatten here only WIDENS (it may false-positive, e.g. `digit`), never narrows,
 # so no evasion slips past: the precise verdict is still the tokenizer's.
 set -l probe (string replace -a -- '\\' '' $cmd | string replace -a -- "'" '' | string replace -a -- '"' '')
-string match -rq -- 'git|--config|--ignore-immutable' -- $probe; or exit 0
+if not string match -rq -- 'git|--config|--ignore-immutable' -- $probe
+    if test "$is_gemini" = "true"
+        echo '{"decision": "allow"}'
+    end
+    exit 0
+end
 
 # --- Precise pass: tokenize `cmd` respecting shell quoting. -----------------
 # Emits two parallel arrays: tt = decoded token text, tp = "1" if the token
@@ -172,22 +202,40 @@ while test $j -le $ntok
         set curcmd $text
         set expectword 0
         if test "$text" = git; or string match -rq -- '/git$' -- $text
-            echo >&2 "jj-guard: git is banned in this jj repo — use jj, not git."
-            exit 2
+            if test "$is_claude" = "true"
+                echo >&2 "jj-guard: git is banned in this jj repo — use jj, not git."
+                exit 2
+            else
+                echo '{"decision": "deny", "reason": "git is banned in this jj repo — use jj, not git."}'
+                exit 0
+            end
         end
         set j (math $j + 1); continue
     end
     # argument token of curcmd — only jj's own flags can bypass the guard
     if test "$curcmd" = jj; or string match -rq -- '/jj$' -- $curcmd
         if contains -- $text --ignore-immutable --config --config-file
-            echo >&2 "jj-guard: refusing $text — it would bypass the repo's immutable_heads guard."
-            exit 2
+            if test "$is_claude" = "true"
+                echo >&2 "jj-guard: refusing $text — it would bypass the repo's immutable_heads guard."
+                exit 2
+            else
+                echo "{\"decision\": \"deny\", \"reason\": \"refusing $text — it would bypass the repo's immutable_heads guard.\"}"
+                exit 0
+            end
         else if set -l m (string match -r -- '^(--config|--config-file)=' -- $text)
-            echo >&2 "jj-guard: refusing $m[2] — it would bypass the repo's immutable_heads guard."
-            exit 2
+            if test "$is_claude" = "true"
+                echo >&2 "jj-guard: refusing $m[2] — it would bypass the repo's immutable_heads guard."
+                exit 2
+            else
+                echo "{\"decision\": \"deny\", \"reason\": \"refusing $m[2] — it would bypass the repo's immutable_heads guard.\"}"
+                exit 0
+            end
         end
     end
     set j (math $j + 1)
 end
 
+if test "$is_gemini" = "true"
+    echo '{"decision": "allow"}'
+end
 exit 0

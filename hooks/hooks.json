@@ -9,6 +9,15 @@
             "command": "fish \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/jj_guard.fish\""
           }
         ]
+      },
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "fish \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/jj_guard.fish\""
+          }
+        ]
       }
     ]
   }

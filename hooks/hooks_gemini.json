@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "fish scripts/hooks/jj_guard.fish"
+          }
+        ]
+      }
+    ]
+  }
+}

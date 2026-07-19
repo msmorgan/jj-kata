@@ -18,6 +18,18 @@ function _run --argument-names hook cwd cmd
     echo $status
 end
 
+function _run_gemini --argument-names hook cwd cmd
+    set -l payload (jq -n --arg cwd $cwd --arg c $cmd \
+        '{conversationId:"abc-123", workspacePaths:[$cwd], toolCall:{name:"run_command", args:{CommandLine:$c, Cwd:$cwd}}, stepIndex:0}')
+    set -l out (printf '%s' $payload | fish $hook 2>&1)
+    set -l rc $status
+    if test "$rc" != 0
+        echo "error-rc-$rc"
+    else
+        echo $out | jq -r '.decision // "null"'
+    end
+end
+
 set -l fails 0
 
 # --- MUST ALLOW: git/--config/--ignore-immutable as DATA, and normal usage. ---
@@ -45,7 +57,12 @@ set -l allow \
 for c in $allow
     set -l rc (_run $hook $work $c)
     if test "$rc" != 0
-        echo >&2 "smoke-guard: MUST-ALLOW blocked (rc=$rc): $c"
+        echo >&2 "smoke-guard (Claude): MUST-ALLOW blocked (rc=$rc): $c"
+        set fails (math $fails + 1)
+    end
+    set -l dec (_run_gemini $hook $work $c)
+    if test "$dec" != "allow"
+        echo >&2 "smoke-guard (Gemini): MUST-ALLOW blocked (decision=$dec): $c"
         set fails (math $fails + 1)
     end
 end
@@ -73,7 +90,12 @@ set -l block \
 for c in $block
     set -l rc (_run $hook $work $c)
     if test "$rc" != 2
-        echo >&2 "smoke-guard: MUST-BLOCK allowed (rc=$rc): $c"
+        echo >&2 "smoke-guard (Claude): MUST-BLOCK allowed (rc=$rc): $c"
+        set fails (math $fails + 1)
+    end
+    set -l dec (_run_gemini $hook $work $c)
+    if test "$dec" != "deny"
+        echo >&2 "smoke-guard (Gemini): MUST-BLOCK allowed (decision=$dec): $c"
         set fails (math $fails + 1)
     end
 end
@@ -82,7 +104,12 @@ end
 set -l outside (mktemp -d)
 set -l rc (_run $hook $outside "git status")
 if test "$rc" != 0
-    echo >&2 "smoke-guard: git blocked OUTSIDE a jj repo (rc=$rc)"
+    echo >&2 "smoke-guard (Claude): git blocked OUTSIDE a jj repo (rc=$rc)"
+    set fails (math $fails + 1)
+end
+set -l dec (_run_gemini $hook $outside "git status")
+if test "$dec" != "allow"
+    echo >&2 "smoke-guard (Gemini): git blocked OUTSIDE a jj repo (decision=$dec)"
     set fails (math $fails + 1)
 end
 
