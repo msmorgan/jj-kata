@@ -311,6 +311,9 @@ function __workflow_start
         echo >&2 "$(status filename): workspace dir '$ws_dir' already exists — remove or rename it, then retry."
         return 1
     end
+    # Refuse a merge default@ up front with the same clear message refresh/integrate
+    # give, rather than letting the jj new splice below fail on an empty -A revset.
+    __require_linear_trunk; or return
     # A custom base may not exist yet (first workspace under it).
     mkdir -p (path dirname $ws_dir)
     or return 1
@@ -734,7 +737,8 @@ function __workflow_refresh
     argparse -S a/all -- $argv
     or return
 
-    set -l on_default (test "$project_dir" = "$(path resolve (jj workspace root --name default))"; and echo 1)
+    set -l on_default
+    __on_default; and set on_default 1
 
     if set -q _flag_all
         if set -q argv[1]
