@@ -435,4 +435,63 @@ test -n "$(jj log --no-graph -r 'description(substring:"complete t-real") & ::de
 or begin echo >&2 "smoke: no 'complete t-real' commit on trunk after integrate"; exit 1; end
 echo "ok: ticketed self-integrate moves wip->done and records a completion commit"
 
+# --- Task 6: `claim T` from INSIDE a feature workspace folds T into THIS
+# workspace's own claim (no --into, no cd), and the claim commit's description
+# accretes to `claim <a>, <b>` in wip order. Also guards that a plain fresh
+# single claim still describes its claim exactly `claim <slug>` (no double-
+# describe weirdness). Fresh temp repo — prior blocks leave the trunk dirty. ---
+set -l work (mktemp -d)
+set -l coord $work/myproj
+mkdir -p $coord; or exit 1
+cd $coord; or exit 1
+
+jj git init --colocate >/dev/null; or begin
+    echo >&2 "smoke: jj git init failed (task6)"
+    exit 1
+end
+$tk/install.fish $coord >/dev/null; or begin
+    echo >&2 "smoke: install failed (task6)"
+    exit 1
+end
+printf '*.tmp\njunk.d/\n' >.gitignore
+jj commit -m "install toolkit" >/dev/null; or begin
+    echo >&2 "smoke: commit failed (task6)"
+    exit 1
+end
+test "$(jj workspace root --name default)" = "$coord"; or begin
+    echo >&2 "smoke: workspace root --name default != $coord (task6)"
+    exit 1
+end
+echo "ok: task6 fresh coordinator maps to renamed dir myproj/"
+
+# Two triage tickets to claim + fold.
+mkdir -p docs/tickets/planned
+printf -- '---\nneeds: []\n---\n# t-alpha\n' > docs/tickets/planned/t-alpha.md
+printf -- '---\nneeds: []\n---\n# t-beta\n'  > docs/tickets/planned/t-beta.md
+jj commit -m "add triage tickets t-alpha t-beta" >/dev/null
+
+# Fresh single claim from default: creates the workspace AND describes the claim
+# exactly `claim t-alpha` (fresh-claim path must stay intact after the accretion
+# change — no "claim t-alpha, t-alpha", no leftover "start t-alpha").
+./scripts/workflow claim t-alpha >/dev/null 2>&1; or begin echo >&2 "smoke: claim t-alpha failed (task6)"; exit 1; end
+test -f docs/tickets/wip/t-alpha.md; or begin echo >&2 "smoke: t-alpha not in wip/ after claim (task6)"; exit 1; end
+test "$(jj log --no-graph -r t-alpha -T 'description.first_line()' --ignore-working-copy)" = "claim t-alpha"
+or begin echo >&2 "smoke: fresh single claim did not describe the claim 'claim t-alpha' (task6)"; exit 1; end
+echo "ok: task6 fresh single claim describes the claim exactly 'claim t-alpha'"
+
+# Self-fold: from INSIDE the feature ws, `claim t-beta` (no --into) folds t-beta
+# into t-alpha's OWN claim. Assert the wip/ files from inside the ws — its
+# checkout is the one this op advanced (default's WC goes stale, as with a
+# `claim --into`, so its on-disk tree lags until update-stale).
+pushd ../t-alpha
+./scripts/workflow claim t-beta >/dev/null 2>&1; or begin echo >&2 "smoke: self-fold claim t-beta failed (task6)"; popd; exit 1; end
+test -f docs/tickets/wip/t-alpha.md -a -f docs/tickets/wip/t-beta.md
+or begin echo >&2 "smoke: both tickets not in wip/ after self-fold (task6)"; popd; exit 1; end
+popd
+
+# The claim now owns both tickets and its description accreted, in wip order.
+test "$(jj log --no-graph -r t-alpha -T 'description.first_line()' --ignore-working-copy)" = "claim t-alpha, t-beta"
+or begin echo >&2 "smoke: claim description did not accrete to 'claim t-alpha, t-beta' (task6)"; exit 1; end
+echo "ok: task6 claim folds into self from a feature ws and accretes the description"
+
 echo "SMOKE PASS"

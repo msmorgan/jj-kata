@@ -22,13 +22,13 @@ function __require_self_or_default --argument-names name
     return 2
 end
 
-# Two-tier gate. Creation/cross-feature commands (start/claim/drop, and
-# integrate when it names a foreign ws) rewrite default's shared line for
-# OTHERS or spin up workspaces, so they must run from default. The self-ops
-# (repair/converge/resolve, no-arg refresh, and the self-targeting form of
-# integrate) are reachable from a feature workspace; integrate then enforces
-# "self or default" per-target via __require_self_or_default.
-if not contains -- "$argv[1]" repair converge resolve refresh integrate
+# Two-tier gate. Creation/cross-feature commands (start/drop, and integrate/claim
+# when they name a foreign ws) rewrite default's shared line for OTHERS or spin up
+# workspaces, so they must run from default. The self-ops (repair/converge/resolve,
+# no-arg refresh, the self-targeting form of integrate, and `claim T` folding into
+# THIS workspace's own claim) are reachable from a feature workspace; integrate and
+# claim then enforce "self or default" per-target via __require_self_or_default.
+if not contains -- "$argv[1]" repair converge resolve refresh integrate claim
     and not __on_default
     echo >&2 "$(status filename): '$argv[1]' runs from the default workspace (creation/cross-feature ops are coordinator-only)."
     return 1
@@ -46,6 +46,11 @@ Usage: $(status filename) <command> [<args>]
                          to take on extra todos after a workspace is already going.
                          (NAME's workspace goes stale; run `workspace update-stale`
                          there.)
+    claim TODO...        Run from INSIDE a feature workspace (no --into): fold each
+      (in a feature ws)  TODO into THIS workspace's own claim — no cd back to default.
+                         The claim's description accretes to `claim a, b, …`, and
+                         `integrate` finishes them all. Same effect as the coordinator
+                         running `claim TODO... --into <this-ws>`.
     claim NAME --or-start
                          Claim NAME if it names a claimable ticket/census row,
                          else fall back to `start NAME` (what the Claude Code
@@ -343,9 +348,45 @@ function __workflow_claim
             echo >&2 "$(status filename): --or-start and --into don't combine."
             return 2
         end
+        # `--into` is the coordinator's explicit cross-feature fold: it targets a
+        # (possibly foreign) NAME and rewrites default's shared line, so it stays
+        # default-only. The guard exemption above lets `claim` reach here from a
+        # feature ws (for the self-fold below); reject the --into form there and
+        # point at the no-flag self-fold, which folds into THIS ws's own claim.
+        if not __on_default
+            echo >&2 "$(status filename): 'claim --into NAME' runs from the default workspace. From a feature ws, use 'claim TODO...' (no --into) to fold into THIS workspace's own claim."
+            return 1
+        end
         __workflow_adopt "$_flag_into" $argv
         or return
         echo >&2 "$(status filename): folded "(string join ', ' $argv)" into $_flag_into's claim. Its workspace is now stale — run 'jj workspace update-stale' there (commit first) before the next commit."
+    else if not __on_default
+        # Self-fold: from a feature ws, `claim TODO...` (no --into) folds each TODO
+        # into THIS workspace's own claim — no --into, no cd. __require_self_or_default
+        # is belt-and-suspenders that we're a real named feature ws (always true in
+        # this branch). The claim commit — and default@ stacked on top of it — are
+        # immutable from here (immutable_heads locks default@, and the claim is
+        # default@-, its ancestor), so run the fold from DEFAULT's context, where
+        # default@ ~ @ is empty and the claim is mutable (mirrors integrate's
+        # default-context switch). The triage ticket files live in default's checkout
+        # too, so re-pointing $project_dir + the jj CWD at default is all it takes.
+        set -l self (path basename "$project_dir")
+        __require_self_or_default "$self"
+        or return
+        # Capture the feature ws root FIRST — the default-context rewrite rebases the
+        # feature stack out from under us (this cwd), leaving it stale; heal it after.
+        set -l ws_dir (jj workspace root --name "$self")
+        or return
+        set -g project_dir "$(jj workspace root --name default)"
+        cd "$project_dir"
+        or return
+        __workflow_adopt "$self" $argv
+        or return
+        # The default-context rewrite advanced default@ in place but rebased THIS
+        # feature stack out from under us — heal it so this workspace is usable
+        # right away (no leftover staleness for the session that ran the fold).
+        command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
+        echo >&2 "$(status filename): folded "(string join ', ' $argv)" into $self's claim — this workspace now owns "(count $argv)" more todo(s); 'integrate' finishes them all."
     else
         # One workspace per TODO on this path — extra TODOs would be silently
         # dropped by __workflow_start (it reads only $argv[1]). Refuse instead.
@@ -376,10 +417,12 @@ function __claim_fresh --argument-names name
     __workflow_start "$name"
     or return
     set -l ws_dir (jj workspace root --name "$name")
+    # __workflow_adopt folds NAME's ticket-move into the claim AND rewrites the
+    # claim's description to "claim NAME" (the accretion from its single owned
+    # wip slug) — so no separate `jj describe` is needed here: the log reads
+    # "claim NAME", not the "start NAME" __workflow_start left. Then heal the
+    # transient staleness the adopt squash left on the brand-new workspace.
     __workflow_adopt "$name" "$name"
-    # Keep the historical surface: a ticketed claim reads "claim NAME" in the
-    # log, not "start NAME". Before the heal — describe rewrites the claim too.
-    and jj describe -r "$name" -m "claim $name"
     and command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
     # The adopt MUST leave the ticket move in the claim commit; empty here means
     # a concurrent op on default ate the snapshot — retry rather than keep an
@@ -399,13 +442,16 @@ function __claim_fresh --argument-names name
 end
 
 # Fold TODOs' ticket-moves into NAME's existing claim commit, so one workspace
-# owns several tickets. Runs from default (the claim is immutable elsewhere).
-# Each ticket moves triage/->wip/ in default@ (via __claim_todo — same rules and
-# census-mint as a normal claim), then ONLY those paths are squashed into the
-# claim, so default@'s unrelated in-flight strays stay put. `drop` reverts the
-# folded moves for free; `integrate` finishes them all. Leaves NAME's workspace
-# stale — routine; one `workspace update-stale` there (commit first) clears it.
-# Callers own the messaging/healing: `claim --into` warns, `__claim_fresh` heals.
+# owns several tickets, and rewrite the claim's description to `claim <slugs>`.
+# Must run in DEFAULT's context (the claim is immutable from a feature ws) — the
+# caller ensures that: `claim --into`/`__claim_fresh` run natively from default,
+# the self-fold cd's + re-points $project_dir at default first. Each ticket moves
+# triage/->wip/ in default@ (via __claim_todo — same rules and census-mint as a
+# normal claim), then ONLY those paths are squashed into the claim, so default@'s
+# unrelated in-flight strays stay put. `drop` reverts the folded moves for free;
+# `integrate` finishes them all. Leaves NAME's workspace stale — routine; one
+# `workspace update-stale` there (commit first) clears it. Callers own the
+# messaging/healing: `claim --into` warns, `__claim_fresh` and the self-fold heal.
 function __workflow_adopt
     set -l into $argv[1]
     set -l tickets $argv[2..]
@@ -444,6 +490,27 @@ function __workflow_adopt
         # rebased (the WC goes stale). Unrelated strays stay uncommitted in @.
         test $ok -eq 1
         and jj squash --from @ --into "$into" $paths
+        # Accrete the claim's description to `claim <slug1>, <slug2>, …` from the
+        # wip/ files it now owns — so a fold turns `claim a` into `claim a, b` and a
+        # fresh single claim reads `claim a` (this subsumes __claim_fresh's own
+        # describe). Read the slugs off the claim's own diff (same wip-path pattern
+        # as __integrate_steps), anchored at $project_dir so jj renders the diff
+        # paths repo-relative even when invoked from a subdirectory. The describe
+        # rewrites the claim, so like the squash it needs the default context this
+        # runs in (natively from default, or via the self-fold's switch) where the
+        # claim is mutable — from a feature ws's own context it would be immutable.
+        and begin
+            set -l prev_pwd "$PWD"
+            cd "$project_dir"
+            set -l owned
+            for p in (jj diff -r "$into" --name-only --ignore-working-copy)
+                set -l s (string match -rg '^docs/tickets/wip/(.+)\.md$' -- $p)
+                test -n "$s"; and set -a owned $s
+            end
+            cd "$prev_pwd"
+            test (count $owned) -gt 0
+            and jj describe -r "$into" -m "claim $(string join ', ' $owned)"
+        end
     end
     or begin
         __rollback $savepoint
