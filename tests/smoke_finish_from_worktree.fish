@@ -328,4 +328,61 @@ or begin
 end
 echo "ok: advance splice keeps the trunk line linear"
 
+# --- Task 5D: a sibling workspace's un-snapshotted edit must survive a
+# self-integrate (__snapshot_workspaces banks every ws first, even when integrate
+# is launched from a feature ws). Fresh temp repo. ---
+set -l work (mktemp -d)
+set -l coord $work/myproj
+mkdir -p $coord; or exit 1
+cd $coord; or exit 1
+
+jj git init --colocate >/dev/null; or begin
+    echo >&2 "smoke: jj git init failed (task5D)"
+    exit 1
+end
+$tk/install.fish $coord >/dev/null; or begin
+    echo >&2 "smoke: install failed (task5D)"
+    exit 1
+end
+printf '*.tmp\njunk.d/\n' >.gitignore
+jj commit -m "install toolkit" >/dev/null; or begin
+    echo >&2 "smoke: commit failed (task5D)"
+    exit 1
+end
+test "$(jj workspace root --name default)" = "$coord"; or begin
+    echo >&2 "smoke: workspace root --name default != $coord (task5D)"
+    exit 1
+end
+echo "ok: task5D fresh coordinator maps to renamed dir myproj/"
+
+./scripts/workflow start feat-s1 >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-s1"
+    exit 1
+end
+pushd ../feat-s1
+echo s1 >s1.txt
+jj commit -m "s1 work" >/dev/null
+popd
+./scripts/workflow start feat-s2 >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-s2"
+    exit 1
+end
+# Un-snapshotted edit in feat-s2 — no jj command touches feat-s2 after this write.
+echo dirty >../feat-s2/dirty.txt
+# Self-integrate feat-s1 from inside it; feat-s2's WC must be banked first.
+pushd ../feat-s1
+./scripts/workflow refresh >/dev/null 2>&1
+./scripts/workflow integrate >/dev/null 2>&1; or begin
+    echo >&2 "smoke: self-integrate feat-s1 failed"
+    popd
+    exit 1
+end
+popd
+jj diff -r feat-s2@ --name-only | string match -q dirty.txt
+or begin
+    echo >&2 "smoke: sibling feat-s2's un-snapshotted edit lost after self-integrate"
+    exit 1
+end
+echo "ok: self-integrate banks sibling workspaces' edits (no divergence)"
+
 echo "SMOKE PASS"
