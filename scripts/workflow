@@ -248,6 +248,14 @@ end
 # the single workspace-creation path and adopt the single ticket-move path.
 function __workflow_start
     set name "$argv[1]"
+    if test "$name" = -h; or test "$name" = --help
+        __workflow_usage
+        return 0
+    end
+    if string match -rq -- '^-' "$name"
+        echo >&2 "$(status filename): NAME may not start with '-' (got '$name'). Did you mean '--help'?"
+        return 2
+    end
     if test -z $name
         echo >&2 "$(status filename): a workspace NAME is required."
         return 2

@@ -213,4 +213,21 @@ or begin
     exit 1
 end
 echo "ok: default-side rewrite banks other workspaces' edits first"
+
+# --help must print usage and NOT start a feature; a dash-leading NAME is refused.
+./scripts/workflow start --help >/dev/null 2>&1
+and begin
+    echo >&2 "smoke: 'start --help' should exit non-zero (usage), not succeed"
+    exit 1
+end
+test ! -e ../--help; or begin
+    echo >&2 "smoke: 'start --help' created a feature workspace named --help"
+    exit 1
+end
+not jj bookmark list -T 'name ++ "\n"' | string match -q -- --help
+or begin
+    echo >&2 "smoke: 'start --help' created a bookmark named --help"
+    exit 1
+end
+echo "ok: 'start --help' prints usage instead of starting a feature"
 echo "SMOKE PASS"
