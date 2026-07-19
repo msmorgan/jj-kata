@@ -36,8 +36,15 @@ Key rules:
 - Before any review step, get current with trunk: run `workflow refresh`
   (no argument) from inside the feature workspace — it detaches the stack onto
   the trunk tip; `integrate` re-joins the claim.
-- Recover a shifted or divergent feature workspace with `workflow repair`,
-  run from inside it. Walk conflicts with `workflow resolve`.
+- On ANY conflict (a command exiting 69) or working-copy divergence, immediately
+  run `workflow repair` (or `workflow resolve`) yourself from inside the feature
+  workspace and reason through the conflict step by step — this is
+  **agent-initiated**; the toolkit does NOT auto-run repair, it only surfaces the
+  stop. `repair` = one-stop recovery (update-stale + converge if divergent +
+  resolve if conflicted); `resolve` walks a conflicted stack oldest-first. Both
+  drop you onto the conflict and print the exact conflict-marker locations as
+  `file:line` hits (e.g. `…/f.txt:12:<<<<<<< conflict 1 of 2`) — Read those lines,
+  remove every marker, then re-run the same command until it exits 0.
 - A workspace created through EnterWorktree (WorktreeCreate hook) is a normal
   feature workspace — the hook claims the matching ticket if the worktree name
   names one. Finish by committing (`jj commit -m`), then `workflow integrate

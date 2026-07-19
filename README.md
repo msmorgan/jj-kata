@@ -370,6 +370,14 @@ Ticket moves happen inside jj commits, so `drop` reverts them automatically:
 Conflicts and working-copy divergences land in the feature workspace, never on trunk.
 Three recovery commands run **from the affected feature workspace**:
 
+> **On any conflict (exit `69`) or divergence, run `repair` (or `resolve`)
+> immediately and reason through the conflict step by step.** This is
+> **agent-initiated** — the toolkit *never* auto-runs repair; it only stops and
+> hands you the workspace. Both commands drop you onto the conflict and print the
+> exact conflict-marker locations as `file:line` hits (e.g.
+> `…/f.txt:12:<<<<<<< conflict 1 of 2`), so you know precisely which lines to open
+> — no whole-file scan. Read those lines, remove every marker, re-run until exit 0.
+
 ### `repair` — one-stop recovery
 
 ```bash
@@ -391,8 +399,10 @@ The single entry point for "my branch shifted under me." In order:
 | `1` | Stopped on a conflicted commit. Remove all markers from the files `jj st` lists, then re-run `repair`. |
 | `2` | Needs a human — divergent halves hold genuinely different work, or a jj step rolled back. |
 
-When `repair` stops on a conflict it calls `scripts/conflicts show` automatically and
-prints the per-file resolution commands.
+When `repair` stops on a conflict it prints each conflict marker's `file:line`
+location (matching jj's real markers — `<<<<<<< conflict N of M` … `>>>>>>> …
+ends`, seven-or-more brackets), calls `scripts/conflicts show` automatically, and
+prints the per-file resolution commands. Read the reported lines directly.
 
 ### `converge` — working-copy divergence
 
@@ -417,8 +427,10 @@ scripts/workflow resolve
 Walks a feature stack's conflicts oldest-first after `refresh`/`integrate` left them.
 Each invocation either:
 
-- Drops you onto the oldest conflicted commit and exits 1 — remove every marker
-  from the files `jj st` lists, then re-run.
+- Drops you onto the oldest conflicted commit and exits 1 — and prints each
+  conflict marker's `file:line` location (`…/f.txt:12:<<<<<<< conflict 1 of 2`) so
+  you can Read exactly those lines. Remove every marker from the listed files,
+  then re-run.
 - Folds your fix into that commit and advances to the next conflict.
 - Exits 0 when the stack is clean — re-run `integrate NAME`.
 

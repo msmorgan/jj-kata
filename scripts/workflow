@@ -1122,6 +1122,32 @@ end
 # stack clean, re-integrate. Exit 2 = markers left, or a jj step rolled back.
 # The `$name-tip` bookmark is the cursor marking the real tip during the
 # descent. For a working-copy DIVERGENCE use `converge` instead.
+# Print `file:line` locations of every conflict marker across @'s conflicted
+# files, so an agent dropped onto a conflict knows exactly which lines to Read
+# (no whole-file scan). Marker text matches jj 0.43's materialized conflicts —
+#   <<<<<<< conflict N of M   …   >>>>>>> conflict N of M ends
+# — with SEVEN-OR-MORE fence characters (jj widens the fence past 7 when the
+# conflicted content itself contains marker-like lines, so `<{7}` would miss
+# those). Paths come from `jj resolve --list` (workspace-root-relative); we
+# absolutise them via $project_dir so the hints Read from any cwd. All output is
+# stderr — a diagnostic beside the "editing the oldest…" line; repo state is
+# untouched, and an empty conflict set prints nothing. `rg` is the repo's
+# grep already; fall back to `grep -nHE` only if it is somehow absent.
+function __print_conflict_marker_locations
+    set -l files
+    for f in (jj resolve --list 2>/dev/null | string replace -r '\s.*$' '')
+        test -n "$f"; and set -a files "$project_dir/$f"
+    end
+    set -q files[1]; or return 0
+    set -l re '^(<{7,}|>{7,}) conflict [0-9]+ of [0-9]+'
+    echo >&2 "Conflict markers to Read (file:line):"
+    if command -q rg
+        rg -n -H -- $re $files >&2
+    else
+        grep -nHE -- $re $files >&2
+    end
+end
+
 function __workflow_resolve
     # Dir basename == workspace name holds for toolkit-created FEATURE
     # workspaces, and resolve's contract is to run from one.
@@ -1133,6 +1159,7 @@ function __workflow_resolve
     if jj bookmark list -T 'name ++ "\n"' | string match -q -- "$tipbm"
         if jj resolve --list >/dev/null 2>&1   # exit 0 => @ still has conflicts
             echo >&2 "resolve: @ still has conflict markers — remove them all (jj st lists the files), then re-run."
+            __print_conflict_marker_locations
             return 2
         end
         # Fold @'s resolution into the commit it sits on, then hop to the real tip
@@ -1164,6 +1191,7 @@ function __workflow_resolve
             return 2
         end
         echo >&2 "resolve: editing the oldest of "(count $conflicts)" conflicted commit(s). Remove all markers (jj st), then re-run resolve."
+        __print_conflict_marker_locations
         return 1
     else
         echo >&2 "resolve: all conflicts resolved on $name@ — re-run 'scripts/workflow integrate $name'."
@@ -1206,9 +1234,7 @@ function __workflow_repair
             echo >&2 "    [edit FILE directly]                         (complex/semantic conflict)"
             echo >&2 "Then re-run 'scripts/workflow repair'."
             echo >&2 ""
-            for f in (jj resolve --list 2>/dev/null | string replace -r '\s.*$' '')
-                echo >&2 "    $f"
-            end
+            __print_conflict_marker_locations
             echo >&2 ""
             $scripts_dir/conflicts show >&2
         case '*'

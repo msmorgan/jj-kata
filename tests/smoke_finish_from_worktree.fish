@@ -494,4 +494,84 @@ test "$(jj log --no-graph -r t-alpha -T 'description.first_line()' --ignore-work
 or begin echo >&2 "smoke: claim description did not accrete to 'claim t-alpha, t-beta' (task6)"; exit 1; end
 echo "ok: task6 claim folds into self from a feature ws and accretes the description"
 
+# --- Task 8: a real 69-conflict must make `resolve` surface the exact conflict-
+# marker file:line locations, so an agent dropped onto the conflict knows which
+# lines to Read instead of scanning the whole file. Fresh temp repo — prior
+# blocks leave the trunk line dirty. ---
+set -l work (mktemp -d)
+set -l coord $work/myproj
+mkdir -p $coord; or exit 1
+cd $coord; or exit 1
+
+jj git init --colocate >/dev/null; or begin
+    echo >&2 "smoke: jj git init failed (task8)"
+    exit 1
+end
+$tk/install.fish $coord >/dev/null; or begin
+    echo >&2 "smoke: install failed (task8)"
+    exit 1
+end
+printf '*.tmp\njunk.d/\n' >.gitignore
+jj commit -m "install toolkit" >/dev/null; or begin
+    echo >&2 "smoke: commit failed (task8)"
+    exit 1
+end
+test "$(jj workspace root --name default)" = "$coord"; or begin
+    echo >&2 "smoke: workspace root --name default != $coord (task8)"
+    exit 1
+end
+echo "ok: task8 fresh coordinator maps to renamed dir myproj/"
+
+# A tracked file on trunk that two features edit on the same line.
+printf 'base\n' > f.txt
+jj commit -m "add f.txt" >/dev/null; or begin
+    echo >&2 "smoke: add f.txt failed (task8)"
+    exit 1
+end
+
+./scripts/workflow start feat-y >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-y (task8)"
+    exit 1
+end
+./scripts/workflow start feat-x >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-x (task8)"
+    exit 1
+end
+
+# feat-x edits f.txt and integrates → trunk f.txt = xxx.
+pushd ../feat-x
+printf 'xxx\n' > f.txt
+jj describe -m "x edit" >/dev/null
+./scripts/workflow integrate >/dev/null 2>&1; or begin
+    echo >&2 "smoke: integrate feat-x (task8)"
+    popd
+    exit 1
+end
+popd
+
+# feat-y edits the SAME line, then refreshes onto the advanced trunk (xxx vs yyy)
+# → a real 69 conflict left in feat-y (the wrapper maps 69 to exit 2).
+pushd ../feat-y
+printf 'yyy\n' > f.txt
+jj describe -m "y edit" >/dev/null
+./scripts/workflow refresh >/dev/null 2>&1
+set -l rc_refresh $status
+test $rc_refresh -ne 0; or begin
+    echo >&2 "smoke: refresh did not surface the trunk conflict (rc=$rc_refresh) (task8)"
+    popd
+    exit 1
+end
+# resolve drops the agent onto the conflict AND prints the marker file:line hits.
+set -l out (./scripts/workflow resolve 2>&1)
+popd
+# The locator line reads `<abs>/f.txt:<line>:<<<<<<< conflict N of M` — seven-or-
+# more brackets, lowercase "conflict" (verified against jj 0.43's real markers).
+string match -q -r 'f\.txt:[0-9]+:<{7,} conflict [0-9]+ of [0-9]+' -- $out
+or begin
+    echo >&2 "smoke: resolve did not print conflict-marker file:line locations (task8)"
+    printf '%s\n' $out >&2
+    exit 1
+end
+echo "ok: resolve prints conflict-marker file:line locations on a real conflict"
+
 echo "SMOKE PASS"
