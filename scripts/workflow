@@ -278,13 +278,9 @@ function __workflow_start
 
     set savepoint (__savepoint)
     and begin
-        jj bookmark create __tip
-        and jj new @- -m "start $name"
-        and jj bookmark create $name
+        jj new --no-edit -A 'default@- & fork_point(default@-)' -B default@ -m "start $name"
+        and jj bookmark create $name -r default@-
         and jj workspace add "$ws_dir" -r $name
-        and jj rebase -r __tip -d $name
-        and jj edit __tip
-        and jj bookmark forget __tip
         or begin
             __rollback $savepoint
             # op restore drops the workspace from jj's view but leaves the dir

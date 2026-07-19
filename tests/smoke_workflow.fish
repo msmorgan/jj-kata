@@ -230,4 +230,23 @@ or begin
     exit 1
 end
 echo "ok: 'start --help' prints usage instead of starting a feature"
+
+# Regression: a pre-existing __tip bookmark must NOT wedge creation (the old
+# fixed-name `jj bookmark create __tip` failed "already exists").
+jj bookmark create __tip -r @ >/dev/null 2>&1
+./scripts/workflow start feat-tip >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start wedged by a pre-existing __tip bookmark"
+    exit 1
+end
+test -d ../feat-tip; or begin
+    echo >&2 "smoke: feat-tip workspace not created"
+    exit 1
+end
+# We must not have clobbered the user's __tip.
+jj bookmark list -T 'name ++ "\n"' | string match -q -- __tip
+or begin
+    echo >&2 "smoke: start removed the pre-existing __tip bookmark"
+    exit 1
+end
+echo "ok: start no longer depends on a __tip bookmark"
 echo "SMOKE PASS"
