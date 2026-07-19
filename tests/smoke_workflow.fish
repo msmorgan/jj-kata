@@ -249,4 +249,54 @@ or begin
     exit 1
 end
 echo "ok: start no longer depends on a __tip bookmark"
+
+# Regression: an agent that hand-rolls the completion — moves its ticket wip->done
+# AND titles the feature commit "complete NAME" — must NOT get a second, EMPTY
+# "complete NAME" appended by integrate (that empty-but-described dup is not
+# auto-pruned; the `xyz|sxx` duplicate-complete incident, 2026-07-19).
+mkdir -p docs/tickets/planned
+echo "# ticket bug-x" >docs/tickets/planned/bug-x.md
+jj commit -m "add bug-x ticket" >/dev/null; or begin
+    echo >&2 "smoke: committing bug-x ticket failed"
+    exit 1
+end
+./scripts/workflow claim bug-x >/dev/null 2>&1; or begin
+    echo >&2 "smoke: claim bug-x failed"
+    exit 1
+end
+pushd ../bug-x
+echo work >bug-x-work.txt
+# The agent does integrate's job itself: move the ticket to done/ and title the
+# commit "complete bug-x". done/ isn't tracked yet (empty dirs don't propagate),
+# so create it before the move.
+mkdir -p docs/tickets/done
+mv docs/tickets/wip/bug-x.md docs/tickets/done/bug-x.md; or begin
+    echo >&2 "smoke: agent-side ticket move failed"
+    popd
+    exit 1
+end
+jj describe -m "complete bug-x" >/dev/null; or begin
+    echo >&2 "smoke: describe bug-x failed"
+    popd
+    exit 1
+end
+popd
+./scripts/workflow integrate bug-x >/dev/null 2>&1; or begin
+    echo >&2 "smoke: integrate bug-x failed"
+    exit 1
+end
+# No EMPTY commit described "complete bug-x" may exist on trunk.
+test -z "$(jj log --no-graph -r 'description(substring:"complete bug-x") & empty()' -T 'change_id' --ignore-working-copy)"
+or begin
+    echo >&2 "smoke: integrate minted an empty duplicate 'complete bug-x' commit"
+    exit 1
+end
+# The real, non-empty completion (carrying the work + wip->done move) survives.
+test -n "$(jj log --no-graph -r 'description(substring:"complete bug-x") & ~empty()' -T 'change_id' --ignore-working-copy)"
+or begin
+    echo >&2 "smoke: real 'complete bug-x' commit missing after integrate"
+    exit 1
+end
+echo "ok: no empty duplicate 'complete NAME' when agent pre-moves the ticket"
+
 echo "SMOKE PASS"

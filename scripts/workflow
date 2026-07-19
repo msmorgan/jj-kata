@@ -1035,7 +1035,17 @@ function __integrate_steps
     end
     and __check_todo "$default_dir" $slugs
     and if set -q slugs[1]
-        jj -R "$default_dir" commit -m "complete $(string join ' ' $slugs)" $move_paths
+        # The completion commit exists to record the wip->done ticket move as a
+        # trailing "complete …" on trunk. If that move already rode in on the
+        # feature commit — e.g. the agent moved the ticket itself — __check_todo
+        # found no wip/ file to move and default@ carries no diff for these paths;
+        # a bare `jj commit` would then mint an EMPTY but DESCRIBED "complete …"
+        # duplicate (not auto-pruned, unlike empty undescribed litter). Only commit
+        # when there is an actual move to capture. (No --ignore-working-copy: we
+        # need default@ re-snapshotted so a just-performed mv is visible.)
+        if test -n "$(jj -R "$default_dir" diff --name-only $move_paths)"
+            jj -R "$default_dir" commit -m "complete $(string join ' ' $slugs)" $move_paths
+        end
     end
     # Drop the now-folded claim bookmark: its commit lives on in default@'s
     # history, and the bookmark's ABSENCE is what tells a later plain `drop`
