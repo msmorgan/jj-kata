@@ -149,4 +149,60 @@ test $rc_start -ne 0; or begin
 end
 echo "ok: creation (start) still refused from a feature workspace"
 
+# --- Task 5A: integrate FROM a feature workspace (self), no NAME. Fresh temp repo
+# so nothing from the guard sections above pollutes the trunk line. ---
+set -l work (mktemp -d)
+set -l coord $work/myproj
+mkdir -p $coord; or exit 1
+cd $coord; or exit 1
+
+jj git init --colocate >/dev/null; or begin
+    echo >&2 "smoke: jj git init failed (task5A)"
+    exit 1
+end
+$tk/install.fish $coord >/dev/null; or begin
+    echo >&2 "smoke: install failed (task5A)"
+    exit 1
+end
+printf '*.tmp\njunk.d/\n' >.gitignore
+jj commit -m "install toolkit" >/dev/null; or begin
+    echo >&2 "smoke: commit failed (task5A)"
+    exit 1
+end
+test "$(jj workspace root --name default)" = "$coord"; or begin
+    echo >&2 "smoke: workspace root --name default != $coord (task5A)"
+    exit 1
+end
+echo "ok: task5A fresh coordinator maps to renamed dir myproj/"
+
+# Start feat-int with committed work, then integrate it FROM INSIDE with no NAME.
+./scripts/workflow start feat-int >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-int"
+    exit 1
+end
+pushd ../feat-int
+echo work >w.txt
+jj describe -m "feat: real work" >/dev/null
+set -l work_id (jj log --no-graph -r @ -T 'change_id.short()')
+./scripts/workflow integrate >/dev/null 2>&1; or begin
+    echo >&2 "smoke: self-integrate failed"
+    popd
+    exit 1
+end
+popd
+# The work's change id is now an ancestor of default@ (trunk advanced).
+test -n "$(jj log --no-graph -r "$work_id"' & ::default@' -T 'change_id' --ignore-working-copy)"
+or begin
+    echo >&2 "smoke: feat-int's work is not an ancestor of default@ after self-integrate"
+    exit 1
+end
+# feat-int@ parked on default@- (integrated tip).
+test "$(jj log --no-graph -r 'feat-int@-' -T 'change_id.short()' --ignore-working-copy)" \
+    = "$(jj log --no-graph -r 'default@-' -T 'change_id.short()' --ignore-working-copy)"
+or begin
+    echo >&2 "smoke: feat-int not parked on default@- after self-integrate"
+    exit 1
+end
+echo "ok: self-integrate advances trunk and parks the workspace"
+
 echo "SMOKE PASS"

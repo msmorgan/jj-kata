@@ -215,11 +215,15 @@ function __claim_todo
     end
 end
 
-# Finish each NAMED ticket: wip/ -> done/. Tolerant — a name with no wip/ ticket
-# (ad-hoc feature, already-moved slug) is skipped, and an empty list is success.
-# integrate passes every ticket the claim commit owns.
+# Finish each NAMED ticket: wip/ -> done/ under REPO_DIR's docs/tickets. Tolerant
+# — a name with no wip/ ticket (ad-hoc feature, already-moved slug) is skipped,
+# and an empty list is success. integrate passes every ticket the claim owns.
+# REPO_DIR ($argv[1]) is default's working-copy root: the mv must land in the
+# working copy that the completion commit captures, which is default's — even when
+# integrate is launched from the feature ws. (From default it IS $project_dir.)
 function __check_todo
-    set -l tickets "$project_dir/docs/tickets"
+    set -l tickets "$argv[1]/docs/tickets"
+    set -e argv[1]
     set -q argv[1]; or return 0          # nothing to finish (ad-hoc / empty list)
     # done/ may not exist yet (empty dirs aren't tracked) — create it before any move.
     mkdir -p "$tickets/done"; or return
@@ -798,6 +802,12 @@ end
 function __integrate_steps
     set name $argv[1]
     set -l ws_dir (jj workspace root --name "$name"); or return
+    # integrate may be launched from the feature ws itself (self-integrate), so
+    # $project_dir is that feature's root — NOT default's. Every default-line
+    # rewrite and ticket path below must therefore address default explicitly
+    # (via -R "$default_dir" or "$default_dir"-rooted paths). From default,
+    # $default_dir == $project_dir, so all of it is a no-op.
+    set -l default_dir (jj workspace root --name default); or return
     # Snapshot NAME's on-disk working copy first: every read below runs from
     # default with --ignore-working-copy, so edits after the agent's last jj
     # command would otherwise be invisible to the in-flight-work checks below.
@@ -866,9 +876,10 @@ function __integrate_steps
     # The tickets this claim owns = the wip/ files its claim commit adds (one,
     # several after `claim --into`, none for an ad-hoc `start`) — read off the
     # claim's own diff so a multi-ticket claim finishes them ALL. jj prints diff
-    # paths relative to CWD, so anchor at the workspace root.
+    # paths relative to CWD, so anchor at DEFAULT's root (the ticket files live in
+    # default's working copy, which self-integrate rewrites remotely).
     set -l prev_pwd "$PWD"
-    cd "$project_dir"
+    cd "$default_dir"
     set -l slugs
     for p in (jj diff -r "$name" --name-only --ignore-working-copy)
         set -l s (string match -rg '^docs/tickets/wip/(.+)\.md$' -- $p)
@@ -881,29 +892,29 @@ function __integrate_steps
     # how a concurrent integrate once swallowed an unrelated edit).
     set -l move_paths
     for s in $slugs
-        set -a move_paths "$project_dir/docs/tickets/wip/$s.md" "$project_dir/docs/tickets/done/$s.md"
+        set -a move_paths "$default_dir/docs/tickets/wip/$s.md" "$default_dir/docs/tickets/done/$s.md"
     end
 
-    jj rebase -r @ -d "$name"@-
+    jj -R "$default_dir" rebase -r @ -d "$name"@-
     # Unlike refresh/re-join conflicts (left in the feature workspace as 69), a
     # fold conflict sits on default@ ITSELF — proceeding would retire the
     # workspace around a permanently conflicted trunk tip. Fail (1) → rollback.
     and begin
-        set -l fold_conflict (jj log --no-graph -r '@ & conflicts()' -T 'change_id.short()' --ignore-working-copy)
+        set -l fold_conflict (jj -R "$default_dir" log --no-graph -r '@ & conflicts()' -T 'change_id.short()' --ignore-working-copy)
         test -z "$fold_conflict"
         or begin
             echo >&2 "$(status filename): folding default@ onto $name's tip conflicts — rolling back; commit or clear default@'s in-flight edits, then re-integrate."
             false
         end
     end
-    and __check_todo $slugs
+    and __check_todo "$default_dir" $slugs
     and if set -q slugs[1]
-        jj commit -m "complete $(string join ' ' $slugs)" $move_paths
+        jj -R "$default_dir" commit -m "complete $(string join ' ' $slugs)" $move_paths
     end
     # Drop the now-folded claim bookmark: its commit lives on in default@'s
     # history, and the bookmark's ABSENCE is what tells a later plain `drop`
     # this workspace is integrated and safe to remove.
-    and jj bookmark forget "$name"
+    and jj -R "$default_dir" bookmark forget "$name"
     # An ad-hoc claim that never adopted a ticket is an EMPTY link in the
     # integrated chain — elide it so trunk history carries only real work.
     # ($claim_cid is a change id, stable across the rejoin/fold rewrites;
@@ -911,12 +922,13 @@ function __integrate_steps
     # commit cannot conflict.)
     and begin
         not jj log --no-graph -r "$claim_cid" -T 'empty' --ignore-working-copy | string match -q true
-        or jj abandon -r "$claim_cid"
+        or jj -R "$default_dir" abandon -r "$claim_cid"
     end
     # KEEP the workspace — park its WC as a fresh empty change on the new trunk
     # tip (a no-op when no completion commit ran, since the fold left it there).
     # The workspace stays usable for follow-up work; `drop NAME` retires it.
-    and jj rebase -r "$ws_wc" -d @-
+    # -R default so @- means default@- (the integrated tip), not the feature ws's.
+    and jj -R "$default_dir" rebase -r "$ws_wc" -d @-
 end
 
 function __workflow_integrate
