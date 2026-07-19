@@ -1,6 +1,6 @@
 {
   "name": "jj-workflow",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Parallel-agent feature workflow for jj repos with guarded trunk integration and conflict tooling.",
   "author": {
     "name": "Michael Morgan",
