@@ -92,4 +92,61 @@ test $rc -ne 0; or begin
 end
 echo "ok: P1 refuses refresh when default@ is a merge"
 
+# --- Task 4: two-tier guard — a feature workspace may act on ITSELF, but not on
+# a sibling, and creation stays coordinator-only. Task 3's section left default@
+# a merge in the temp repo above, so we start a FRESH temp repo here. ---
+set -l work (mktemp -d)
+set -l coord $work/myproj
+mkdir -p $coord; or exit 1
+cd $coord; or exit 1
+
+jj git init --colocate >/dev/null; or begin
+    echo >&2 "smoke: jj git init failed (task4)"
+    exit 1
+end
+$tk/install.fish $coord >/dev/null; or begin
+    echo >&2 "smoke: install failed (task4)"
+    exit 1
+end
+printf '*.tmp\njunk.d/\n' >.gitignore
+jj commit -m "install toolkit" >/dev/null; or begin
+    echo >&2 "smoke: commit failed (task4)"
+    exit 1
+end
+test "$(jj workspace root --name default)" = "$coord"; or begin
+    echo >&2 "smoke: workspace root --name default != $coord (task4)"
+    exit 1
+end
+echo "ok: task4 fresh coordinator maps to renamed dir myproj/"
+
+# Cross-feature refused: a feature ws may not integrate a sibling.
+./scripts/workflow start feat-b >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-b failed"
+    exit 1
+end
+./scripts/workflow start feat-c >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-c failed"
+    exit 1
+end
+pushd ../feat-b
+./scripts/workflow integrate feat-c >/dev/null 2>&1
+set -l rc_cross $status
+popd
+test $rc_cross -ne 0; or begin
+    echo >&2 "smoke: integrating a sibling (feat-c) from feat-b was allowed (rc=$rc_cross)"
+    exit 1
+end
+echo "ok: cross-feature op refused from a feature workspace"
+
+# Creation still default-only: `start` from inside a feature ws must be refused.
+pushd ../feat-b
+./scripts/workflow start anything >/dev/null 2>&1
+set -l rc_start $status
+popd
+test $rc_start -ne 0; or begin
+    echo >&2 "smoke: 'start' from a feature workspace was allowed (rc=$rc_start)"
+    exit 1
+end
+echo "ok: creation (start) still refused from a feature workspace"
+
 echo "SMOKE PASS"

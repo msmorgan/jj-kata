@@ -6,11 +6,31 @@
 source (path dirname (path resolve (status filename)))/lib/setup.fish flock
 or return
 
-# Most commands run from default. repair/converge/resolve heal a feature
-# workspace in place, and no-arg refresh rebases the current feature stack —
-# none touch default's shared line, so they're safe from any workspace.
-if not contains -- "$argv[1]" repair converge resolve refresh; and test "$project_dir" != "$(path resolve (jj workspace root --name default))"
-    echo >&2 "$(status filename): intended to be run from default workspace only (except 'refresh'/'repair'/'converge'/'resolve')."
+# Whether the invoking workspace is the coordinator (default) rather than a
+# feature ws. Defined before the guard below, which consults it.
+function __on_default
+    test "$project_dir" = "$(path resolve (jj workspace root --name default))"
+end
+
+# Self-or-default gate for the self-targeting forms of feature ops (e.g.
+# integrate with no NAME, which defaults to the current workspace): allow from
+# default, or from the very workspace being named; refuse acting on a sibling.
+function __require_self_or_default --argument-names name
+    __on_default; and return 0
+    test "$(path basename $project_dir)" = "$name"; and return 0
+    echo >&2 "$(status filename): can't act on '$name' from another workspace — run it from '$name' or from default."
+    return 2
+end
+
+# Two-tier gate. Creation/cross-feature commands (start/claim/drop, and
+# integrate when it names a foreign ws) rewrite default's shared line for
+# OTHERS or spin up workspaces, so they must run from default. The self-ops
+# (repair/converge/resolve, no-arg refresh, and the self-targeting form of
+# integrate) are reachable from a feature workspace; integrate then enforces
+# "self or default" per-target via __require_self_or_default.
+if not contains -- "$argv[1]" repair converge resolve refresh integrate
+    and not __on_default
+    echo >&2 "$(status filename): '$argv[1]' runs from the default workspace (creation/cross-feature ops are coordinator-only)."
     return 1
 end
 
@@ -927,6 +947,18 @@ function __workflow_integrate
     end
 end
 
+# Dispatch wrapper for `integrate`: default the target to the current workspace
+# when no NAME is given, gate on self-or-default, then run the real integrate.
+# The integrate internals are untouched here — Task 5 makes the no-arg self form
+# fully correct; this wrapper only adds reachability from a feature ws plus the
+# foreign-target refusal.
+function __workflow_integrate_cmd
+    set -l name $argv[1]
+    test -z "$name"; and set name (path basename $project_dir)
+    __require_self_or_default "$name"; or return
+    __workflow_integrate "$name"
+end
+
 # Heal a working-copy divergence (two+ commits sharing @'s change id) in ONE
 # pass: keep the half holding your work (the non-empty one), drop the rest.
 # REFUSES when two halves hold genuinely different non-empty work — resolve by
@@ -1109,7 +1141,7 @@ switch $argv[1]
     case drop
         __workflow_drop $argv[2..]
     case integrate
-        __workflow_integrate $argv[2..]
+        __workflow_integrate_cmd $argv[2..]
     case refresh
         __workflow_refresh $argv[2..]
     case repair
