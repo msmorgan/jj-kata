@@ -165,6 +165,23 @@ function __snapshot_workspaces
     end
 end
 
+# The mirror of __snapshot_workspaces, run AFTER a default-line rewrite: the
+# splice rebases every workspace whose WC commit sat in the rewritten graph, not
+# just the target — those siblings are left STALE (their recorded WC points at a
+# now-hidden commit). integrate only cleared staleness on the target, so a stale
+# sibling's next jj command would snapshot against the old commit and, if it
+# raced another op, reconcile into a two-successor working-copy divergence.
+# Un-staling every workspace here — while we still hold the flock and no sibling
+# command has run — closes that window: disk still equals what we banked, so
+# update-stale fast-forwards the pointer with nothing to diverge. A workspace
+# that isn't stale is a harmless no-op.
+function __unstale_workspaces
+    for ws in (jj workspace list -T 'name ++ "\n"')
+        set -l root (jj workspace root --name $ws 2>/dev/null); or continue
+        command jj -R "$root" workspace update-stale >/dev/null 2>&1
+    end
+end
+
 # P1: the trunk tip we anchor rebases on must be a single commit. `fork_point(x)`
 # == x for a single commit and the parents' common ancestor (∉ default@-) for a
 # merge, so the intersection is empty exactly when default@ is a merge.
@@ -1054,8 +1071,12 @@ function __workflow_integrate
         case 0
             # Work folded into default@. The workspace survives with its WC
             # parked on the integrated tip; its on-disk pointer was rewritten
-            # under it, so clear the staleness before anyone works there.
-            command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
+            # under it, so clear the staleness before anyone works there. The
+            # splice also rebases SIBLING workspaces whose WC sat in the
+            # rewritten graph — clear their staleness too, or a stale sibling's
+            # next command diverges (see __unstale_workspaces). Covers the
+            # target as well, so no separate un-stale for $ws_dir is needed.
+            __unstale_workspaces
             echo >&2 "integrated $name — retire its workspace now (default next step): workflow drop $name   (or keep $ws_dir to resume follow-up work there)"
             return 0
         case 69
