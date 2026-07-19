@@ -808,6 +808,11 @@ function __integrate_steps
     # (via -R "$default_dir" or "$default_dir"-rooted paths). From default,
     # $default_dir == $project_dir, so all of it is a no-op.
     set -l default_dir (jj workspace root --name default); or return
+    # P1 (explicit, early): the trunk tip the splice anchors on (default@-) must be
+    # a single commit. The splice's `-A 'default@- & fork_point(default@-)'` also
+    # enforces this inline, but checking up front gives the clear coordinator
+    # message before any snapshot/rewrite work.
+    __require_linear_trunk; or return
     # Snapshot NAME's on-disk working copy first: every read below runs from
     # default with --ignore-working-copy, so edits after the agent's last jj
     # command would otherwise be invisible to the in-flight-work checks below.
@@ -910,7 +915,17 @@ function __integrate_steps
         set -a move_paths "$default_dir/docs/tickets/wip/$s.md" "$default_dir/docs/tickets/done/$s.md"
     end
 
-    jj -R "$default_dir" rebase -r @ -d "$name"@-
+    # Combined detach+advance splice (P1-guarded, default-scoped): lift the claim
+    # (`bookmarks('$name')` — a glob, but a slug has no glob metacharacters so it
+    # matches literally, and bare $name would be an ambiguous symbol) together with
+    # the feature stack (`default@..$name@-`, everything below the trailing empty
+    # cap) and thread it between the trunk tip and default@. `-A 'default@- &
+    # fork_point(default@-)'` is the inline P1 guard: empty (⇒ jj errors) exactly
+    # when default@- is a merge. Unioning the claim makes a claimed-but-unworked
+    # feature still advance.
+    jj -R "$default_dir" rebase \
+        -r "bookmarks('$name') | default@..$name@-" \
+        -A "default@- & fork_point(default@-)" -B default@
     # Unlike refresh/re-join conflicts (left in the feature workspace as 69), a
     # fold conflict sits on default@ ITSELF — proceeding would retire the
     # workspace around a permanently conflicted trunk tip. Fail (1) → rollback.

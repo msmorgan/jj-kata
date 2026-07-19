@@ -273,4 +273,59 @@ test $rc2 -eq 0; or begin
 end
 echo "ok: P2 accepts a refreshed feature"
 
+# --- Task 5C: the combined advance splice must keep the trunk line linear —
+# default@- (the integrated tip) must not become a redundant-parent merge. Fresh
+# temp repo. ---
+set -l work (mktemp -d)
+set -l coord $work/myproj
+mkdir -p $coord; or exit 1
+cd $coord; or exit 1
+
+jj git init --colocate >/dev/null; or begin
+    echo >&2 "smoke: jj git init failed (task5C)"
+    exit 1
+end
+$tk/install.fish $coord >/dev/null; or begin
+    echo >&2 "smoke: install failed (task5C)"
+    exit 1
+end
+printf '*.tmp\njunk.d/\n' >.gitignore
+jj commit -m "install toolkit" >/dev/null; or begin
+    echo >&2 "smoke: commit failed (task5C)"
+    exit 1
+end
+test "$(jj workspace root --name default)" = "$coord"; or begin
+    echo >&2 "smoke: workspace root --name default != $coord (task5C)"
+    exit 1
+end
+echo "ok: task5C fresh coordinator maps to renamed dir myproj/"
+
+./scripts/workflow start feat-c >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-c"
+    exit 1
+end
+pushd ../feat-c
+echo c >c.txt
+jj describe -m "feat: c" >/dev/null
+./scripts/workflow integrate >/dev/null 2>&1; or begin
+    echo >&2 "smoke: integrate feat-c failed"
+    popd
+    exit 1
+end
+popd
+# After integrate the coordinator's integrated tip must have exactly one parent:
+# fork_point(default@-) == default@- iff default@- is a single (non-merge) commit.
+test -n "$(jj log --no-graph -r 'default@- & fork_point(default@-)' -T 'change_id' --ignore-working-copy)"
+or begin
+    echo >&2 "smoke: default@- is a merge after integrate (redundant-parent splice)"
+    exit 1
+end
+# And the whole coordinator line is linear (no commit with >1 parent).
+test -z "$(jj log --no-graph -r '::default@ & merges()' -T 'change_id' --ignore-working-copy)"
+or begin
+    echo >&2 "smoke: a merge commit exists on the coordinator line after integrate"
+    exit 1
+end
+echo "ok: advance splice keeps the trunk line linear"
+
 echo "SMOKE PASS"
