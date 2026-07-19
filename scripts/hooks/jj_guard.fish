@@ -1,6 +1,9 @@
 #!/usr/bin/env fish
 # scripts/hooks/jj_guard.fish — PreToolUse(Bash) guard for a jj-workflow repo.
 #
+# Codex and Claude Code both send the documented tool_name/tool_input payload.
+# Google Antigravity uses the toolCall payload handled below.
+#
 # Immutability itself lives in repo config, not a wrapper:
 #   immutable_heads() = builtin_immutable_heads() | (default@ ~ @)
 # `@` resolves per-workspace, so that one shared alias locks the whole default
@@ -38,18 +41,19 @@
 # Read stdin payload
 set -l payload (cat | string join \n)
 
-# Detect platform
-set -l is_claude (echo "$payload" | jq -r 'if .tool_name == "Bash" then "true" else "false" end')
+# Detect payload shape. Codex deliberately uses the Claude-compatible Bash
+# shape, so this branch serves both hosts.
+set -l is_bash_hook (echo "$payload" | jq -r 'if .tool_name == "Bash" then "true" else "false" end')
 set -l is_gemini (echo "$payload" | jq -r 'if .toolCall.name == "run_command" then "true" else "false" end')
 
-if test "$is_claude" != "true" -a "$is_gemini" != "true"
-    # Neither Claude nor Gemini terminal tool call, let it pass
+if test "$is_bash_hook" != "true" -a "$is_gemini" != "true"
+    # Not a supported terminal-tool payload; let it pass.
     exit 0
 end
 
 set -l cwd ""
 set -l cmd ""
-if test "$is_claude" = "true"
+if test "$is_bash_hook" = "true"
     set cwd (echo "$payload" | jq -r '.cwd // ""')
     set cmd (echo "$payload" | jq -r '.tool_input.command // ""')
 else if test "$is_gemini" = "true"
@@ -202,7 +206,7 @@ while test $j -le $ntok
         set curcmd $text
         set expectword 0
         if test "$text" = git; or string match -rq -- '/git$' -- $text
-            if test "$is_claude" = "true"
+            if test "$is_bash_hook" = "true"
                 echo >&2 "jj-guard: git is banned in this jj repo — use jj, not git."
                 exit 2
             else
@@ -215,7 +219,7 @@ while test $j -le $ntok
     # argument token of curcmd — only jj's own flags can bypass the guard
     if test "$curcmd" = jj; or string match -rq -- '/jj$' -- $curcmd
         if contains -- $text --ignore-immutable --config --config-file
-            if test "$is_claude" = "true"
+            if test "$is_bash_hook" = "true"
                 echo >&2 "jj-guard: refusing $text — it would bypass the repo's immutable_heads guard."
                 exit 2
             else
@@ -223,7 +227,7 @@ while test $j -le $ntok
                 exit 0
             end
         else if set -l m (string match -r -- '^(--config|--config-file)=' -- $text)
-            if test "$is_claude" = "true"
+            if test "$is_bash_hook" = "true"
                 echo >&2 "jj-guard: refusing $m[2] — it would bypass the repo's immutable_heads guard."
                 exit 2
             else

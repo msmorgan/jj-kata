@@ -48,6 +48,34 @@ workspaces via per-repo `WorktreeCreate`/`WorktreeRemove` hooks — isolation th
 creates a real feature workspace and removal maps to plain `workflow drop`
 (dropping only integrated or untouched workspaces; un-integrated work is kept).
 
+### As a Codex plugin
+
+```bash
+codex plugin marketplace add msmorgan/jj-workflow
+codex plugin add jj-workflow@jj-workflow
+```
+
+Start a new Codex thread after installation so its skills, hooks, and command
+aliases are loaded. The plugin provides the `$jj-workflow:jj-workflow` and
+`$jj-workflow:setup` skills, puts `workflow` and `conflicts` on the shell
+`PATH`, and bundles the repo-aware `PreToolUse(Bash)` guard. Open `/hooks` once
+to review and trust the guard; Codex intentionally does not trust executable
+plugin hooks merely because the plugin was installed.
+
+Then invoke `$jj-workflow:setup` once per jj repo. It installs the repo-local
+`immutable_heads()` alias, which is the actual trunk protection. Optionally set
+`JJ_EDITOR=false` for Codex shell commands in the trusted repo's
+`.codex/config.toml`:
+
+```toml
+[shell_environment_policy]
+set = { JJ_EDITOR = "false" }
+```
+
+Codex does not provide Claude Code's `EnterWorktree`/`WorktreeRemove` hook
+events. Use `workflow claim NAME` or `workflow start NAME` to create isolated
+jj workspaces instead.
+
 ### Repo-local (no Claude Code required)
 
 ```bash

@@ -1,0 +1,29 @@
+{
+  "name": "jj-workflow",
+  "version": "0.4.4",
+  "description": "Parallel-agent feature workflow for jj repos with guarded trunk integration and conflict tooling.",
+  "author": {
+    "name": "Michael Morgan",
+    "url": "https://github.com/msmorgan"
+  },
+  "homepage": "https://github.com/msmorgan/jj-workflow",
+  "repository": "https://github.com/msmorgan/jj-workflow",
+  "license": "MIT",
+  "keywords": ["jj", "jujutsu", "vcs", "workflow", "workspaces"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "jj Workflow",
+    "shortDescription": "Safe multi-workspace development with jj",
+    "longDescription": "Manage isolated jj feature workspaces, refresh them against trunk, integrate completed work, and recover conflicts safely.",
+    "developerName": "Michael Morgan",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/msmorgan/jj-workflow",
+    "defaultPrompt": [
+      "Set up jj-workflow in this repository.",
+      "Start an isolated jj feature workspace.",
+      "Refresh and integrate this jj workspace."
+    ],
+    "brandColor": "#5B5BD6"
+  }
+}
