@@ -168,6 +168,12 @@ agent from stepping outside the immutability model. It enforces two bans:
 
 Bare `jj` is allowed; immutability is enforced by config, not by routing.
 
+Matching is shell-quote-aware, so these strings are *data*, not commands, and pass
+through: `jj describe -m 'see; git blame for context'`, `jj commit -m 'use --config
+to override'`, `jj diff --git`. Quote/backslash evasion still fails closed — `"git"
+status`, `jj --'config' …`, and a `git`/`--config` hidden in `$(…)` (even inside
+double quotes) are all still refused.
+
 Register it in `.claude/settings.json`, and set `JJ_EDITOR=false` so a stray
 editor-opening command can't hang the agent (the toolkit always passes `-m`):
 
