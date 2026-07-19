@@ -385,4 +385,54 @@ or begin
 end
 echo "ok: self-integrate banks sibling workspaces' edits (no divergence)"
 
+# --- Task 5E: a TICKETED claim integrated from inside its own feature workspace
+# must move its ticket wip/->done/ on trunk AND record a `complete <slug>` commit.
+# Every other case here uses ad-hoc `start` (empty slugs), so __integrate_steps'
+# `__check_todo` move + `jj commit -m "complete …"` branch is otherwise never
+# exercised. Fresh temp repo — prior blocks leave the trunk line dirty. ---
+set -l work (mktemp -d)
+set -l coord $work/myproj
+mkdir -p $coord; or exit 1
+cd $coord; or exit 1
+
+jj git init --colocate >/dev/null; or begin
+    echo >&2 "smoke: jj git init failed (task5E)"
+    exit 1
+end
+$tk/install.fish $coord >/dev/null; or begin
+    echo >&2 "smoke: install failed (task5E)"
+    exit 1
+end
+printf '*.tmp\njunk.d/\n' >.gitignore
+jj commit -m "install toolkit" >/dev/null; or begin
+    echo >&2 "smoke: commit failed (task5E)"
+    exit 1
+end
+test "$(jj workspace root --name default)" = "$coord"; or begin
+    echo >&2 "smoke: workspace root --name default != $coord (task5E)"
+    exit 1
+end
+echo "ok: task5E fresh coordinator maps to renamed dir myproj/"
+
+# Ticketed integrate from the feature ws: wip -> done move + "complete" commit land on trunk.
+mkdir -p docs/tickets/planned
+printf -- '---\nneeds: []\n---\n# t-real\n' > docs/tickets/planned/t-real.md
+jj commit -m "add ticket t-real" >/dev/null
+./scripts/workflow claim t-real >/dev/null 2>&1; or begin echo >&2 "smoke: claim t-real failed"; exit 1; end
+test -f docs/tickets/wip/t-real.md; or begin echo >&2 "smoke: t-real not in wip/ after claim"; exit 1; end
+pushd ../t-real
+echo realwork > r.txt
+jj describe -m "feat: real work" >/dev/null
+./scripts/workflow integrate >/dev/null 2>&1; or begin echo >&2 "smoke: ticketed self-integrate failed"; popd; exit 1; end
+popd
+# The wip->done move is now on trunk...
+test -f docs/tickets/done/t-real.md; or begin echo >&2 "smoke: t-real not moved to done/ after integrate"; exit 1; end
+test ! -f docs/tickets/wip/t-real.md; or begin echo >&2 "smoke: t-real still in wip/ after integrate"; exit 1; end
+# ...as a 'complete t-real' commit in default@'s ancestry. jj appends a trailing
+# newline to `-m` descriptions, so exact:/default match fails on jj 0.43 — a
+# substring match asserts the same "completion commit is in ancestry" fact.
+test -n "$(jj log --no-graph -r 'description(substring:"complete t-real") & ::default@' -T 'change_id' --ignore-working-copy)"
+or begin echo >&2 "smoke: no 'complete t-real' commit on trunk after integrate"; exit 1; end
+echo "ok: ticketed self-integrate moves wip->done and records a completion commit"
+
 echo "SMOKE PASS"
