@@ -140,6 +140,16 @@ function __snapshot_workspaces
     end
 end
 
+# P1: the trunk tip we anchor rebases on must be a single commit. `fork_point(x)`
+# == x for a single commit and the parents' common ancestor (∉ default@-) for a
+# merge, so the intersection is empty exactly when default@ is a merge.
+function __require_linear_trunk
+    if test -z "$(jj log --no-graph -r 'default@- & fork_point(default@-)' -T 'change_id' --ignore-working-copy)"
+        echo >&2 "$(status filename): default@ is a merge; the coordinator line must be linear — abandon or resolve the merge, then retry."
+        return 2
+    end
+end
+
 # Scan REVSET for recorded conflicts (a conflicted rebase exits 0). If any:
 # leave them in place and return the 69 "expected stop" sentinel (wrapper maps
 # it to exit 2; integrate refuses to fold past it). Else 0.
@@ -699,6 +709,9 @@ end
 # Returns 69 (conflict left in place) or 1 (failed).
 function __refresh_detach
     set name $argv[1]
+    # P1: refuse before touching anything if the trunk tip we'd rebase onto
+    # (default@-) is a merge — an ambiguous anchor the coordinator must resolve.
+    __require_linear_trunk; or return
     set ws_dir (jj workspace root --name "$name"); or return 1
     # Empty stack → already fully in default@'s ancestry; `jj rebase` errors on
     # an empty -r set, so short-circuit (still clearing staleness). A FAILED log
