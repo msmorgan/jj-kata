@@ -88,7 +88,12 @@ It also sets the repo-config `immutable_heads()` alias that protects the trunk l
    `WorktreeCreate`/`WorktreeRemove` hooks in `.claude/settings.json` (this repo's
    own settings file is the template) — EnterWorktree then creates jj-workflow
    feature workspaces instead of git worktrees. Per-repo only: registered
-   globally these hooks would hijack EnterWorktree in plain-git repos.
+   globally these hooks would hijack EnterWorktree in plain-git repos. Note when
+   ending such a session: `ExitWorktree`'s git-native pre-remove check can't read
+   a jj workspace and refuses with "could not verify worktree state" — call it
+   with `discard_changes: true`. That only skips the bogus git gate; it does not
+   force-discard, because the `WorktreeRemove` hook's *non-force* `workflow drop`
+   is still the real gate and keeps any un-integrated work.
 
 ---
 

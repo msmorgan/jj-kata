@@ -42,9 +42,15 @@ Key rules:
   feature workspace — the hook claims the matching ticket if the worktree name
   names one. Finish by committing (`jj commit -m`), then `workflow integrate
   NAME` from the coordinator — the workspace survives, so exit the worktree
-  choosing "remove" and the hook's plain drop cleans it up. Removing a
-  worktree that still holds un-integrated work is refused (workspace and
-  commits kept), never silently discarded.
+  choosing "remove" and the hook's plain drop cleans it up. ExitWorktree's own
+  pre-remove check is git-native and can't read a jj workspace, so it refuses
+  with "could not verify worktree state" — call it with `discard_changes: true`
+  to get past that (don't waste the first attempt on it). This is safe:
+  `discard_changes` only skips that bogus git gate, it does NOT force-discard —
+  the actual removal is delegated to the `WorktreeRemove` hook's *non-force*
+  `workflow drop`, which drops an integrated/empty workspace (dir deleted) but
+  refuses one that still holds un-integrated work (workspace, dir, and commits
+  all kept), never silently discarded.
 - Resolve alphabetized-list conflicts with `conflicts auto`; inspect any
   conflict with `conflicts show`; pick a side per file with
   `conflicts accept FILE snapshot|diff|base|stack`.

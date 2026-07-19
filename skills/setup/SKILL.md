@@ -51,8 +51,12 @@ is idempotent; report what was already in place.
    is refused and kept. Finish flow for such a workspace: commit, `workflow
    integrate NAME` from the coordinator (the workspace survives, parked on the
    integrated tip), then exit the worktree choosing "remove" to clean it up.
-   These hooks are per-repo ON PURPOSE: registered globally they would hijack
-   EnterWorktree in plain-git repos.
+   ExitWorktree's git-native pre-remove check can't read a jj workspace, so it
+   refuses with "could not verify" — pass `discard_changes: true`; that only
+   skips the bogus git gate, the non-force `workflow drop` in the hook is still
+   the real gate (it keeps un-integrated work). These hooks are per-repo ON
+   PURPOSE: registered globally they would hijack EnterWorktree in plain-git
+   repos.
 
 6. Sanity check: `workflow` with no arguments prints usage (the plugin's `bin/`
    is on PATH). The PreToolUse guard hook ships with this plugin and needs no
