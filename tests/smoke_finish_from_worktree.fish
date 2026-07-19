@@ -205,4 +205,72 @@ or begin
 end
 echo "ok: self-integrate advances trunk and parks the workspace"
 
+# --- Task 5B: P2 gate — a feature behind ADVANCED trunk (real work above) must be
+# refused until refreshed. Fresh temp repo. ---
+set -l work (mktemp -d)
+set -l coord $work/myproj
+mkdir -p $coord; or exit 1
+cd $coord; or exit 1
+
+jj git init --colocate >/dev/null; or begin
+    echo >&2 "smoke: jj git init failed (task5B)"
+    exit 1
+end
+$tk/install.fish $coord >/dev/null; or begin
+    echo >&2 "smoke: install failed (task5B)"
+    exit 1
+end
+printf '*.tmp\njunk.d/\n' >.gitignore
+jj commit -m "install toolkit" >/dev/null; or begin
+    echo >&2 "smoke: commit failed (task5B)"
+    exit 1
+end
+test "$(jj workspace root --name default)" = "$coord"; or begin
+    echo >&2 "smoke: workspace root --name default != $coord (task5B)"
+    exit 1
+end
+echo "ok: task5B fresh coordinator maps to renamed dir myproj/"
+
+./scripts/workflow start feat-old >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-old"
+    exit 1
+end
+./scripts/workflow start feat-new >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-new"
+    exit 1
+end
+# Integrate feat-new (self) — advances trunk with REAL work, leaving feat-old behind.
+pushd ../feat-new
+echo n >n.txt
+jj describe -m "feat: n" >/dev/null
+./scripts/workflow integrate >/dev/null 2>&1; or begin
+    echo >&2 "smoke: integrate feat-new (setup for P2) failed"
+    popd
+    exit 1
+end
+popd
+# feat-old is now behind the advanced trunk — a self-integrate must REFUSE.
+pushd ../feat-old
+echo o >o.txt
+jj describe -m "feat: o" >/dev/null
+./scripts/workflow integrate >/dev/null 2>&1
+set -l rc $status
+popd
+test $rc -ne 0; or begin
+    echo >&2 "smoke: integrate of a stale feature was allowed (P2)"
+    exit 1
+end
+echo "ok: P2 refuses a stale feature"
+# …and after refresh it succeeds.
+pushd ../feat-old
+./scripts/workflow refresh >/dev/null 2>&1
+./scripts/workflow integrate >/dev/null 2>&1
+set -l rc2 $status
+popd
+test $rc2 -eq 0; or begin
+    echo >&2 "smoke: integrate after refresh still refused (rc=$rc2)"
+    exit 1
+end
+echo "ok: P2 accepts a refreshed feature"
+
 echo "SMOKE PASS"

@@ -816,6 +816,17 @@ function __integrate_steps
     command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
     command jj -R "$ws_dir" status >/dev/null
     or return 1
+    # P2: refuse unless the feature already sits on the current trunk tip — i.e.
+    # there is no NON-EMPTY trunk commit above the feature's tip that it lacks.
+    # `workflow refresh` (inside the feature) rebases it onto default@-, clearing
+    # this. A self-integrate can't rewind trunk past newer work; the coordinator
+    # must not silently reorder from a feature ws. Empty claims above (a sibling
+    # started later) carry no work to lose, so they don't count — the from-default
+    # reorder path still integrates a feature stacked below an empty sibling claim.
+    if test -n "$(jj log --no-graph -r "$name"'@-..default@- & ~empty()' -T 'change_id' --ignore-working-copy)"
+        echo >&2 "$(status filename): $name is behind trunk — run 'workflow refresh' inside it first, then integrate."
+        return 2
+    end
     # Refresh first — always the DETACH path, so the re-join below has a detached
     # feature to thread the claim back into, and the fold never rewinds default@
     # past newer trunk work. 69 = a conflict was left in the workspace: bail with
@@ -831,7 +842,11 @@ function __integrate_steps
     set -l fork_parent (jj log --no-graph -r "fork_point(default@..$name@)-" -T 'change_id.short()' --ignore-working-copy)
     set -l claim_cid (jj log --no-graph -r "$name" -T 'change_id.short()' --ignore-working-copy)
     if test -n "$fork_parent" -a "$fork_parent" != "$claim_cid"
-        jj rebase -r "$name" -A "fork_point(default@..$name@)-"
+        # -R default: the claim is a default-line commit (immutable from a feature
+        # ws, where default@ ~ @ = default@). Rewriting it during a self-integrate
+        # must run in default's context, where default@ ~ @ is empty and the claim
+        # is mutable. From default this is a no-op.
+        jj -R "$default_dir" rebase -r "$name" -A "fork_point(default@..$name@)-"
         or return 1
         # The re-join reparented the feature stack onto the claim → the workspace WC is
         # now stale; clear it before the inspection / cap below touch the workspace.
