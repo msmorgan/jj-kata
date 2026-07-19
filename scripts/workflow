@@ -402,7 +402,15 @@ function __workflow_claim
         # wip/done NAME falls back too — start refuses on its own if the
         # workspace or dir already exists.
         if set -q _flag_or_start; and not contains -- (__ticket_state $argv[1]) triage census
+            # This IS a claim from the harness's view (EnterWorktree auto-claims),
+            # so re-label the base commit `claim NAME` — as adopt does on the
+            # ticketed path — rather than leaving __workflow_start's "start NAME".
+            # A typed `workflow start NAME` (no --or-start) keeps reading "start".
+            # The describe rebases the just-added workspace, so heal its transient
+            # staleness right away, exactly like __claim_fresh does after its adopt.
             __workflow_start $argv
+            and jj describe -r $argv[1] -m "claim $argv[1]"
+            and command jj -R (jj workspace root --name $argv[1]) workspace update-stale >/dev/null 2>&1
         else
             __claim_fresh $argv[1]
         end
