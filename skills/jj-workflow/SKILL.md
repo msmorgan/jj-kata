@@ -78,7 +78,10 @@ Key rules:
   the actual removal is delegated to the `WorktreeRemove` hook's *non-force*
   `workflow drop`, which drops an integrated/empty workspace (dir deleted) but
   refuses one that still holds un-integrated work (workspace, dir, and commits
-  all kept), never silently discarded.
+  all kept), never silently discarded. To actually throw away un-integrated
+  work, ExitWorktree with "keep" (parking the workspace) and then run
+  `workflow drop NAME --force` from `default` — only a direct `--force` discards;
+  the hook path never can.
 - Resolve alphabetized-list conflicts with `conflicts auto`; inspect any
   conflict with `conflicts show`; pick a side per file with
   `conflicts accept FILE snapshot|diff|base|stack`.
