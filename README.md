@@ -204,9 +204,25 @@ Exit 2 from the hook blocks the tool call with the error on stderr; exit 0 allow
 
 ## Feature workflow
 
-`scripts/workflow` manages the full feature lifecycle. Run it from the `default`
-workspace — except `repair`, `converge`, and `resolve`, which run from the affected
-feature workspace.
+`scripts/workflow` manages the full feature lifecycle under a **two-tier** rule
+for *where* each command runs:
+
+- **The `default` coordinator** owns creation and cross-feature ops — `start`,
+  `claim NAME`, `drop NAME`, and any `integrate NAME` / `claim … --into NAME` that
+  names a *sibling* workspace. These spin up workspaces or rewrite the shared
+  trunk line on another workspace's behalf, so they must run from `default`.
+- **A feature workspace acts on *itself only*.** From inside it you can `refresh`,
+  `claim` (fold more tickets into its own claim), and `integrate` — each targeting
+  that very workspace, with no `cd` back to `default`. `repair`, `converge`, and
+  `resolve` likewise run from the affected feature workspace. Naming a *sibling*
+  from a feature workspace is refused (it would hold the wrong lock).
+
+A mutating command defaults to the workspace you stand in; a positional `NAME` is
+honored only from `default` (or when it equals the workspace you're in).
+Self-integrate reaches into `default`'s context internally (via `jj -R`) to
+advance trunk — and because the `immutable_heads()` alias makes the default line
+writable *only* from `default`'s own context, a mis-targeted rewrite refuses
+rather than corrupts.
 
 > **Never pipe a `workflow` command into `tail`, `head`, `grep`, `less`, or
 > anything else.** Its exit status is load-bearing — `0` success, `2` refusal
@@ -225,8 +241,12 @@ scripts/workflow claim TICKET_NAME
 # Start an ad-hoc workspace with no ticket:
 scripts/workflow start NAME
 
-# Fold extra tickets into an already-running workspace's claim:
+# Fold extra tickets into an already-running workspace's claim (from default):
 scripts/workflow claim TICKET_A TICKET_B --into NAME
+
+# Same fold, run from INSIDE the feature workspace — folds into ITS own claim,
+# no --into and no cd:
+scripts/workflow claim TICKET_A TICKET_B
 ```
 
 `claim TICKET_NAME`:
@@ -243,7 +263,10 @@ mechanism — the fold into the claim commit.)
 
 `claim TICKET_A ... --into NAME` folds extra tickets into an existing workspace's
 claim commit. The workspace goes stale (its parent was rewritten); run
-`jj workspace update-stale` there before the next commit.
+`jj workspace update-stale` there before the next commit. Run the *same* fold from
+**inside** a feature workspace by dropping `--into` — `claim TICKET_A TICKET_B`
+folds those tickets into *that* workspace's own claim (its description accretes to
+`claim a, b, …`), no `cd` needed. The `--into NAME` form stays coordinator-only.
 
 **Claim eagerly** — before any exploration, brainstorming, or spec work. This
 establishes your baseline and provisions the workspace so builds and tests work
@@ -252,9 +275,20 @@ immediately.
 ### Integrating a feature
 
 ```bash
-# Run from default:
+# From INSIDE the feature workspace — integrates THIS workspace (no NAME):
+scripts/workflow integrate
+
+# From default — target one workspace by name (unchanged):
 scripts/workflow integrate NAME
 ```
+
+**Preconditions.** `integrate` refuses (exit 2) unless the feature is already
+refreshed onto the **current** trunk tip (P2) — if newer non-empty trunk work
+sits above it, run `scripts/workflow refresh` inside the workspace first (resolving
+any feature-vs-trunk conflict there), then integrate. This is what lets integrate
+assume a clean merge: `refresh` owns feature-vs-trunk conflicts, `integrate` does
+not. It also refuses if `default@` is a merge (P1 — an ambiguous trunk tip);
+linearize the coordinator line first.
 
 `integrate` performs these steps in order:
 
@@ -328,7 +362,9 @@ scripts/workflow refresh --all
   feature carried along (the old behavior).
 
 Both bring the feature current with trunk. A conflict is left in place for you to
-resolve — it does not roll back. Always refresh before any review step.
+resolve — it does not roll back. Always refresh before any review step. Like
+`integrate` and `start`, `refresh` refuses (P1) when `default@` is a merge — an
+ambiguous trunk tip to rebase onto; linearize the coordinator line first.
 
 > **`refresh --all` is human-only.** It rewrites every workspace's claim at once.
 > Never run it as an AI agent: a concurrent `integrate` could fold a stale half into

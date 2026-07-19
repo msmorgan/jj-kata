@@ -121,7 +121,7 @@ given P2, collapse detach + advance into one splice against `default`:
 
 ```
 jj -R (jj workspace root --name default) \
-   rebase -r 'bookmarks(exact:"$name") | default@..$name@-' \
+   rebase -r 'bookmarks('$name') | default@..$name@-' \
           -A 'default@- & fork_point(default@-)' -B default@
 ```
 

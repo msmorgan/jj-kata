@@ -23,19 +23,40 @@ Key rules:
   `immutable_heads()` alias, not a wrapper. Never run `git` (blocked by the
   guard hook), and never pass `--config`/`--config-file`/`--ignore-immutable`
   (they bypass the guard and are blocked too).
+- **Two-tier model.** The `default` coordinator owns creation and cross-feature
+  ops — `workflow start NAME`, `workflow claim NAME`, `workflow drop NAME`, and
+  any `integrate NAME` / `claim ... --into NAME` naming a *sibling* all run from
+  `default`. A **feature workspace acts on itself only**: from inside it you can
+  `refresh`, `claim` (self-fold), and `integrate` THIS workspace in place — no
+  `cd` back to `default`. Naming a sibling from a feature workspace is refused.
 - Each feature = `workflow claim NAME` (ticketed) or `workflow start NAME`
-  (ad-hoc), run from the `default` coordinator workspace → work in the NAME
-  workspace (default: a sibling dir; see `workspace_dir` in jjworkflow.toml) →
-  `workflow integrate NAME` back on the coordinator. Integrate KEEPS the
-  workspace, parked on the integrated tip; the default next step is
-  `workflow drop NAME` to retire it so the directory doesn't dangle (keep it
-  only for follow-up work). Drop refuses if un-integrated work remains —
-  `--force` discards. To clear a backlog of forgotten directories,
-  `workflow drop --integrated` sweeps every integrated, empty workspace at once
-  (skips un-integrated ones and any resumed with new work; `--dry-run` previews).
+  (ad-hoc), run from `default` → work in the NAME workspace (default: a sibling
+  dir; see `workspace_dir` in jjworkflow.toml) → finish it with `workflow
+  integrate` (NO name) from INSIDE that workspace, or `workflow integrate NAME`
+  from `default`. Self-integrate reaches into `default` internally to advance
+  trunk; the immutability alias makes that the only context where the default
+  line is writable, so a mis-targeted run refuses rather than corrupts. Integrate
+  KEEPS the workspace, parked on the integrated tip; the default next step is
+  `workflow drop NAME` — from `default` or via ExitWorktree, never from the
+  workspace itself (that would delete its own cwd) — to retire it so the
+  directory doesn't dangle (keep it only for follow-up work). Drop refuses if
+  un-integrated work remains — `--force` discards. To clear a backlog of
+  forgotten directories, `workflow drop --integrated` sweeps every integrated,
+  empty workspace at once (skips un-integrated ones and any resumed with new
+  work; `--dry-run` previews).
+- Fold extra tickets in place: from a feature workspace, `workflow claim TODO...`
+  (no `--into`) folds each into THIS workspace's own claim, accreting its
+  description to `claim a, b`. The `--into NAME` form stays coordinator-only.
 - Before any review step, get current with trunk: run `workflow refresh`
   (no argument) from inside the feature workspace — it detaches the stack onto
-  the trunk tip; `integrate` re-joins the claim.
+  the trunk tip; `integrate` re-joins the claim. `refresh` owns feature-vs-trunk
+  conflicts; `integrate` assumes a clean, already-refreshed feature.
+- Two preconditions refuse cleanly rather than doing something surprising:
+  **P1** — `refresh`, `integrate`, and `start` refuse when `default@` is a merge
+  ("default@ is a merge; the coordinator line must be linear"); abandon or resolve
+  the merge on `default` first. **P2** — `integrate` refuses (exit 2) unless the
+  feature already sits on the *current* trunk tip; run `workflow refresh` inside
+  the workspace first, then integrate.
 - On ANY conflict (a command exiting 69) or working-copy divergence, immediately
   run `workflow repair` (or `workflow resolve`) yourself from inside the feature
   workspace and reason through the conflict step by step — this is
