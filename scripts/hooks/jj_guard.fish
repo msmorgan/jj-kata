@@ -52,7 +52,7 @@ function _jjg_allow --argument-names cmd is_bash_hook is_gemini
     if test "$is_gemini" = "true"
         echo '{"decision": "allow"}'
     else if test "$is_bash_hook" = "true"; and set -q PLUGIN_ROOT; and test -n "$PLUGIN_ROOT"
-        jq -n --arg bin "$PLUGIN_ROOT/bin" --arg command "$cmd" \
+        jq -n --arg bin "$PLUGIN_ROOT/scripts" --arg command "$cmd" \
             '{hookSpecificOutput:{
                 hookEventName:"PreToolUse",
                 permissionDecision:"allow",
