@@ -1,6 +1,6 @@
 ---
 name: jj-workflow
-description: Use when working in a jj (Jujutsu) repo that uses the jj-workflow toolkit — feature workspaces with a claim/start → work → integrate lifecycle, a config-based trunk-immutability guard, and conflict tooling. Signs a repo uses it are a `default` coordinator workspace with sibling feature workspaces, a `jjworkflow.toml`, or `scripts/workflow` in the repo.
+description: Use when working in a jj (Jujutsu) repo that uses the jj-workflow toolkit — feature workspaces with a claim/start → work → integrate lifecycle, a config-based trunk-immutability guard, and conflict tooling. Signs include a `default` coordinator with jj feature workspaces, a `jjworkflow.toml`, or `scripts/workflow`.
 ---
 
 # jj-workflow
@@ -35,20 +35,21 @@ Key rules:
   `refresh`, `claim` (self-fold), and `integrate` THIS workspace in place — no
   `cd` back to `default`. Naming a sibling from a feature workspace is refused.
 - Each feature = `workflow claim NAME` (ticketed) or `workflow start NAME`
-  (ad-hoc), run from `default` → work in the NAME workspace (default: a sibling
-  dir; see `workspace_dir` in jjworkflow.toml) → finish it with `workflow
-  integrate` (NO name) from INSIDE that workspace, or `workflow integrate NAME`
-  from `default`. Self-integrate reaches into `default` internally to advance
-  trunk; the immutability alias makes that the only context where the default
-  line is writable, so a mis-targeted run refuses rather than corrupts. Integrate
-  KEEPS the workspace, parked on the integrated tip; the default next step is
-  `workflow drop NAME` — from `default` or via ExitWorktree, never from the
-  workspace itself (that would delete its own cwd) — to retire it so the
-  directory doesn't dangle (keep it only for follow-up work). Drop refuses if
-  un-integrated work remains — `--force` discards. To clear a backlog of
-  forgotten directories, `workflow drop --integrated` sweeps every integrated,
-  empty workspace at once (skips un-integrated ones and any resumed with new
-  work; `--dry-run` previews).
+  (ad-hoc), run from `default` → work in the NAME workspace (Codex plugin:
+  `.codex/workspaces/NAME` so it remains inside the sandbox; other installs:
+  sibling `../NAME`; explicit `workspace_dir` overrides either default) →
+  finish it with `workflow integrate` (NO name) from INSIDE that workspace, or
+  `workflow integrate NAME` from `default`. Self-integrate reaches into
+  `default` internally to advance trunk; the immutability alias makes that the
+  only context where the default line is writable, so a mis-targeted run
+  refuses rather than corrupts. Integrate KEEPS the workspace, parked on the
+  integrated tip; the default next step is `workflow drop NAME` — from
+  `default` or via ExitWorktree, never from the workspace itself (that would
+  delete its own cwd) — to retire it so the directory doesn't dangle (keep it
+  only for follow-up work). Drop refuses if un-integrated work remains —
+  `--force` discards. To clear a backlog of forgotten directories, `workflow
+  drop --integrated` sweeps every integrated, empty workspace at once (skips
+  un-integrated ones and any resumed with new work; `--dry-run` previews).
 - Fold extra tickets in place: from a feature workspace, `workflow claim TODO...`
   (no `--into`) folds each into THIS workspace's own claim, accreting its
   description to `claim a, b`. The `--into NAME` form stays coordinator-only.

@@ -44,9 +44,10 @@ set -l payload (cat | string join \n)
 # Codex does not currently add a plugin's bin/ directory to ordinary shell
 # commands. Plugin hooks do receive PLUGIN_ROOT, though, and PreToolUse may
 # rewrite Bash input. On every allowed Codex shell call, prepend this plugin's
-# bin/ to PATH inside the command itself. This makes `workflow` and `conflicts`
-# resolve without modifying the user's shell startup files. Claude does not set
-# PLUGIN_ROOT; Gemini has its own allow/deny response shape.
+# bin/ to PATH and mark the host as Codex inside the command itself. This makes
+# `workflow` and `conflicts` resolve without modifying the user's shell startup
+# files, and lets workflow keep feature workspaces inside the sandboxed repo.
+# Claude does not set PLUGIN_ROOT; Gemini has its own allow/deny response shape.
 function _jjg_allow --argument-names cmd is_bash_hook is_gemini
     if test "$is_gemini" = "true"
         echo '{"decision": "allow"}'
@@ -56,7 +57,11 @@ function _jjg_allow --argument-names cmd is_bash_hook is_gemini
                 hookEventName:"PreToolUse",
                 permissionDecision:"allow",
                 updatedInput:{
-                    command:("export PATH=" + ($bin | @sh) + ":\"$PATH\"\n" + $command)
+                    command:(
+                        "export PATH=" + ($bin | @sh) + ":\"$PATH\"\n"
+                        + "export JJ_WORKFLOW_HOST=codex\n"
+                        + $command
+                    )
                 }
             }}'
     end

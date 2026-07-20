@@ -29,6 +29,13 @@ is idempotent; report what was already in place.
    `workspace_dir`, `provision_hook`, `todo_cmd`. Codex sets `PLUGIN_ROOT`;
    Claude Code sets `CLAUDE_PLUGIN_ROOT`.
 
+   The workspace-location default is host-aware: the Codex plugin uses
+   `.codex/workspaces` so feature workspaces stay inside the sandbox's writable
+   repo root; other installs use sibling directories (`..`). An explicit
+   `workspace_dir` overrides either default. Any in-repo workspace directory
+   must be ignored; if `.codex/*` is not already covered by a global excludes
+   file, add `.codex/workspaces/` to the repo's `.gitignore`.
+
 4. Recommend setting `JJ_EDITOR=false` so no ad-hoc jj command can hang waiting
    on an editor (the toolkit itself always passes `-m`):
 

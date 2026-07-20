@@ -8,9 +8,11 @@ provision_hook = "scripts/provision-workspace"
 # Directory that holds feature workspaces. Relative paths resolve against the
 # repo root; absolute paths are used as-is. If it points INSIDE the repo (e.g.
 # ".claude/worktrees"), gitignore that directory — otherwise jj snapshots every
-# child workspace into the coordinator's working copy. Default: ".." (siblings
-# of the repo dir)
-workspace_dir = ".."
+# child workspace into the coordinator's working copy. Default: Codex plugin
+# uses ".codex/workspaces" to remain inside its sandbox's writable repo root;
+# other installs use ".." (siblings of the repo dir). Omit this key to keep
+# that host-aware default; uncomment and edit it only to override.
+# workspace_dir = ".custom/workspaces"
 
 # Project ticket/census tool `claim` consults for unknown names: must support
 # `<todo_cmd> iscensus SLUG` (exit 0 iff SLUG is mintable) and

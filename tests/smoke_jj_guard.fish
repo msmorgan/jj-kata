@@ -128,8 +128,8 @@ if test "$dec" != "allow"
     set fails (math $fails + 1)
 end
 
-# --- Codex: every allowed Bash call gets the plugin's bin/ on PATH. ----------
-set -l original 'printf "%s\n" "$PATH"; command -v workflow; command -v conflicts'
+# --- Codex: allowed Bash calls get plugin PATH + sandbox workspace defaults. -
+set -l original 'printf "%s\n" "$PATH" "$JJ_WORKFLOW_HOST"; command -v workflow; command -v conflicts'
 set -l rewritten (_rewrite_codex $hook $tk $outside $original | string collect)
 if test -z "$rewritten"; or string match -q 'error-rc-*' -- $rewritten
     echo >&2 "smoke-guard (Codex): allowed command was not rewritten"
@@ -143,11 +143,14 @@ else
     else if test "$codex_out[1]" != "$tk/bin:/usr/bin:/bin"
         echo >&2 "smoke-guard (Codex): bin/ was not prepended to PATH: $codex_out[1]"
         set fails (math $fails + 1)
-    else if test "$codex_out[2]" != "$tk/bin/workflow"
-        echo >&2 "smoke-guard (Codex): workflow did not resolve from plugin bin/: $codex_out[2]"
+    else if test "$codex_out[2]" != codex
+        echo >&2 "smoke-guard (Codex): workflow host marker was not exported: $codex_out[2]"
         set fails (math $fails + 1)
-    else if test "$codex_out[3]" != "$tk/bin/conflicts"
-        echo >&2 "smoke-guard (Codex): conflicts did not resolve from plugin bin/: $codex_out[3]"
+    else if test "$codex_out[3]" != "$tk/bin/workflow"
+        echo >&2 "smoke-guard (Codex): workflow did not resolve from plugin bin/: $codex_out[3]"
+        set fails (math $fails + 1)
+    else if test "$codex_out[4]" != "$tk/bin/conflicts"
+        echo >&2 "smoke-guard (Codex): conflicts did not resolve from plugin bin/: $codex_out[4]"
         set fails (math $fails + 1)
     end
 end

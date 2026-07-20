@@ -61,7 +61,9 @@ aliases are loaded. The plugin provides the `$jj-workflow:jj-workflow` and
 `PATH` for each Codex shell call, and bundles the repo-aware
 `PreToolUse(Bash)` guard. Codex plugin manifests do not currently expose a
 native `bin/` field, so the trusted hook performs that PATH injection using
-Codex's supported command-rewrite response. Open `/hooks` once to review and
+Codex's supported command-rewrite response. The hook also makes
+`.codex/workspaces/` the default feature-workspace base so new workspaces stay
+inside Codex's writable repository sandbox. Open `/hooks` once to review and
 trust the hook; Codex intentionally does not trust executable plugin hooks
 merely because the plugin was installed.
 
@@ -130,13 +132,24 @@ It also sets the repo-config `immutable_heads()` alias that protects the trunk l
 
 ## Repository shape
 
-The toolkit expects one `default` workspace (the coordinator) plus any number of feature
-workspaces, by default each a sibling directory at the same level:
+The toolkit expects one `default` workspace (the coordinator) plus any number
+of feature workspaces. Codex plugin sessions default to an in-repo base so
+their workspaces remain inside the sandbox's writable root:
 
 ```
 ~/code/myproj/
-  myproj/           ← coordinator (the `default` workspace); run scripts/workflow from here
-  feature-a/        ← feature workspace (created by claim/start)
+  myproj/                           ← coordinator (`default`)
+    .codex/workspaces/
+      feature-a/                    ← Codex feature workspace
+      feature-b/
+```
+
+Other hosts and repo-local installs retain the sibling default:
+
+```
+~/code/myproj/
+  myproj/           ← coordinator (`default`)
+  feature-a/        ← feature workspace
   feature-b/
 ```
 
@@ -145,11 +158,13 @@ its **directory name** is yours to choose — pick it when you clone/init, and n
 after the project (as above) so IDEs and agents see a unique root instead of yet another
 `default/`. Nothing hardcodes a `../default` path: scripts resolve the coordinator with
 `jj workspace root --name default`. Feature workspace directories are created by the
-toolkit and always match their workspace name (`../NAME` by default). Set
-`workspace_dir` in `jjworkflow.toml` to put them somewhere else — relative paths
-resolve against the repo root, absolute paths are used as-is. If it points inside the
-repo (e.g. `.claude/worktrees`), **gitignore that directory**, or jj will snapshot
-every child workspace into the coordinator's working copy.
+toolkit and always match their workspace name (`.codex/workspaces/NAME` under
+Codex, `../NAME` elsewhere). Set `workspace_dir` in `jjworkflow.toml` to
+override either default—relative paths resolve against the repo root, absolute
+paths are used as-is. Any in-repo base must be ignored, or jj will snapshot
+every child workspace into the coordinator's working copy. If `.codex/*` is
+not already in a global excludes file, add `.codex/workspaces/` to the repo's
+`.gitignore`.
 
 Workspace directories are transient, but only `drop` deletes them: `integrate`
 keeps the workspace (its working copy parked on the integrated tip, ready for
@@ -544,16 +559,24 @@ Copy `jjworkflow.example.toml` → `jjworkflow.toml` in your repo root. All keys
 optional; a missing file uses the defaults shown:
 
 ```toml
+# Directory that holds feature workspaces. Relative paths resolve against the
+# repo root. Defaults: ".codex/workspaces" in Codex plugin sessions, ".."
+# elsewhere. Omit to retain that host-aware default; uncomment to override.
+# workspace_dir = ".custom/workspaces"
+
 # Executable run after a new workspace is created, with the workspace dir as $1.
 # Default: scripts/provision-workspace
 provision_hook = "scripts/provision-workspace"
+
+# Ticket/census helper used by claim. Default: scripts/todo
+todo_cmd = "scripts/todo"
 ```
 
 > **v1 fixed conventions:** `trunk_workspace` (the trunk workspace name, `default`) and
 > `tickets_root` (`docs/tickets`) are fixed in v1 and are not configurable via
-> `jjworkflow.toml`. `provision_hook` is the only configurable key. The trunk
-> workspace's *directory* name needs no key at all — it is whatever you created it as;
-> jj tracks the mapping (see [Repository shape](#repository-shape)).
+> `jjworkflow.toml`. The trunk workspace's *directory* name needs no key at all
+> — it is whatever you created it as; jj tracks the mapping (see
+> [Repository shape](#repository-shape)).
 
 ---
 
