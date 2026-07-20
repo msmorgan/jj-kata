@@ -30,6 +30,21 @@ function _run_gemini --argument-names hook cwd cmd
     end
 end
 
+function _rewrite_codex --argument-names hook root cwd cmd
+    set -l payload (jq -n --arg cwd $cwd --arg c $cmd \
+        '{tool_name:"Bash", cwd:$cwd, tool_input:{command:$c}}')
+    set -l out (printf '%s' $payload | env PLUGIN_ROOT=$root fish $hook 2>&1)
+    set -l rc $status
+    if test "$rc" != 0
+        echo "error-rc-$rc"
+    else
+        echo $out | jq -r \
+            'select(.hookSpecificOutput.hookEventName == "PreToolUse")
+             | select(.hookSpecificOutput.permissionDecision == "allow")
+             | .hookSpecificOutput.updatedInput.command'
+    end
+end
+
 set -l fails 0
 
 # --- MUST ALLOW: git/--config/--ignore-immutable as DATA, and normal usage. ---
@@ -113,8 +128,58 @@ if test "$dec" != "allow"
     set fails (math $fails + 1)
 end
 
+# --- Codex: every allowed Bash call gets the plugin's bin/ on PATH. ----------
+set -l original 'printf "%s\n" "$PATH"; command -v workflow; command -v conflicts'
+set -l rewritten (_rewrite_codex $hook $tk $outside $original | string collect)
+if test -z "$rewritten"; or string match -q 'error-rc-*' -- $rewritten
+    echo >&2 "smoke-guard (Codex): allowed command was not rewritten"
+    set fails (math $fails + 1)
+else
+    set -l codex_out (env PATH=/usr/bin:/bin bash -c "$rewritten")
+    set -l codex_rc $status
+    if test "$codex_rc" != 0
+        echo >&2 "smoke-guard (Codex): rewritten command failed (rc=$codex_rc)"
+        set fails (math $fails + 1)
+    else if test "$codex_out[1]" != "$tk/bin:/usr/bin:/bin"
+        echo >&2 "smoke-guard (Codex): bin/ was not prepended to PATH: $codex_out[1]"
+        set fails (math $fails + 1)
+    else if test "$codex_out[2]" != "$tk/bin/workflow"
+        echo >&2 "smoke-guard (Codex): workflow did not resolve from plugin bin/: $codex_out[2]"
+        set fails (math $fails + 1)
+    else if test "$codex_out[3]" != "$tk/bin/conflicts"
+        echo >&2 "smoke-guard (Codex): conflicts did not resolve from plugin bin/: $codex_out[3]"
+        set fails (math $fails + 1)
+    end
+end
+
+# The same rewrite is applied inside a jj repo, where the tools are used.
+set rewritten (_rewrite_codex $hook $tk $work 'command -v workflow' | string collect)
+set -l resolved (env PATH=/usr/bin:/bin bash -c "$rewritten")
+if test "$resolved" != "$tk/bin/workflow"
+    echo >&2 "smoke-guard (Codex): workflow was not exposed inside a jj repo: $resolved"
+    set fails (math $fails + 1)
+end
+
+# PLUGIN_ROOT can contain shell metacharacters; the rewrite must quote it.
+set -l odd_root "$outside/a path's plugin"
+mkdir -p "$odd_root/bin"
+ln -s $tk/bin/workflow "$odd_root/bin/workflow"
+set rewritten (_rewrite_codex $hook "$odd_root" $outside 'command -v workflow' | string collect)
+set resolved (env PATH=/usr/bin:/bin bash -c "$rewritten")
+if test "$resolved" != "$odd_root/bin/workflow"
+    echo >&2 "smoke-guard (Codex): PLUGIN_ROOT was not shell-quoted safely: $resolved"
+    set fails (math $fails + 1)
+end
+
+# A denied command must remain denied rather than receiving a rewrite.
+set rewritten (_rewrite_codex $hook $tk $work "git status" | string collect)
+if test "$rewritten" != "error-rc-2"
+    echo >&2 "smoke-guard (Codex): blocked command was rewritten: $rewritten"
+    set fails (math $fails + 1)
+end
+
 if test $fails -gt 0
     echo >&2 "smoke-guard: $fails case(s) failed"
     exit 1
 end
-echo "ok: jj-guard allows data/normal usage, blocks git + bypass flags + evasion"
+echo "ok: jj-guard enforces policy and exposes plugin bin/ to Codex"

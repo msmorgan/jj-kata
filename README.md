@@ -58,9 +58,12 @@ codex plugin add jj-workflow@jj-workflow
 Start a new Codex thread after installation so its skills, hooks, and command
 aliases are loaded. The plugin provides the `$jj-workflow:jj-workflow` and
 `$jj-workflow:setup` skills, puts `workflow` and `conflicts` on the shell
-`PATH`, and bundles the repo-aware `PreToolUse(Bash)` guard. Open `/hooks` once
-to review and trust the guard; Codex intentionally does not trust executable
-plugin hooks merely because the plugin was installed.
+`PATH` for each Codex shell call, and bundles the repo-aware
+`PreToolUse(Bash)` guard. Codex plugin manifests do not currently expose a
+native `bin/` field, so the trusted hook performs that PATH injection using
+Codex's supported command-rewrite response. Open `/hooks` once to review and
+trust the hook; Codex intentionally does not trust executable plugin hooks
+merely because the plugin was installed.
 
 Then invoke `$jj-workflow:setup` once per jj repo. It installs the repo-local
 `immutable_heads()` alias, which is the actual trunk protection. Optionally set

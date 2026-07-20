@@ -5,10 +5,15 @@ description: Use when working in a jj (Jujutsu) repo that uses the jj-workflow t
 
 # jj-workflow
 
-The `workflow` and `conflicts` commands are on PATH (this plugin's `bin/`); repos
-with a local install expose the same tools as `scripts/workflow` and
-`scripts/conflicts`. Every command targets the jj workspace you run it FROM —
-its repo, its lock — so always `cd` into the workspace you mean.
+The `workflow` and `conflicts` commands are on PATH (this plugin's `bin/`).
+In Codex, the plugin's trusted PreToolUse hook prepends that directory to each
+shell call because Codex manifests do not provide a native `bin/` field. If
+either command does not resolve, stop and ask the user to review and trust this
+plugin's hook in `/hooks`; do not substitute repo-local scripts that may be
+absent or stale. Repos with a local install expose the same tools as
+`scripts/workflow` and `scripts/conflicts`. Every command targets the jj
+workspace you run it FROM — its repo, its lock — so always `cd` into the
+workspace you mean.
 
 Key rules:
 

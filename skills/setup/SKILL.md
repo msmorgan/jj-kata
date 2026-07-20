@@ -67,7 +67,8 @@ is idempotent; report what was already in place.
    PURPOSE: registered globally they would hijack EnterWorktree in plain-git
    repos.
 
-6. Sanity check: `workflow` with no arguments prints usage (the plugin's `bin/`
-   is on PATH). The PreToolUse guard hook ships with this plugin and needs no
-   registration. In Codex, use `/hooks` to review and trust it if it is marked
-   pending; plugin installation does not implicitly trust executable hooks.
+6. Sanity check: `workflow` with no arguments prints usage (the plugin's
+   PreToolUse hook prepends its `bin/` to each Codex shell call). The hook ships
+   with this plugin and needs no registration. In Codex, if `workflow` is not
+   found, stop and ask the user to use `/hooks` to review and trust the pending
+   plugin hook; plugin installation does not implicitly trust executable hooks.

@@ -41,6 +41,27 @@
 # Read stdin payload
 set -l payload (cat | string join \n)
 
+# Codex does not currently add a plugin's bin/ directory to ordinary shell
+# commands. Plugin hooks do receive PLUGIN_ROOT, though, and PreToolUse may
+# rewrite Bash input. On every allowed Codex shell call, prepend this plugin's
+# bin/ to PATH inside the command itself. This makes `workflow` and `conflicts`
+# resolve without modifying the user's shell startup files. Claude does not set
+# PLUGIN_ROOT; Gemini has its own allow/deny response shape.
+function _jjg_allow --argument-names cmd is_bash_hook is_gemini
+    if test "$is_gemini" = "true"
+        echo '{"decision": "allow"}'
+    else if test "$is_bash_hook" = "true"; and set -q PLUGIN_ROOT; and test -n "$PLUGIN_ROOT"
+        jq -n --arg bin "$PLUGIN_ROOT/bin" --arg command "$cmd" \
+            '{hookSpecificOutput:{
+                hookEventName:"PreToolUse",
+                permissionDecision:"allow",
+                updatedInput:{
+                    command:("export PATH=" + ($bin | @sh) + ":\"$PATH\"\n" + $command)
+                }
+            }}'
+    end
+end
+
 # Detect payload shape. Codex deliberately uses the Claude-compatible Bash
 # shape, so this branch serves both hosts.
 set -l is_bash_hook (echo "$payload" | jq -r 'if .tool_name == "Bash" then "true" else "false" end')
@@ -74,9 +95,7 @@ while not test -d "$d/.jj"
     set -l parent (path dirname $d)
     if test "$parent" = "$d"
         # Not a jj repo: allow execution
-        if test "$is_gemini" = "true"
-            echo '{"decision": "allow"}'
-        end
+        _jjg_allow "$cmd" "$is_bash_hook" "$is_gemini"
         exit 0
     end
     set d $parent
@@ -89,9 +108,7 @@ end
 # so no evasion slips past: the precise verdict is still the tokenizer's.
 set -l probe (string replace -a -- '\\' '' $cmd | string replace -a -- "'" '' | string replace -a -- '"' '')
 if not string match -rq -- 'git|--config|--ignore-immutable' -- $probe
-    if test "$is_gemini" = "true"
-        echo '{"decision": "allow"}'
-    end
+    _jjg_allow "$cmd" "$is_bash_hook" "$is_gemini"
     exit 0
 end
 
@@ -239,7 +256,5 @@ while test $j -le $ntok
     set j (math $j + 1)
 end
 
-if test "$is_gemini" = "true"
-    echo '{"decision": "allow"}'
-end
+_jjg_allow "$cmd" "$is_bash_hook" "$is_gemini"
 exit 0
