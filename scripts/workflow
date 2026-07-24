@@ -28,7 +28,9 @@ end
 # no-arg refresh, the self-targeting form of integrate, and `claim T` folding into
 # THIS workspace's own claim) are reachable from a feature workspace; integrate and
 # claim then enforce "self or default" per-target via __require_self_or_default.
-if not contains -- "$argv[1]" repair converge resolve refresh integrate claim
+# `handoffs` is exempt for a different reason: it only reads, so it is safe (and
+# useful) from anywhere — a resuming agent may land in any workspace.
+if not contains -- "$argv[1]" repair converge resolve refresh integrate claim handoffs
     and not __on_default
     echo >&2 "$(status filename): '$argv[1]' runs from the default workspace (creation/cross-feature ops are coordinator-only)."
     return 1
@@ -84,6 +86,10 @@ Usage: $(status filename) <command> [<args>]
     resolve              Run FROM a feature workspace to walk a refresh/integrate conflict one
                          commit at a time: drops you onto a conflict (exit 1); remove its
                          markers; re-run. Exit 0 once the stack is clean.
+    handoffs             List every workspace holding a HANDOFF.md — work someone paused
+                         mid-flight and left a resume doc for. Read-only, runs from
+                         anywhere. Prints `NAME<TAB>PATH` per hit; grep-style status:
+                         0 = at least one found, 1 = none.
 "
     exit 2
 end
@@ -583,6 +589,41 @@ function __current_workspace_name
         end
     end
     return 1
+end
+
+# A HANDOFF.md in a workspace's checkout means that workspace holds work someone
+# paused mid-flight, with a doc explaining how to pick it up (see the handoff
+# skill). Presence is a plain `test -f` on disk — deliberately NOT a diff read:
+# the doc is *supposed* to sit uncommitted in that workspace's @, but if it was
+# accidentally committed it must still show up here, so the resuming agent finds
+# it and catches the mistake. Read-only throughout: no snapshot, no lock.
+# Prints `NAME<TAB>PATH` per hit; grep-style status (0 = found, 1 = none).
+function __workflow_handoffs
+    if contains -- "$argv[1]" -h --help
+        echo >&2 "Usage: $(status filename) handoffs   (no arguments)"
+        return 2
+    end
+    if set -q argv[1]
+        echo >&2 "$(status filename): handoffs takes no arguments — it always scans every workspace."
+        return 2
+    end
+    set -l current (__current_workspace_name)
+    set -l found
+    for name in (jj workspace list -T 'name ++ "\n"' --ignore-working-copy 2>/dev/null)
+        set -l ws_dir (jj workspace root --name "$name" --ignore-working-copy 2>/dev/null)
+        or continue
+        test -f "$ws_dir/HANDOFF.md"; or continue
+        set -a found "$name"
+        printf '%s\t%s\n' "$name" "$ws_dir/HANDOFF.md"
+    end
+    if not set -q found[1]
+        echo >&2 "$(status filename): no handoff docs — nothing paused mid-flight."
+        return 1
+    end
+    set -l here ""
+    contains -- "$current" $found; and set here " (you are in '$current')"
+    echo >&2 "$(status filename): "(count $found)" handoff doc(s): $found$here"
+    return 0
 end
 
 function __workflow_drop
@@ -1335,6 +1376,8 @@ switch $argv[1]
         __workflow_converge
     case resolve
         __workflow_resolve
+    case handoffs
+        __workflow_handoffs $argv[2..]
     case '*'
         __workflow_usage
 end

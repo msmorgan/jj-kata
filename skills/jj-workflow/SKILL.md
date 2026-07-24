@@ -91,5 +91,12 @@ Key rules:
 - Resolve alphabetized-list conflicts with `conflicts auto`; inspect any
   conflict with `conflicts show`; pick a side per file with
   `conflicts accept FILE snapshot|diff|base|stack`.
+- **A `HANDOFF.md` in any workspace means work was paused there mid-flight and
+  left a resume doc.** `workflow handoffs` scans every workspace for one
+  (read-only, runs from anywhere; exit 0 = found, 1 = none). Run it when picking
+  up unfamiliar state, and use the /jj-workflow:handoff skill for both halves —
+  writing one, and resuming from one (it is burn-after-reading: delete the doc
+  once you commit to resuming). Never adopt a handoff without asking the user
+  first, unless they already told you to resume from it.
 - If the repo hasn't been set up yet (no `immutable_heads()` alias in
   `jj config list --repo`), run the /jj-workflow:setup skill first.

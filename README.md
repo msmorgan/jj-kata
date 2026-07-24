@@ -19,10 +19,11 @@ isolated workspace.
    - [Drop](#dropping-a-feature)
    - [Refresh](#refreshing-keeping-current-with-trunk)
 6. [Ticket folders as status](#ticket-folders-as-status)
-7. [Recovery (repair / converge / resolve)](#recovery)
-8. [Conflicts tool](#conflicts-tool)
-9. [Configuration](#configuration)
-10. [Appendix: Example provision-workspace hook](#appendix-example-provision-workspace-hook)
+7. [Handing off unfinished work](#handing-off-unfinished-work)
+8. [Recovery (repair / converge / resolve)](#recovery)
+9. [Conflicts tool](#conflicts-tool)
+10. [Configuration](#configuration)
+11. [Appendix: Example provision-workspace hook](#appendix-example-provision-workspace-hook)
 
 ---
 
@@ -444,6 +445,54 @@ Ticket moves happen inside jj commits, so `drop` reverts them automatically:
 
 - `claim`: ticket move is baked into the claim commit → `drop` reverts it.
 - `integrate`: ticket move to `done/` is baked into the completion commit.
+
+---
+
+## Handing off unfinished work
+
+A task rarely ends exactly when a session does. A **handoff doc** is the mid-flight
+save: a `HANDOFF.md` at a workspace root that tells a fresh agent — one with no
+memory of the conversation — what the task is, what is already committed, what the
+next concrete step is, and which decisions are settled and must not be re-opened.
+
+**The existence of the file is the signal.** There is no state to consult and no
+flag to set: a workspace holding a `HANDOFF.md` has work paused in it, and one
+without doesn't.
+
+```bash
+# From anywhere — read-only scan of every workspace in the repo:
+scripts/workflow handoffs
+# feat-login   /path/to/feat-login/HANDOFF.md
+```
+
+Exit status is grep-style — **0** = at least one found, **1** = none — so it is
+safe to branch on. It runs from any workspace, takes no lock, and takes no
+arguments.
+
+**The doc is deliberately never committed.** It is written into the working-copy
+commit (`@`) and left there, which buys three things:
+
+- `jj st` and `jj diff --summary` surface it on every routine status check, so a
+  paused workspace announces itself without anyone remembering to look.
+- Presence is detected with a plain `test -f`, *not* a diff read. If the doc gets
+  committed by accident it still shows up in `handoffs`, and the resume side
+  catches the mistake by noticing it is missing from `jj st`.
+- A non-empty `@` means `drop --integrated` will not sweep the workspace away —
+  paused work survives the bulk cleanup on its own.
+
+Writing one requires an **empty working copy** (commit or abandon loose edits
+first, so the doc can describe committed state by change id) and an **actual task
+in flight** — a handoff describing work nobody is doing is worse than none,
+because the next agent will act on it.
+
+Resuming is **burn-after-reading**: the doc is deleted the moment an agent commits
+to picking the work up, before any other step. That returns `@` to clean and empty
+and stops a stale doc from misleading whoever comes next. An agent that has not
+been told to resume must *ask* first — a handoff often belongs to a different
+effort than the session that stumbled onto it.
+
+Both halves are driven by the `handoff` skill (`/jj-workflow:handoff`), which
+carries the doc template and the full protocol.
 
 ---
 

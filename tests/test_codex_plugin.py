@@ -15,6 +15,7 @@ def test_codex_manifest_exposes_plugin_components():
     )["version"]
     assert (ROOT / "skills/jj-workflow/SKILL.md").is_file()
     assert (ROOT / "skills/setup/SKILL.md").is_file()
+    assert (ROOT / "skills/handoff/SKILL.md").is_file()
     assert (ROOT / "bin/workflow").resolve() == ROOT / "scripts/workflow"
     assert (ROOT / "bin/conflicts").resolve() == ROOT / "scripts/conflicts"
 
