@@ -42,16 +42,29 @@
 set -l payload (cat | string join \n)
 
 # Codex does not currently add a plugin's bin/ directory to ordinary shell
-# commands. Plugin hooks do receive PLUGIN_ROOT, though, and PreToolUse may
-# rewrite Bash input. On every allowed Codex shell call, prepend this plugin's
-# bin/ to PATH and mark the host as Codex inside the command itself. This makes
-# `workflow` and `conflicts` resolve without modifying the user's shell startup
-# files, and lets workflow keep feature workspaces inside the sandboxed repo.
+# commands, and it spawns a FRESH shell per run_command — so nothing exported by
+# one call survives to the next, and there is no session to set up once. Plugin
+# hooks do receive PLUGIN_ROOT, though, and PreToolUse may rewrite Bash input, so
+# the prepend rides along inside the command itself. This makes `workflow` and
+# `conflicts` resolve without modifying the user's shell startup files, and lets
+# workflow keep feature workspaces inside the sandboxed repo.
+#
+# The rewrite is SCOPED to commands that mention a toolkit command — the export
+# is pure overhead on the other 99% of shell calls, and an untouched command is
+# also an unsurprising one (nothing to explain in the transcript, nothing to
+# collide with a caller's own PATH juggling). The probe deliberately
+# over-approximates: it ignores quoting and matches substrings, so it may fire on
+# a command that merely says "workflow" in a message. A spurious export is
+# harmless; a missed one is not. The known gap is indirection — a Makefile or
+# wrapper script that invokes bare `workflow` without naming it in the command
+# line gets no prepend. Call the tool directly, or use a repo-local install's
+# scripts/workflow path.
 # Claude does not set PLUGIN_ROOT; Gemini has its own allow/deny response shape.
 function _jjg_allow --argument-names cmd is_bash_hook is_gemini
     if test "$is_gemini" = "true"
         echo '{"decision": "allow"}'
     else if test "$is_bash_hook" = "true"; and set -q PLUGIN_ROOT; and test -n "$PLUGIN_ROOT"
+        and string match -rq -- 'workflow|conflicts' -- $cmd
         jq -n --arg bin "$PLUGIN_ROOT/scripts" --arg command "$cmd" \
             '{hookSpecificOutput:{
                 hookEventName:"PreToolUse",

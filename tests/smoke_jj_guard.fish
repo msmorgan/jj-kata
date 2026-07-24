@@ -140,17 +140,17 @@ else
     if test "$codex_rc" != 0
         echo >&2 "smoke-guard (Codex): rewritten command failed (rc=$codex_rc)"
         set fails (math $fails + 1)
-    else if test "$codex_out[1]" != "$tk/bin:/usr/bin:/bin"
-        echo >&2 "smoke-guard (Codex): bin/ was not prepended to PATH: $codex_out[1]"
+    else if test "$codex_out[1]" != "$tk/scripts:/usr/bin:/bin"
+        echo >&2 "smoke-guard (Codex): scripts/ was not prepended to PATH: $codex_out[1]"
         set fails (math $fails + 1)
     else if test "$codex_out[2]" != codex
         echo >&2 "smoke-guard (Codex): workflow host marker was not exported: $codex_out[2]"
         set fails (math $fails + 1)
-    else if test "$codex_out[3]" != "$tk/bin/workflow"
-        echo >&2 "smoke-guard (Codex): workflow did not resolve from plugin bin/: $codex_out[3]"
+    else if test "$codex_out[3]" != "$tk/scripts/workflow"
+        echo >&2 "smoke-guard (Codex): workflow did not resolve from plugin scripts/: $codex_out[3]"
         set fails (math $fails + 1)
-    else if test "$codex_out[4]" != "$tk/bin/conflicts"
-        echo >&2 "smoke-guard (Codex): conflicts did not resolve from plugin bin/: $codex_out[4]"
+    else if test "$codex_out[4]" != "$tk/scripts/conflicts"
+        echo >&2 "smoke-guard (Codex): conflicts did not resolve from plugin scripts/: $codex_out[4]"
         set fails (math $fails + 1)
     end
 end
@@ -158,20 +158,41 @@ end
 # The same rewrite is applied inside a jj repo, where the tools are used.
 set rewritten (_rewrite_codex $hook $tk $work 'command -v workflow' | string collect)
 set -l resolved (env PATH=/usr/bin:/bin bash -c "$rewritten")
-if test "$resolved" != "$tk/bin/workflow"
+if test "$resolved" != "$tk/scripts/workflow"
     echo >&2 "smoke-guard (Codex): workflow was not exposed inside a jj repo: $resolved"
     set fails (math $fails + 1)
 end
 
 # PLUGIN_ROOT can contain shell metacharacters; the rewrite must quote it.
 set -l odd_root "$outside/a path's plugin"
-mkdir -p "$odd_root/bin"
-ln -s $tk/bin/workflow "$odd_root/bin/workflow"
+mkdir -p "$odd_root/scripts"
+ln -s $tk/scripts/workflow "$odd_root/scripts/workflow"
 set rewritten (_rewrite_codex $hook "$odd_root" $outside 'command -v workflow' | string collect)
 set resolved (env PATH=/usr/bin:/bin bash -c "$rewritten")
-if test "$resolved" != "$odd_root/bin/workflow"
+if test "$resolved" != "$odd_root/scripts/workflow"
     echo >&2 "smoke-guard (Codex): PLUGIN_ROOT was not shell-quoted safely: $resolved"
     set fails (math $fails + 1)
+end
+
+# --- The rewrite is SCOPED: only commands naming a toolkit tool are touched. --
+# Codex spawns a fresh shell per call, so the prepend can't be hoisted out to a
+# session — the next best thing is not paying it on the ~99% of shell calls that
+# never invoke `workflow` or `conflicts`. Those must come back with NO rewrite at
+# all (empty output = plain allow), not merely a harmless one.
+for plain in "ls -la" "jj st" "cat README.md" "jj describe -m 'notes'"
+    set -l out (_rewrite_codex $hook $tk $work "$plain" | string collect)
+    if test -n "$out"
+        echo >&2 "smoke-guard (Codex): unrelated command was rewritten: $plain -> $out"
+        set fails (math $fails + 1)
+    end
+end
+# ...while anything naming a tool still gets it, including indirect spellings.
+for needs in "workflow integrate" "conflicts show" "./scripts/workflow refresh" "cd ../feat; workflow handoffs"
+    set -l out (_rewrite_codex $hook $tk $work "$needs" | string collect)
+    if not string match -q "*export PATH=*" -- $out
+        echo >&2 "smoke-guard (Codex): toolkit command missed the rewrite: $needs -> $out"
+        set fails (math $fails + 1)
+    end
 end
 
 # A denied command must remain denied rather than receiving a rewrite.
