@@ -62,8 +62,20 @@ prose. Skip any section that has nothing real to say rather than padding it.
 # HANDOFF
 
 **This file's existence means there is work to resume.** It is deliberately
-uncommitted in `@`. Read it, decide whether it is yours, then delete it — see
-"Burn after reading" at the bottom.
+uncommitted in `@`.
+
+**This work is not yours by default.** Finding this file is not permission to
+act on it — it may belong to a different effort than the session that found it.
+You may pick it up only if one of these is true:
+
+- the user told you to resume from a handoff, or
+- you showed them the **Task** line below and they confirmed it is this
+  session's work.
+
+Anything else — they say no, they say "later", you have no user to ask — means
+leave this file exactly where it is, do not delete it, and carry on with what
+you were already doing. If you do pick it up, delete this file first; see "Burn
+after reading" at the bottom.
 
 - **Workspace:** `NAME` (`/abs/path/to/workspace`)
 - **Written:** YYYY-MM-DD
@@ -96,9 +108,10 @@ Paths worth reading first, each with a clause on why.
 Things genuinely blocked on a human answer. Empty is a fine answer.
 
 ## Burn after reading
-Once you have decided to resume this work, delete this file (`rm HANDOFF.md`)
-**before** doing anything else. It has served its purpose; leaving it risks
-committing it and misleads whoever comes next.
+Once the work is yours by the test at the top of this file, delete it
+(`rm HANDOFF.md`) **before** doing anything else. It has served its purpose;
+leaving it risks committing it and misleads whoever comes next. If the work is
+not yours, leave the file untouched.
 ```
 
 ### 4. Report
@@ -124,15 +137,30 @@ found, **1** = none. It is safe from any workspace.
   someone else's unfinished work.
 - **No hits at all** → say so. Do not go looking for work to do instead.
 
-### 2. Ask, unless you were already told
+### 2. Establish that the work is yours
 
-If the user has already said to resume from the handoff, **resume immediately** —
-no confirmation, no summarising the doc back at them first.
+A handoff is **not yours by default.** It records what *someone else's* session
+was doing; this session may have been started for something unrelated, and
+silently adopting a stranger's half-finished task is worse than ignoring it.
+Finding the file is not permission. Exactly two things grant it:
 
-Otherwise you **must** ask before acting on it. A handoff can easily belong to a
-different effort than the one this session is about. Show the task line and ask
-whether it is theirs to deal with this session. If they say no, leave the file
-exactly where it is — **do not delete it** — and carry on with what they came for.
+1. **The user already told you to resume from a handoff.** Then resume
+   immediately — no confirmation step, no summarising the doc back at them
+   first. They asked for this.
+2. **You asked and they confirmed.** Show them the doc's *Task* line and the
+   workspace it is in, and ask whether it is theirs to deal with this session.
+   One question, with the specifics in it — not "I found a handoff, should I
+   read it?"
+
+Nothing else counts. In particular: the doc looking related to the current
+conversation, being the only handoff in the repo, or the session having no other
+work to do are **not** grants — the first two are guesses about intent, the
+third is a reason to ask the user what they want, not to invent a task.
+
+If they decline, or the answer is "not now", or there is no user to ask (an
+unattended run), leave the file exactly where it is — **do not delete it** — and
+carry on with what you came for. An unclaimed handoff is harmless; a burned one
+is unrecoverable.
 
 ### 3. Check it is still uncommitted
 
