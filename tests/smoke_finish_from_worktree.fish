@@ -479,15 +479,29 @@ test "$(jj log --no-graph -r t-alpha -T 'description.first_line()' --ignore-work
 or begin echo >&2 "smoke: fresh single claim did not describe the claim 'claim t-alpha' (task6)"; exit 1; end
 echo "ok: task6 fresh single claim describes the claim exactly 'claim t-alpha'"
 
+# A later sibling's un-snapshotted edit must be banked before the self-fold
+# rewrites t-alpha's older claim (and therefore rebases that sibling's WC).
+./scripts/workflow start feat-fold-sibling >/dev/null 2>&1; or begin
+    echo >&2 "smoke: start feat-fold-sibling failed (task6)"
+    exit 1
+end
+echo dirty >../feat-fold-sibling/fold-dirty.txt
+
 # Self-fold: from INSIDE the feature ws, `claim t-beta` (no --into) folds t-beta
-# into t-alpha's OWN claim. Assert the wip/ files from inside the ws — its
-# checkout is the one this op advanced (default's WC goes stale, as with a
-# `claim --into`, so its on-disk tree lags until update-stale).
+# into t-alpha's OWN claim. Assert the wip/ files from inside the ws — the fold
+# reconciles every rebased workspace checkout before returning.
 pushd ../t-alpha
 ./scripts/workflow claim t-beta >/dev/null 2>&1; or begin echo >&2 "smoke: self-fold claim t-beta failed (task6)"; popd; exit 1; end
 test -f docs/tickets/wip/t-alpha.md -a -f docs/tickets/wip/t-beta.md
 or begin echo >&2 "smoke: both tickets not in wip/ after self-fold (task6)"; popd; exit 1; end
 popd
+
+jj diff -r feat-fold-sibling@ --name-only | string match -q fold-dirty.txt
+or begin
+    echo >&2 "smoke: self-fold lost a sibling workspace's un-snapshotted edit (task6)"
+    exit 1
+end
+echo "ok: task6 self-fold banks sibling workspaces before rewriting the claim"
 
 # The claim now owns both tickets and its description accreted, in wip order.
 test "$(jj log --no-graph -r t-alpha -T 'description.first_line()' --ignore-working-copy)" = "claim t-alpha, t-beta"

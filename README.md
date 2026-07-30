@@ -309,8 +309,8 @@ ticket-fold primitive compose under one lock hold, so ticket moves have exactly 
 mechanism — the fold into the claim commit.)
 
 `claim TICKET_A ... --into NAME` folds extra tickets into an existing workspace's
-claim commit. The workspace goes stale (its parent was rewritten); run
-`jj workspace update-stale` there before the next commit. Run the *same* fold from
+claim commit. The operation snapshots every workspace before rewriting the shared
+line and reconciles their pointers afterward. Run the *same* fold from
 **inside** a feature workspace by dropping `--into` — `claim TICKET_A TICKET_B`
 folds those tickets into *that* workspace's own claim (its description accretes to
 `claim a, b, …`), no `cd` needed. The `--into NAME` form stays coordinator-only.
