@@ -182,8 +182,9 @@ echo "ok: task5A fresh coordinator maps to renamed dir myproj/"
 end
 pushd ../feat-int
 echo work >w.txt
-jj describe -m "feat: real work" >/dev/null
-set -l work_id (jj log --no-graph -r @ -T 'change_id.short()')
+# Close the work: integrate refuses unless the workspace @ is empty+undescribed.
+jj commit -m "feat: real work" >/dev/null
+set -l work_id (jj log --no-graph -r @- -T 'change_id.short()')
 ./scripts/workflow integrate >/dev/null 2>&1; or begin
     echo >&2 "smoke: self-integrate failed"
     popd
@@ -242,7 +243,7 @@ end
 # Integrate feat-new (self) — advances trunk with REAL work, leaving feat-old behind.
 pushd ../feat-new
 echo n >n.txt
-jj describe -m "feat: n" >/dev/null
+jj commit -m "feat: n" >/dev/null
 ./scripts/workflow integrate >/dev/null 2>&1; or begin
     echo >&2 "smoke: integrate feat-new (setup for P2) failed"
     popd
@@ -252,7 +253,7 @@ popd
 # feat-old is now behind the advanced trunk — a self-integrate must REFUSE.
 pushd ../feat-old
 echo o >o.txt
-jj describe -m "feat: o" >/dev/null
+jj commit -m "feat: o" >/dev/null
 ./scripts/workflow integrate >/dev/null 2>&1
 set -l rc $status
 popd
@@ -306,7 +307,7 @@ echo "ok: task5C fresh coordinator maps to renamed dir myproj/"
 end
 pushd ../feat-c
 echo c >c.txt
-jj describe -m "feat: c" >/dev/null
+jj commit -m "feat: c" >/dev/null
 ./scripts/workflow integrate >/dev/null 2>&1; or begin
     echo >&2 "smoke: integrate feat-c failed"
     popd
@@ -422,7 +423,7 @@ jj commit -m "add ticket t-real" >/dev/null
 test -f docs/tickets/wip/t-real.md; or begin echo >&2 "smoke: t-real not in wip/ after claim"; exit 1; end
 pushd ../t-real
 echo realwork > r.txt
-jj describe -m "feat: real work" >/dev/null
+jj commit -m "feat: real work" >/dev/null
 ./scripts/workflow integrate >/dev/null 2>&1; or begin echo >&2 "smoke: ticketed self-integrate failed"; popd; exit 1; end
 popd
 # The wip->done move is now on trunk...
@@ -555,7 +556,7 @@ end
 # feat-x edits f.txt and integrates → trunk f.txt = xxx.
 pushd ../feat-x
 printf 'xxx\n' > f.txt
-jj describe -m "x edit" >/dev/null
+jj commit -m "x edit" >/dev/null
 ./scripts/workflow integrate >/dev/null 2>&1; or begin
     echo >&2 "smoke: integrate feat-x (task8)"
     popd

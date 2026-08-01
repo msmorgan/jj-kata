@@ -68,6 +68,45 @@ end
     exit 1
 end
 echo "ok: refresh from child workspace"
+
+# P3: integrate accepts ONLY an empty, undescribed @. The work is still the
+# working copy here (non-empty + described) — integrate must REFUSE rather than
+# cap it with `jj new` itself; closing it is the agent's call. And the refusal
+# must rewrite nothing: @ is checked before the refresh/re-join, so the
+# workspace is left exactly as it was.
+set -l wc_before (jj log --no-graph -r @ -T 'change_id.short()')
+./scripts/workflow integrate feat-x >/dev/null 2>&1
+and begin
+    echo >&2 "smoke: integrate accepted an unclosed (non-empty) working copy"
+    popd
+    exit 1
+end
+test "$(jj log --no-graph -r @ -T 'change_id.short()')" = "$wc_before"
+or begin
+    echo >&2 "smoke: refused integrate still moved feat-x's working copy"
+    popd
+    exit 1
+end
+# Close it — now empty + undescribed, the one shape integrate accepts.
+jj new >/dev/null; or begin
+    echo >&2 "smoke: closing feat-x's work with jj new failed"
+    popd
+    exit 1
+end
+# …but an empty @ that carries a description reads as work in progress: refused too.
+jj describe -m "wip: next thing" >/dev/null
+./scripts/workflow integrate feat-x >/dev/null 2>&1
+and begin
+    echo >&2 "smoke: integrate accepted an empty-but-described working copy"
+    popd
+    exit 1
+end
+jj describe -m "" >/dev/null; or begin
+    echo >&2 "smoke: clearing feat-x's @ description failed"
+    popd
+    exit 1
+end
+echo "ok: integrate refuses a non-empty @ and an empty-but-described @"
 popd
 
 # Plain drop must refuse while feat-x still holds un-integrated work.
@@ -275,8 +314,8 @@ mv docs/tickets/wip/bug-x.md docs/tickets/done/bug-x.md; or begin
     popd
     exit 1
 end
-jj describe -m "complete bug-x" >/dev/null; or begin
-    echo >&2 "smoke: describe bug-x failed"
+jj commit -m "complete bug-x" >/dev/null; or begin
+    echo >&2 "smoke: committing bug-x work failed"
     popd
     exit 1
 end

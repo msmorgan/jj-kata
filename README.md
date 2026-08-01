@@ -273,7 +273,8 @@ rather than corrupts.
 
 > **Never pipe a `workflow` command into `tail`, `head`, `grep`, `less`, or
 > anything else.** Its exit status is load-bearing — `0` success, `2` refusal
-> (un-integrated work, an empty/undescribed change), `69` conflict stop, `75`
+> (un-integrated work, an empty/undescribed change), `69` conflict stop or an
+> unclosed working copy at integrate, `75`
 > lock timeout — and a pipe reports the downstream command's status instead,
 > silently masking a refusal or conflict as success. Run it bare and check its
 > own exit code; to capture output, redirect to a file (`workflow integrate NAME
@@ -336,6 +337,15 @@ any feature-vs-trunk conflict there), then integrate. This is what lets integrat
 assume a clean merge: `refresh` owns feature-vs-trunk conflicts, `integrate` does
 not. It also refuses if `default@` is a merge (P1 — an ambiguous trunk tip);
 linearize the coordinator line first.
+
+It further refuses (exit 69) unless the workspace's `@` is an **empty, undescribed**
+change — the shape you get by ending on `jj commit` or `jj new`. Integrate folds
+only commits you closed yourself; it never promotes the working copy for you. Three
+states stop it: work still sitting in `@` **described** (run `jj new` to cap it),
+work sitting there **undescribed** (`jj describe -m …`, then `jj new`), and an
+`@` that is described but empty (a set-up-but-unfilled commit — finish it, or clear
+the description / abandon it). Nothing is rewritten in any of these cases; fix the
+working copy in the workspace and re-run.
 
 `integrate` performs these steps in order:
 

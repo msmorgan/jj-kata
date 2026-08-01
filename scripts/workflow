@@ -73,7 +73,9 @@ Usage: $(status filename) <command> [<args>]
     refresh --all        Reorder EVERY non-default workspace's claim under default@ (prep
                          for a push), stopping at the first that conflicts or fails.
     integrate WORKSPACE  Refresh, re-join the claim to the feature, fold WORKSPACE's
-                         work into default@. Then `drop WORKSPACE` to retire it — the
+                         work into default@. Refuses unless WORKSPACE's @ is an EMPTY,
+                         undescribed change — close your work (`jj commit`, or `jj
+                         describe` + `jj new`) first. Then `drop WORKSPACE` to retire it — the
                          default next step, so the directory doesn't dangle. The
                          workspace is KEPT (not auto-dropped) so you can instead resume
                          there if there's follow-up work.
@@ -968,6 +970,31 @@ function __integrate_steps
         echo >&2 "$(status filename): $name is behind trunk — run 'workflow refresh' inside it first, then integrate."
         return 2
     end
+    # P3: the workspace must hand off a CLOSED stack — its @ empty and undescribed
+    # (the agent ended on `jj commit`/`jj new`), so every commit folded below is one
+    # they deliberately closed. Anything else is work in flight and stops (69):
+    #   - nonempty + described   -> the work is still the working copy. Integrate
+    #     used to cap it with `jj new` itself, but that silently promoted a commit
+    #     the agent had not closed; capping is theirs to do.
+    #   - nonempty + undescribed -> uncommitted, undescribed work.
+    #   - empty + described      -> a set-up-but-unfilled commit; looks in-progress.
+    # Checked BEFORE the refresh/re-join below so a refusal rewrites nothing: the
+    # workspace is left exactly as the agent had it. Reads $name@ with
+    # --ignore-working-copy, which is sound because the snapshot above just banked it.
+    set -l wc_empty (jj log --no-graph -r "$name"@ -T 'if(empty, "y", "")' --ignore-working-copy)
+    set -l wc_desc (jj log --no-graph -r "$name"@ -T 'if(description, "y", "")' --ignore-working-copy)
+    if test -z "$wc_empty" -a -n "$wc_desc"
+        echo >&2 "$(status filename): $name@ still holds the work itself — integrate folds only closed commits. Run 'jj new' in $ws_dir to cap it with an empty change, then re-integrate."
+        return 69
+    else if test -z "$wc_empty" -a -z "$wc_desc"
+        echo >&2 "$(status filename): $name has undescribed work in its workspace — describe it (jj describe -m …) and cap it with 'jj new', or abandon it, then re-integrate."
+        return 69
+    else if test -n "$wc_desc"
+        echo >&2 "$(status filename): $name@ is described but empty — that reads as work in progress. Finish it, or clear the description / abandon it, then re-integrate."
+        return 69
+    end
+    # else: empty + undescribed — the clean trailing-commit shape.
+
     # Refresh first — always the DETACH path, so the re-join below has a detached
     # feature to thread the claim back into, and the fold never rewinds default@
     # past newer trunk work. 69 = a conflict was left in the workspace: bail with
@@ -990,39 +1017,13 @@ function __integrate_steps
         jj -R "$default_dir" rebase -r "$name" -A "fork_point(default@..$name@)-"
         or return 1
         # The re-join reparented the feature stack onto the claim → the workspace WC is
-        # now stale; clear it before the inspection / cap below touch the workspace.
+        # now stale; clear it before the fold below touches the workspace.
         command jj -R "$ws_dir" workspace update-stale >/dev/null 2>&1
         # As with refresh, a re-join conflict (the claim's ticket-move vs. trunk) is
         # recorded and exits 0. Leave it for the workspace to resolve; bail 69, no fold.
         __conflict_stop "$name::" "$ws_dir" "re-joining $name's claim conflicts with the trunk tip"
         or return
     end
-
-    # Inspect the workspace's working-copy commit. A clean hand-off has emptiness
-    # and describedness AGREEing: either an empty undescribed @ (the agent ended on
-    # `jj new`), or the finished work sitting in @ described-but-not-`new` (a common
-    # habit). When they DISAGREE it's work in flight — stop (69), don't fold:
-    #   - empty + described  -> a set-up-but-unfilled commit; looks in-progress.
-    #   - nonempty + undescribed -> uncommitted/undescribed work.
-    set -l wc_empty (jj log --no-graph -r "$name"@ -T 'if(empty, "y", "")' --ignore-working-copy)
-    set -l wc_desc (jj log --no-graph -r "$name"@ -T 'if(description, "y", "")' --ignore-working-copy)
-    if test -n "$wc_empty" -a -n "$wc_desc"
-        echo >&2 "$(status filename): $name@ is described but empty — that reads as work in progress. Finish it, or clear the description / abandon it, then re-integrate."
-        return 69
-    else if test -z "$wc_empty" -a -z "$wc_desc"
-        echo >&2 "$(status filename): $name has undescribed work in its workspace — describe it (jj describe -m …) or abandon it, then re-integrate."
-        return 69
-    else if test -z "$wc_empty" -a -n "$wc_desc"
-        # Finished work left AS the working copy: cap it with a fresh empty
-        # commit so the work becomes $name@- and the fold picks it up — exactly
-        # as if the agent had run `jj new` themselves.
-        command jj -R "$ws_dir" new
-        or begin
-            echo >&2 "$(status filename): couldn't cap $name's described work with an empty commit."
-            return 1
-        end
-    end
-    # else: empty + undescribed — already the clean trailing-commit shape.
 
     # Fold: move default's @ onto the feature tip, finish the todo as the final
     # commit. Nothing here is irreversible — every fail-able step rolls back via

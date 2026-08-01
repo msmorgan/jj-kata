@@ -63,6 +63,12 @@ Key rules:
   the merge on `default` first. **P2** — `integrate` refuses (exit 2) unless the
   feature already sits on the *current* trunk tip; run `workflow refresh` inside
   the workspace first, then integrate.
+- **Close your work before integrating.** `integrate` refuses (exit 69) unless the
+  workspace's `@` is an EMPTY, undescribed change — it folds only commits you
+  closed yourself and never promotes the working copy for you. End on `jj commit
+  -m …` (or `jj describe -m …` then `jj new`). Work still in `@`, undescribed work,
+  and a described-but-empty `@` all stop it; nothing is rewritten, fix the working
+  copy and re-run.
 - On ANY conflict (a command exiting 69) or working-copy divergence, immediately
   run `workflow repair` (or `workflow resolve`) yourself from inside the feature
   workspace and reason through the conflict step by step — this is
