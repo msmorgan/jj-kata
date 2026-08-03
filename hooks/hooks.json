@@ -19,6 +19,16 @@
           }
         ]
       }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "fish \"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/jj_status.fish\""
+          }
+        ]
+      }
     ]
   }
 }

@@ -13,17 +13,18 @@ isolated workspace.
 2. [Repository shape](#repository-shape)
 3. [Trunk immutability (repo config)](#trunk-immutability-repo-config)
 4. [The `jj_guard` hook (AI-agent enforcement)](#the-jj_guard-hook)
-5. [Feature workflow](#feature-workflow)
+5. [The status line (`workflow status`)](#the-status-line)
+6. [Feature workflow](#feature-workflow)
    - [Claim / start](#claiming-and-starting-features)
    - [Integrate](#integrating-a-feature)
    - [Drop](#dropping-a-feature)
    - [Refresh](#refreshing-keeping-current-with-trunk)
-6. [Ticket folders as status](#ticket-folders-as-status)
-7. [Handing off unfinished work](#handing-off-unfinished-work)
-8. [Recovery (repair / converge / resolve)](#recovery)
-9. [Conflicts tool](#conflicts-tool)
-10. [Configuration](#configuration)
-11. [Appendix: Example provision-workspace hook](#appendix-example-provision-workspace-hook)
+7. [Ticket folders as status](#ticket-folders-as-status)
+8. [Handing off unfinished work](#handing-off-unfinished-work)
+9. [Recovery (repair / converge / resolve)](#recovery)
+10. [Conflicts tool](#conflicts-tool)
+11. [Configuration](#configuration)
+12. [Appendix: Example provision-workspace hook](#appendix-example-provision-workspace-hook)
 
 ---
 
@@ -37,8 +38,8 @@ isolated workspace.
 ```
 
 This puts `workflow` and `conflicts` on the Bash tool's PATH (`bin/`), registers
-the PreToolUse guard hook automatically (it activates only inside jj repos), and
-ships the usage skill. Then, once per repo, run `/jj-workflow:setup` — it sets
+the PreToolUse guard and the PostToolBatch [status line](#the-status-line)
+automatically (both activate only inside jj repos), and ships the usage skill. Then, once per repo, run `/jj-workflow:setup` — it sets
 the `immutable_heads()` repo-config alias (the actual trunk protection, which is
 per-repo state a plugin can't carry) and walks the optional config. Every
 command targets the jj workspace you run it from, so one global copy serves all
@@ -101,6 +102,7 @@ scripts/
   todo                        ← ticket dependency graph
   hooks/
     jj_guard.fish             ← Claude Code PreToolUse guard
+    jj_status.fish            ← Claude Code PostToolBatch status line
   lib/
     setup.fish                ← shared sourcing helpers
     todo_graph.pl             ← dependency graph engine
@@ -114,10 +116,14 @@ It also sets the repo-config `immutable_heads()` alias that protects the trunk l
 1. Register `scripts/hooks/jj_guard.fish` as a Claude Code PreToolUse(Bash) hook in
    `.claude/settings.json`, and set env `JJ_EDITOR=false` there (see
    [The jj_guard hook](#the-jj_guard-hook)).
-2. Copy `jjworkflow.example.toml` → `jjworkflow.toml` and edit if defaults don't fit.
-3. Add a `scripts/provision-workspace` executable if new workspaces need shared or
+2. Register `scripts/hooks/jj_status.fish` as a `PostToolBatch` hook in the same
+   file, so an agent gets a status line after each batch of tool calls (see
+   [The status line](#the-status-line)). Unlike the worktree hooks below, this
+   one is safe anywhere: outside a jj repo it exits silently.
+3. Copy `jjworkflow.example.toml` → `jjworkflow.toml` and edit if defaults don't fit.
+4. Add a `scripts/provision-workspace` executable if new workspaces need shared or
    generated directories (see [Appendix](#appendix-example-provision-workspace-hook)).
-4. Optional, for repos where Claude Code background sessions run: register
+5. Optional, for repos where Claude Code background sessions run: register
    `scripts/hooks/worktree_create.fish` / `worktree_remove.fish` as
    `WorktreeCreate`/`WorktreeRemove` hooks (this repo's own
    `.claude/settings.json` is the template) — EnterWorktree then creates
@@ -252,6 +258,73 @@ editor-opening command can't hang the agent (the toolkit always passes `-m`):
 ```
 
 Exit 2 from the hook blocks the tool call with the error on stderr; exit 0 allows it.
+
+---
+
+## The status line
+
+`workflow status` prints one line describing where the current workspace stands —
+the thing a human gets for free from a shell prompt, and an agent otherwise has to
+go ask for:
+
+```
+jj: default | @ szznvzyrxylx (empty)
+jj: feat-login | @ qpvxwlkmrytu "wip: session cookie" +220/-74 (+4/~1/-1) | 3 unintegrated
+jj: feat-login | @ snwwkymxzmyw (empty) | 1 unintegrated | ⚠ 2 conflicted
+jj: feat-login | ⚠ STALE working copy — run `workflow repair` before trusting anything here
+```
+
+Field order is decision order. *Which workspace* decides which commands are even
+legal; then what `@` holds (`(empty)` / `(no desc)` / its description, plus line
+counts and file counts by kind); then how many changes trunk does not have yet —
+the number that says whether `integrate` would do anything. The `⚠` fields appear
+only when non-zero, so a normal line stays short and an abnormal one is hard to
+skim past. It runs from any workspace, reads only, and takes the workflow lock
+briefly so it never reports a state caught mid-rewrite.
+
+Two things are deliberately absent. The **operation id** — every command that
+consumes one (`undo`, `redo`, `op restore`) is the human operator's, so printing
+it to an agent is a token it can never act on. And **bookmarks**, except when one
+sits on `@` itself, which is worth a warning because an edit there moves shared
+state.
+
+### As a `PostToolBatch` hook
+
+`scripts/hooks/jj_status.fish` reports that line to an agent after each batch of
+tool calls. **The plugin registers it for you**; repo-local installs add it to
+`.claude/settings.json`:
+
+```json
+"PostToolBatch": [
+  { "hooks": [ { "type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_status.fish\"" } ] }
+]
+```
+
+`PostToolBatch` fires once after every tool call in a batch resolves, immediately
+before the next model request — so the line is freshest exactly where mistakes
+happen, deep in a long turn, rather than at the top of one where nothing has
+happened yet. `PostToolUse` is the wrong event for this despite being the obvious
+one: it fires per-tool and may run *concurrently* for parallel tool calls, so five
+parallel edits would race five hooks for one working-copy lock and write five
+snapshot operations into a shared op log. (It is still accepted as a payload
+shape, for anyone who wants it there anyway.)
+
+Two rules keep it cheap enough to run that often:
+
+- **Batches that cannot have changed anything are skipped without invoking jj** —
+  no lock, no working-copy scan, no operation. Recognised read-only tools only
+  (`Read`, `Grep`, `Glob`, …); everything else, including every `Bash` call,
+  counts as mutating.
+- **It speaks only when something structural moves** — a different workspace,
+  change id, description, un-integrated count, conflict count, stale flag, or
+  bookmark on `@`. Edit *volume* alone is not a change, so twenty edits into one
+  change produce one line and then silence. Silence means "still there".
+
+Note that this makes the hook eager: `jj` snapshots lazily, so after an `Edit`
+nothing has reached the repo until some jj command runs, and this one runs it.
+That is the point — the stats would otherwise describe a state that no longer
+exists on disk — but it does mean one `snapshot working copy` operation per
+mutating batch in the shared op log.
 
 ---
 

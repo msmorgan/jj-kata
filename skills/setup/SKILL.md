@@ -45,7 +45,21 @@ is idempotent; report what was already in place.
    - Claude Code: add `"env": {"JJ_EDITOR": "false"}` to
      `.claude/settings.json`.
 
-5. Claude Code only: if background sessions (or `isolation: worktree` subagents) will
+5. Claude Code, repo-local installs only: register the status line so an agent
+   gets one line of "where am I" after each batch of tool calls. Add to
+   `.claude/settings.json` (tracked — the path is portable):
+
+   ```json
+   "PostToolBatch": [{"hooks": [{"type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_status.fish\""}]}]
+   ```
+
+   **Plugin installs already have this** — it ships in the plugin's own
+   `hooks.json`, so skip this step there. Unlike the worktree hooks in the next
+   step, registering it globally is safe: outside a jj repo it exits silently
+   without invoking jj at all. Codex has no `PostToolBatch` event; there, run
+   `workflow status` by hand when orientation is needed.
+
+6. Claude Code only: if background sessions (or `isolation: worktree` subagents) will
    run in this repo, wire EnterWorktree to jj-workflow workspaces by adding a
    `hooks` block (see below for WHICH settings file):
 
@@ -88,7 +102,7 @@ is idempotent; report what was already in place.
    PURPOSE: registered globally they would hijack EnterWorktree in plain-git
    repos.
 
-6. Sanity check: `workflow` with no arguments prints usage (the plugin's
+7. Sanity check: `workflow` with no arguments prints usage (the plugin's
    PreToolUse hook prepends its `bin/` to each Codex shell call). The hook ships
    with this plugin and needs no registration. In Codex, if `workflow` is not
    found, stop and ask the user to use `/hooks` to review and trust the pending

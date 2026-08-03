@@ -28,9 +28,10 @@ end
 # no-arg refresh, the self-targeting form of integrate, and `claim T` folding into
 # THIS workspace's own claim) are reachable from a feature workspace; integrate and
 # claim then enforce "self or default" per-target via __require_self_or_default.
-# `handoffs` is exempt for a different reason: it only reads, so it is safe (and
-# useful) from anywhere — a resuming agent may land in any workspace.
-if not contains -- "$argv[1]" repair converge resolve refresh integrate claim handoffs
+# `handoffs` and `status` are exempt for a different reason: they only read, so
+# they are safe (and useful) from anywhere — a resuming agent may land in any
+# workspace, and status is specifically about reporting WHICH one that is.
+if not contains -- "$argv[1]" repair converge resolve refresh integrate claim handoffs status
     and not __on_default
     echo >&2 "$(status filename): '$argv[1]' runs from the default workspace (creation/cross-feature ops are coordinator-only)."
     return 1
@@ -87,6 +88,14 @@ Usage: $(status filename) <command> [<args>]
     resolve              Run FROM a feature workspace to walk a refresh/integrate conflict one
                          commit at a time: drops you onto a conflict (exit 1); remove its
                          markers; re-run. Exit 0 once the stack is clean.
+    status               One line describing where THIS workspace stands: which workspace,
+                         what @ holds (+ins/-del and +added/~modified/-deleted files),
+                         how many changes are un-integrated, and any conflict / stale /
+                         bookmark-on-@ / handoff flag. Snapshots the working copy, then
+                         reads. Runs from anywhere. `status --porcelain` prints
+                         `KEY<TAB>LINE`, where KEY changes only on a STRUCTURAL change
+                         (not on edit volume) — what the PostToolBatch hook diffs to stay
+                         quiet until something worth reporting moves.
     handoffs             List every workspace holding a HANDOFF.md — work someone paused
                          mid-flight and left a resume doc for. Read-only, runs from
                          anywhere. Prints `NAME<TAB>PATH` per hit; grep-style status:
@@ -659,6 +668,149 @@ function __workflow_handoffs
     contains -- "$current" $found; and set here " (you are in '$current')"
     echo >&2 "$(status filename): "(count $found)" handoff doc(s): $found$here"
     return 0
+end
+
+# One line describing where this workspace stands — the shell-prompt equivalent
+# for an agent, meant to be re-read after each batch of tool calls (see
+# scripts/hooks/jj_status.fish). Runs from anywhere.
+#
+# Field order is decision order: WHICH workspace you're in decides which commands
+# are even legal, then what @ holds, then how far the stack has drifted from the
+# trunk, then the things that stop work outright. The `⚠` fields only appear when
+# non-zero, so an ordinary line stays short and an abnormal one is impossible to
+# skim past.
+#
+# Deliberately NOT shown: the operation id. Every command that consumes one (undo,
+# redo, op restore/abandon) is reserved for the human operator, so printing it to
+# an agent is an opaque token it can never act on. Bookmarks appear only when one
+# sits on @ itself — that means an edit here moves shared state, which IS
+# actionable; listing every nearby bookmark would just invite touching them.
+#
+# The `jj status` below is the one write this command makes: it snapshots the
+# working copy, which is exactly the point — after a batch of file edits, nothing
+# has reached the repo until some jj command runs, so the stats would otherwise
+# describe a state that no longer exists on disk. Every subsequent read uses
+# --ignore-working-copy: the snapshot already happened, so re-taking the lock per
+# read would be pure cost.
+function __workflow_status
+    argparse -S porcelain -- $argv
+    or return 2
+    if set -q argv[1]
+        echo >&2 "$(status filename): status takes no arguments (got '$argv[1]')."
+        return 2
+    end
+
+    set -l ws (__current_workspace_name); or set ws '?'
+    set -l US (printf '\037')
+
+    # Snapshot. A stale workspace cannot be read meaningfully and must not be
+    # fixed here — `workflow repair` owns update-stale, and silently unstaling
+    # under a status probe would be a mutation nobody asked for.
+    # Keep jj's own exit status: piping this through `string collect` would report
+    # "no stderr" (status 1) as a failed snapshot on every healthy run.
+    set -l snap_err (command jj status 2>&1 >/dev/null)
+    if test $status -ne 0
+        if string match -qr -- 'stale' $snap_err
+            __status_emit "$_flag_porcelain" "$ws$US"'stale' \
+                "jj: $ws | ⚠ STALE working copy — run \`workflow repair\` before trusting anything here"
+            return 0
+        end
+        __status_emit "$_flag_porcelain" "$ws$US"'unreadable' "jj: $ws | ⚠ jj could not read this workspace"
+        return 1
+    end
+
+    # One template call for everything that lives on @ itself.
+    # \x1f (unit separator), not \037: jj's template lexer takes \x escapes, not
+    # octal — an octal one silently emits the literal digits and corrupts the split.
+    set -l t 'change_id.short() ++ "\x1f" ++ if(empty,"1","0") ++ "\x1f" ++ if(conflict,"1","0") ++ "\x1f" ++ bookmarks.map(|b| b.name()).join(",") ++ "\x1f" ++ description.first_line()'
+    set -l raw (command jj log --no-graph -r @ --ignore-working-copy -T $t 2>/dev/null | string collect)
+    set -l f
+    test -n "$raw"; and set f (string split -m4 $US -- $raw)
+    if test (count $f) -lt 5
+        __status_emit "$_flag_porcelain" "$ws$US"'unreadable' "jj: $ws | ⚠ could not read @"
+        return 1
+    end
+    set -l cid $f[1]
+    set -l is_empty $f[2]
+    set -l at_conflict $f[3]
+    set -l at_bookmarks $f[4]
+    set -l desc (string replace -a \t ' ' -- $f[5])
+
+    # Work this workspace is carrying that trunk does not have yet — the number
+    # that says whether `integrate` would do anything. Structurally always 0 on
+    # the coordinator (default@..@ is empty there), so it is omitted rather than
+    # printed as a meaningless zero.
+    set -l unintegrated 0
+    set -l conflicted 0
+    if test "$ws" != default
+        set unintegrated (count (command jj log --no-graph -r '(default@..@) ~ empty()' -T '"x\n"' --ignore-working-copy 2>/dev/null))
+    end
+    # Conflicts anywhere in the stack, not just @: `workflow resolve` walks them
+    # commit by commit, so the commit count is the number that matches the tool.
+    set conflicted (count (command jj log --no-graph -r 'conflicts() & (@ | default@..@)' -T '"x\n"' --ignore-working-copy 2>/dev/null))
+    # Fallback for the no-default-workspace case, where that revset cannot resolve.
+    if test "$at_conflict" = 1; and test $conflicted -eq 0
+        set conflicted 1
+    end
+
+    # @'s own state: what is sitting in the working-copy commit right now.
+    set -l state
+    if test "$is_empty" = 1
+        set state '(empty)'
+    else
+        if test -n "$desc"
+            set state '"'(string shorten -m 48 -- $desc)'"'
+        else
+            set state '(no desc)'
+        end
+        # File counts by KIND (+added/~modified/-deleted) alongside line counts:
+        # after a batch of edits "3 files touched" answers "did my edits land"
+        # far more directly than a line total does.
+        set -l a 0; set -l m 0; set -l d 0
+        for row in (command jj diff -r @ --summary --ignore-working-copy 2>/dev/null)
+            switch (string sub -l1 -- $row)
+                case A; set a (math $a + 1)
+                case D; set d (math $d + 1)
+                case '*'; set m (math $m + 1)
+            end
+        end
+        set -l tail (command jj diff -r @ --stat --ignore-working-copy 2>/dev/null | tail -1)
+        set -l ins (string match -rg -- '(\d+) insertion' -- $tail); or set ins 0
+        set -l del (string match -rg -- '(\d+) deletion' -- $tail); or set del 0
+        set state "$state +$ins/-$del (+$a/~$m/-$d)"
+    end
+
+    set -l line "jj: $ws | @ $cid $state"
+    set -l key "$ws$US$cid$US$is_empty$US$desc$US$unintegrated$US$conflicted"
+
+    test "$ws" != default; and set line "$line | $unintegrated unintegrated"
+    test $conflicted -gt 0; and set line "$line | ⚠ $conflicted conflicted"
+    if test -n "$at_bookmarks"
+        # A bookmark on @ means editing here moves shared state. Bookmarks are the
+        # operator's to move, so this is a warning, never an instruction.
+        set line "$line | ⚠ bookmark '$at_bookmarks' on @"
+        set key "$key$US$at_bookmarks"
+    end
+    if test -f "$project_dir/HANDOFF.md"
+        set line "$line | HANDOFF.md — paused work here"
+        set key "$key$US"'handoff'
+    end
+
+    __status_emit "$_flag_porcelain" "$key" "$line"
+    return 0
+end
+
+# Shared exit for __workflow_status. Plain mode prints the human line; --porcelain
+# prints `KEY<TAB>LINE` so a caller can decide whether the line is worth showing
+# without paying for a second snapshot. The KEY deliberately omits diff stats: a
+# burst of edits into one change should not read as a state change, or the
+# suppression it exists for would never suppress anything.
+function __status_emit --argument-names porcelain key line
+    if test -n "$porcelain"
+        printf '%s\t%s\n' "$key" "$line"
+    else
+        echo "$line"
+    end
 end
 
 function __workflow_drop
@@ -1393,16 +1545,36 @@ end
 # operation (every jj step plus rollback) under one flock, released by the
 # kernel when the process exits — even on a crash. _WORKFLOW_LOCKED breaks the
 # re-exec recursion.
-if not set -q _WORKFLOW_LOCKED; and contains -- "$argv[1]" claim start drop refresh integrate
+if not set -q _WORKFLOW_LOCKED; and contains -- "$argv[1]" claim start drop refresh integrate status
     set -gx _WORKFLOW_LOCKED 1
     # -w 600: wait up to 10 min (a held lock spans one op, incl. claim/start's slow
     # workspace provisioning) rather than failing fast under contention. -E 75: on
     # timeout exit 75, distinct from the command's own codes (incl. 2), so a genuine
     # "couldn't acquire" is never mistaken for the operation's result — which is
     # why 75 is PROPAGATED, not folded into 1. Callers branch on the exit code.
-    flock -w 600 -E 75 "$project_dir/.jj/workflow.lock" "$scripts_dir/workflow" $argv
+    #
+    # status takes the lock too — reading mid-rewrite would report a state that is
+    # true for an instant and misleading for the rest of the batch — but with a
+    # SHORT wait: it runs after every tool batch, so a 10-minute stall would hang
+    # the caller behind someone else's integrate. On timeout it says so and exits
+    # 0; a missing status line is a non-event, a frozen session is not.
+    set -l lock_wait 600
+    test "$argv[1]" = status; and set lock_wait 5
+    flock -w $lock_wait -E 75 "$project_dir/.jj/workflow.lock" "$scripts_dir/workflow" $argv
     set -l rc $status
     if test $rc -eq 75
+        if test "$argv[1]" = status
+            set -l busy "jj: (busy — a workflow operation holds the lock)"
+            # Keep the porcelain contract even here: 'busy' is a distinct KEY, so the
+            # caller reports the stall once and reports the real state as soon as the
+            # next batch can read it.
+            if contains -- --porcelain $argv
+                printf 'busy\t%s\n' "$busy"
+            else
+                echo "$busy"
+            end
+            return 0
+        end
         echo >&2 "$(status filename): timed out waiting for the workflow lock — another claim/start/drop/refresh/integrate is holding it. Re-run once it finishes."
     end
     return $rc
@@ -1435,6 +1607,8 @@ switch $argv[1]
         __workflow_resolve
     case handoffs
         __workflow_handoffs $argv[2..]
+    case status
+        __workflow_status $argv[2..]
     case '*'
         __workflow_usage
 end

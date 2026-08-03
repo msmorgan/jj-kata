@@ -32,3 +32,18 @@ def test_shared_hook_uses_portable_plugin_root():
 
     assert {group["matcher"] for group in hooks} == {"Bash", "run_command"}
     assert all("PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}" in command for command in commands)
+
+
+def test_status_hook_is_registered_unmatched_on_post_tool_batch():
+    hooks = json.loads((ROOT / "hooks/hooks.json").read_text())["hooks"][
+        "PostToolBatch"
+    ]
+    commands = [hook["command"] for group in hooks for hook in group["hooks"]]
+
+    assert commands == [
+        'fish "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/jj_status.fish"'
+    ]
+    # No matcher: PostToolBatch describes a whole batch, not one tool, so there is
+    # nothing to match on. The hook does its own filtering from tool_calls[].
+    assert all("matcher" not in group for group in hooks)
+    assert (ROOT / "scripts/hooks/jj_status.fish").is_file()

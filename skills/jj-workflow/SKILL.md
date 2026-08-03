@@ -124,6 +124,13 @@ Key rules:
 - Resolve alphabetized-list conflicts with `conflicts auto`; inspect any
   conflict with `conflicts show`; pick a side per file with
   `conflicts accept FILE snapshot|diff|base|stack`.
+- **`workflow status` answers "where am I" in one line** — which workspace,
+  what `@` holds, how much is un-integrated, plus conflict/stale/handoff flags.
+  Read-only, runs from anywhere. In Claude Code the plugin reports it
+  automatically after each batch of tool calls, and only when something
+  structural moved — so a line that does NOT appear means nothing changed, not
+  that nothing was checked. Run it by hand after a `cd` between workspaces, or
+  any time you are about to act on an assumption about where you are.
 - **A `HANDOFF.md` in any workspace means work was paused there mid-flight and
   left a resume doc.** `workflow handoffs` scans every workspace for one
   (read-only, runs from anywhere; exit 0 = found, 1 = none). Run it when picking
