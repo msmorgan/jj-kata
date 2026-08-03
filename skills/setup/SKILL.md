@@ -46,18 +46,32 @@ is idempotent; report what was already in place.
      `.claude/settings.json`.
 
 5. Claude Code only: if background sessions (or `isolation: worktree` subagents) will
-   run in this repo, wire EnterWorktree to jj-workflow workspaces by adding to
-   the repo's `.claude/settings.json` `hooks` block:
+   run in this repo, wire EnterWorktree to jj-workflow workspaces by adding a
+   `hooks` block (see below for WHICH settings file):
 
    ```json
    "WorktreeCreate": [{"hooks": [{"type": "command", "command": "fish \"<HOOKS>/worktree_create.fish\""}]}],
    "WorktreeRemove": [{"hooks": [{"type": "command", "command": "fish \"<HOOKS>/worktree_remove.fish\""}]}]
    ```
 
-   where `<HOOKS>` is `$CLAUDE_PROJECT_DIR/scripts/hooks` for a repo-local
-   install, or the absolute `${CLAUDE_PLUGIN_ROOT}/scripts/hooks` path resolved
-   NOW for a plugin install (plugin paths change on update — re-run this setup
-   after updating the plugin). Codex has no equivalent EnterWorktree hook, so
+   `<HOOKS>` and the settings file go together, because only a repo-local
+   install has a path every contributor resolves the same way:
+
+   - **Repo-local install** — `<HOOKS>` is `$CLAUDE_PROJECT_DIR/scripts/hooks`.
+     Portable, so it belongs in the tracked `.claude/settings.json`.
+   - **Plugin install** — the toolkit lives outside the repo, and no variable
+     usable in a project settings file points at it (`${CLAUDE_PLUGIN_ROOT}` is
+     only set for hooks a plugin itself declares). So `<HOOKS>` must be an
+     absolute machine path — which makes it machine-specific config that MUST
+     go in the untracked `.claude/settings.local.json`, never in the tracked
+     `.claude/settings.json`. Writing a `/home/<user>/…` path into a
+     version-controlled file breaks the hook for every other clone and leaks
+     the author's home directory into history. Prefer `"$HOME/…"` over a
+     literal home path even there, and prefer a stable checkout over the
+     versioned plugin cache path (`…/plugins/cache/<mp>/<plugin>/<version>/`),
+     which moves on every plugin update and would need re-running this setup.
+
+   Codex has no equivalent EnterWorktree hook, so
    skip this step there and use `workflow start`/`claim` directly.
    EnterWorktree then creates a real jj-workflow
    feature workspace — claiming the matching ticket when the worktree name

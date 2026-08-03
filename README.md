@@ -119,10 +119,16 @@ It also sets the repo-config `immutable_heads()` alias that protects the trunk l
    generated directories (see [Appendix](#appendix-example-provision-workspace-hook)).
 4. Optional, for repos where Claude Code background sessions run: register
    `scripts/hooks/worktree_create.fish` / `worktree_remove.fish` as
-   `WorktreeCreate`/`WorktreeRemove` hooks in `.claude/settings.json` (this repo's
-   own settings file is the template) — EnterWorktree then creates jj-workflow
-   feature workspaces instead of git worktrees. Per-repo only: registered
-   globally these hooks would hijack EnterWorktree in plain-git repos. Note when
+   `WorktreeCreate`/`WorktreeRemove` hooks (this repo's own
+   `.claude/settings.json` is the template) — EnterWorktree then creates
+   jj-workflow feature workspaces instead of git worktrees. Per-repo only:
+   registered globally these hooks would hijack EnterWorktree in plain-git
+   repos. **Which settings file depends on the install:** repo-local installs
+   reference `$CLAUDE_PROJECT_DIR/scripts/hooks/…`, which is portable and
+   belongs in the tracked `.claude/settings.json`; a **plugin install** has no
+   variable a project settings file can use to reach the plugin root, so its
+   absolute path is machine-specific and must go in the untracked
+   `.claude/settings.local.json` — never commit a `/home/<user>/…` hook path. Note when
    ending such a session: `ExitWorktree`'s git-native pre-remove check can't read
    a jj workspace and refuses with "could not verify worktree state" — call it
    with `discard_changes: true`. That only skips the bogus git gate; it does not
