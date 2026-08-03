@@ -122,8 +122,9 @@ It also sets the repo-config `immutable_heads()` alias that protects the trunk l
 1. Register `scripts/hooks/jj_guard.fish` as a Claude Code PreToolUse(Bash) hook in
    `.claude/settings.json`, and set env `JJ_EDITOR=false` there (see
    [The jj_guard hook](#the-jj_guard-hook)).
-2. Register `scripts/hooks/jj_status.fish` as a `PostToolBatch` hook in the same
-   file, so an agent gets a status line after each batch of tool calls (see
+2. Register `scripts/hooks/jj_status.fish` as a `SessionStart` **and**
+   `PostToolBatch` hook in the same file, so an agent is oriented when it starts
+   and kept current after each batch of tool calls (see
    [The status line](#the-status-line)). Unlike the worktree hooks below, this
    one is safe anywhere: outside a jj repo it exits silently.
 3. Copy `jjworkflow.example.toml` → `jjworkflow.toml` and edit if defaults don't fit.
@@ -294,19 +295,25 @@ it to an agent is a token it can never act on. And **bookmarks**, except when on
 sits on `@` itself, which is worth a warning because an edit there moves shared
 state.
 
-### As a `PostToolBatch` hook
+### As a hook
 
-`scripts/hooks/jj_status.fish` reports that line to an agent after each batch of
-tool calls. **The plugin registers it for you**; repo-local installs add it to
-`.claude/settings.json`:
+`scripts/hooks/jj_status.fish` reports that line to an agent at session start and
+after each batch of tool calls. **The plugin registers it for you**; repo-local
+installs add it to `.claude/settings.json`:
 
 ```json
-"PostToolBatch": [
-  { "hooks": [ { "type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_status.fish\"" } ] }
-]
+"SessionStart":   [ { "hooks": [ { "type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_status.fish\"" } ] } ],
+"PostToolBatch":  [ { "hooks": [ { "type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_status.fish\"" } ] } ]
 ```
 
-`PostToolBatch` fires once after every tool call in a batch resolves, immediately
+The two events cover opposite ends of the same problem. **`SessionStart`** is the
+one moment an agent knows nothing at all about where it is, so the line reports
+there unconditionally — including on `resume`, `clear`, `compact`, and `fork`,
+which reuse the session id and are precisely the events that discarded the
+context holding the previous line. (Session start is also when the hook sweeps
+suppression caches left by sessions over a week old.)
+
+**`PostToolBatch`** fires once after every tool call in a batch resolves, immediately
 before the next model request — so the line is freshest exactly where mistakes
 happen, deep in a long turn, rather than at the top of one where nothing has
 happened yet. `PostToolUse` is the wrong event for this despite being the obvious
@@ -315,7 +322,8 @@ parallel edits would race five hooks for one working-copy lock and write five
 snapshot operations into a shared op log. (It is still accepted as a payload
 shape, for anyone who wants it there anyway.)
 
-Two rules keep it cheap enough to run that often:
+Two rules keep the per-batch half cheap enough to run that often (neither applies
+at session start, which always reports):
 
 - **Batches that cannot have changed anything are skipped without invoking jj** —
   no lock, no working-copy scan, no operation. Recognised read-only tools only

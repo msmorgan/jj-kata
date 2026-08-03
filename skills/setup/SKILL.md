@@ -46,17 +46,19 @@ is idempotent; report what was already in place.
      `.claude/settings.json`.
 
 5. Claude Code, repo-local installs only: register the status line so an agent
-   gets one line of "where am I" after each batch of tool calls. Add to
-   `.claude/settings.json` (tracked — the path is portable):
+   gets one line of "where am I" when a session starts and after each batch of
+   tool calls. Add to `.claude/settings.json` (tracked — the path is portable):
 
    ```json
+   "SessionStart":  [{"hooks": [{"type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_status.fish\""}]}],
    "PostToolBatch": [{"hooks": [{"type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_status.fish\""}]}]
    ```
 
-   **Plugin installs already have this** — it ships in the plugin's own
+   Both events, same script — it branches on `hook_event_name`. Neither takes a
+   matcher. **Plugin installs already have this** — it ships in the plugin's own
    `hooks.json`, so skip this step there. Unlike the worktree hooks in the next
    step, registering it globally is safe: outside a jj repo it exits silently
-   without invoking jj at all. Codex has no `PostToolBatch` event; there, run
+   without invoking jj at all. Codex has neither event; there, run
    `workflow status` by hand when orientation is needed.
 
 6. Claude Code only: if background sessions (or `isolation: worktree` subagents) will

@@ -34,17 +34,22 @@ def test_shared_hook_uses_portable_plugin_root():
     assert all("PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}" in command for command in commands)
 
 
-def test_status_hook_is_registered_unmatched_on_post_tool_batch():
-    hooks = json.loads((ROOT / "hooks/hooks.json").read_text())["hooks"][
-        "PostToolBatch"
-    ]
-    commands = [hook["command"] for group in hooks for hook in group["hooks"]]
-
-    assert commands == [
+def test_status_hook_is_registered_unmatched_on_both_events():
+    all_hooks = json.loads((ROOT / "hooks/hooks.json").read_text())["hooks"]
+    expected = (
         'fish "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}'
         '/skills/jj-workflow/scripts/hooks/jj_status.fish"'
-    ]
-    # No matcher: PostToolBatch describes a whole batch, not one tool, so there is
-    # nothing to match on. The hook does its own filtering from tool_calls[].
-    assert all("matcher" not in group for group in hooks)
+    )
+
+    # PostToolBatch keeps the line current; SessionStart is where an agent knows
+    # least. One script serves both and branches on hook_event_name.
+    for event in ("PostToolBatch", "SessionStart"):
+        hooks = all_hooks[event]
+        commands = [hook["command"] for group in hooks for hook in group["hooks"]]
+        assert commands == [expected], event
+        # No matcher on either: PostToolBatch describes a whole batch rather than
+        # one tool, and every SessionStart source (startup/resume/clear/compact/
+        # fork) is a moment the line is worth having.
+        assert all("matcher" not in group for group in hooks), event
+
     assert (ROOT / "skills/jj-workflow/scripts/hooks/jj_status.fish").is_file()

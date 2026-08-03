@@ -43,6 +43,16 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "fish \"$CLAUDE_PROJECT_DIR/skills/jj-workflow/scripts/hooks/jj_status.fish\""
+          }
+        ]
+      }
     ]
   }
 }

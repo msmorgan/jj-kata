@@ -145,12 +145,53 @@ set -l after (printf '%s' $edit_payload | fish $hook)
 test -n "$after"
 or begin; echo >&2 "smoke-status: hook stayed silent across a structural change"; exit 1; end
 
+# --- SessionStart ------------------------------------------------------------
+# The other end of the same problem: a session that has just started, resumed, or
+# been compacted knows nothing about where it is.
+
+# It reports a BARE line, not the PostToolBatch JSON envelope — on SessionStart
+# it is exit-0 stdout that reaches the model, so JSON would show it the wrapper.
+set -l ss (jq -n --arg cwd $coord '{hook_event_name:"SessionStart",cwd:$cwd,
+    session_id:"boot",source:"startup"}' | fish $hook)
+or begin; echo >&2 "smoke-status: SessionStart hook exited nonzero"; exit 1; end
+string match -q 'jj: default |*' -- $ss
+or begin; echo >&2 "smoke-status: SessionStart line wrong: '$ss'"; exit 1; end
+string match -q '*hookSpecificOutput*' -- $ss
+and begin; echo >&2 "smoke-status: SessionStart emitted JSON, not a bare line"; exit 1; end
+
+# It must IGNORE the suppression cache. resume/clear/compact/fork reuse the
+# session id, and those are exactly the events that discarded the context holding
+# the previous line — staying quiet there would be quiet at the worst moment.
+set -l resumed (jq -n --arg cwd $coord '{hook_event_name:"SessionStart",cwd:$cwd,
+    session_id:"boot",source:"resume"}' | fish $hook)
+test -n "$resumed"
+or begin; echo >&2 "smoke-status: SessionStart was suppressed by its own cache"; exit 1; end
+# …while a tool batch in the same session, same state, still stays quiet.
+set -l quiet (jq -n --arg cwd $coord '{hook_event_name:"PostToolBatch",cwd:$cwd,
+    session_id:"boot",tool_calls:[{tool_name:"Edit"}]}' | fish $hook)
+test -z "$quiet"
+or begin; echo >&2 "smoke-status: SessionStart broke batch suppression: $quiet"; exit 1; end
+
+# Session start sweeps caches left by sessions that are long gone.
+touch -d '30 days ago' $coord/.jj/workflow-status.ancient
+jq -n --arg cwd $coord '{hook_event_name:"SessionStart",cwd:$cwd,
+    session_id:"boot",source:"startup"}' | fish $hook >/dev/null
+not test -e $coord/.jj/workflow-status.ancient
+or begin; echo >&2 "smoke-status: stale status cache was not swept"; exit 1; end
+test -e $coord/.jj/workflow-status.boot
+or begin; echo >&2 "smoke-status: sweep took the live session's cache too"; exit 1; end
+
 # Registered globally, the hook fires in non-jj projects too: silent, exit 0.
 set -l outside (mktemp -d)
 set -l nonjj (jq -n --arg cwd $outside '{hook_event_name:"PostToolBatch",cwd:$cwd,
     session_id:"s1",tool_calls:[{tool_name:"Edit"}]}' | fish $hook)
 or begin; echo >&2 "smoke-status: hook exited nonzero outside a jj repo"; exit 1; end
 test -z "$nonjj"; or begin; echo >&2 "smoke-status: hook spoke outside a jj repo: $nonjj"; exit 1; end
+set -l nonjj_boot (jq -n --arg cwd $outside '{hook_event_name:"SessionStart",cwd:$cwd,
+    session_id:"s1",source:"startup"}' | fish $hook)
+or begin; echo >&2 "smoke-status: SessionStart exited nonzero outside a jj repo"; exit 1; end
+test -z "$nonjj_boot"
+or begin; echo >&2 "smoke-status: SessionStart spoke outside a jj repo: $nonjj_boot"; exit 1; end
 
 # The per-tool PostToolUse shape still works, for anyone who registers it there.
 set -l ptu (jq -n --arg cwd $coord '{hook_event_name:"PostToolUse",cwd:$cwd,
