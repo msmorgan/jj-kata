@@ -34,7 +34,7 @@ feature-vs-trunk conflict is inherent. We *relocate* where it surfaces (to
   workspace.
 
 Mirrors the invariant the code already has for `refresh` (a feature ws refuses
-`refresh NAME` for a foreign NAME, `scripts/workflow:683-685`); generalize it.
+`refresh NAME` for a foreign NAME, `skills/jj-workflow/scripts/workflow`); generalize it.
 
 ## Command surface — before → after
 
@@ -83,7 +83,7 @@ Exact check intent: `fork_point(default@- | NAME@-) == default@-` (must-test).
 
 ### `__workflow_start` — eliminate the `__tip` bookmark
 
-Today (`scripts/workflow:271-290`) a 7-step dance uses a **fixed-name** transient
+Today (`skills/jj-workflow/scripts/workflow`) a 7-step dance uses a **fixed-name** transient
 bookmark `__tip` with `create` (fail-if-exists); an interrupted run orphans it
 and **permanently wedges all future workspace creation** (Bug 1). Replace with one
 splice, no transient bookmark, coordinator `@` never moves:

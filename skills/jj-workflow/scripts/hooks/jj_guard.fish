@@ -60,12 +60,20 @@ set -l payload (cat | string join \n)
 # line gets no prepend. Call the tool directly, or use a repo-local install's
 # scripts/workflow path.
 # Claude does not set PLUGIN_ROOT; Gemini has its own allow/deny response shape.
+#
+# The directory to prepend is derived from THIS file's own location rather than
+# from $PLUGIN_ROOT + a hard-coded subpath: the scripts sit beside the skill that
+# documents them, and a self-relative answer cannot drift out of sync with that
+# layout the way a second copy of the path would. PLUGIN_ROOT is still the gate —
+# it is what says "this is a Codex plugin session" — just not the map.
+set -g _jjg_scripts_dir (path dirname (path dirname (path resolve (status filename))))
+
 function _jjg_allow --argument-names cmd is_bash_hook is_gemini
     if test "$is_gemini" = "true"
         echo '{"decision": "allow"}'
     else if test "$is_bash_hook" = "true"; and set -q PLUGIN_ROOT; and test -n "$PLUGIN_ROOT"
         and string match -rq -- 'workflow|conflicts' -- $cmd
-        jq -n --arg bin "$PLUGIN_ROOT/scripts" --arg command "$cmd" \
+        jq -n --arg bin "$_jjg_scripts_dir" --arg command "$cmd" \
             '{hookSpecificOutput:{
                 hookEventName:"PreToolUse",
                 permissionDecision:"allow",

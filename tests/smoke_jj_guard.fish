@@ -6,7 +6,7 @@
 # quote/backslash EVASION forms the guard is expressly hardened against).
 
 set -l tk (path resolve (status dirname)/..)
-set -l hook $tk/scripts/hooks/jj_guard.fish
+set -l hook $tk/skills/jj-workflow/scripts/hooks/jj_guard.fish
 set -l work (mktemp -d)
 cd $work; or exit 1
 jj git init >/dev/null 2>&1; or begin; echo >&2 "smoke-guard: jj init failed"; exit 1; end
@@ -140,16 +140,16 @@ else
     if test "$codex_rc" != 0
         echo >&2 "smoke-guard (Codex): rewritten command failed (rc=$codex_rc)"
         set fails (math $fails + 1)
-    else if test "$codex_out[1]" != "$tk/scripts:/usr/bin:/bin"
+    else if test "$codex_out[1]" != "$tk/skills/jj-workflow/scripts:/usr/bin:/bin"
         echo >&2 "smoke-guard (Codex): scripts/ was not prepended to PATH: $codex_out[1]"
         set fails (math $fails + 1)
     else if test "$codex_out[2]" != codex
         echo >&2 "smoke-guard (Codex): workflow host marker was not exported: $codex_out[2]"
         set fails (math $fails + 1)
-    else if test "$codex_out[3]" != "$tk/scripts/workflow"
+    else if test "$codex_out[3]" != "$tk/skills/jj-workflow/scripts/workflow"
         echo >&2 "smoke-guard (Codex): workflow did not resolve from plugin scripts/: $codex_out[3]"
         set fails (math $fails + 1)
-    else if test "$codex_out[4]" != "$tk/scripts/conflicts"
+    else if test "$codex_out[4]" != "$tk/skills/jj-workflow/scripts/conflicts"
         echo >&2 "smoke-guard (Codex): conflicts did not resolve from plugin scripts/: $codex_out[4]"
         set fails (math $fails + 1)
     end
@@ -158,19 +158,29 @@ end
 # The same rewrite is applied inside a jj repo, where the tools are used.
 set rewritten (_rewrite_codex $hook $tk $work 'command -v workflow' | string collect)
 set -l resolved (env PATH=/usr/bin:/bin bash -c "$rewritten")
-if test "$resolved" != "$tk/scripts/workflow"
+if test "$resolved" != "$tk/skills/jj-workflow/scripts/workflow"
     echo >&2 "smoke-guard (Codex): workflow was not exposed inside a jj repo: $resolved"
     set fails (math $fails + 1)
 end
 
-# PLUGIN_ROOT can contain shell metacharacters; the rewrite must quote it.
+# An install path can contain shell metacharacters; the rewrite must quote it.
+# The prepended directory comes from the HOOK'S OWN location, not from
+# PLUGIN_ROOT + a hard-coded subpath — one source of truth for where the scripts
+# live, so the layout can move without a second copy of the path going stale.
+# So exercise it by running a COPY of the hook out of an oddly-named tree (a
+# symlink would resolve back to the real one) and checking that the tools it
+# exposes are the odd tree's, correctly quoted.
 set -l odd_root "$outside/a path's plugin"
-mkdir -p "$odd_root/scripts"
-ln -s $tk/scripts/workflow "$odd_root/scripts/workflow"
-set rewritten (_rewrite_codex $hook "$odd_root" $outside 'command -v workflow' | string collect)
+set -l odd_scripts "$odd_root/skills/jj-workflow/scripts"
+mkdir -p "$odd_scripts/hooks"
+cp $tk/skills/jj-workflow/scripts/hooks/jj_guard.fish "$odd_scripts/hooks/jj_guard.fish"
+printf '#!/bin/sh\nexit 0\n' >"$odd_scripts/workflow"
+chmod +x "$odd_scripts/workflow"
+set rewritten (_rewrite_codex "$odd_scripts/hooks/jj_guard.fish" "$odd_root" $outside \
+    'command -v workflow' | string collect)
 set resolved (env PATH=/usr/bin:/bin bash -c "$rewritten")
-if test "$resolved" != "$odd_root/scripts/workflow"
-    echo >&2 "smoke-guard (Codex): PLUGIN_ROOT was not shell-quoted safely: $resolved"
+if test "$resolved" != "$odd_scripts/workflow"
+    echo >&2 "smoke-guard (Codex): install path was not shell-quoted safely: $resolved"
     set fails (math $fails + 1)
 end
 

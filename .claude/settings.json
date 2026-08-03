@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_guard.fish\""
+            "command": "fish \"$CLAUDE_PROJECT_DIR/skills/jj-workflow/scripts/hooks/jj_guard.fish\""
           }
         ]
       }
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/worktree_create.fish\""
+            "command": "fish \"$CLAUDE_PROJECT_DIR/skills/jj-workflow/scripts/hooks/worktree_create.fish\""
           }
         ]
       }
@@ -29,7 +29,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/worktree_remove.fish\""
+            "command": "fish \"$CLAUDE_PROJECT_DIR/skills/jj-workflow/scripts/hooks/worktree_remove.fish\""
+          }
+        ]
+      }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "fish \"$CLAUDE_PROJECT_DIR/skills/jj-workflow/scripts/hooks/jj_status.fish\""
           }
         ]
       }

@@ -16,8 +16,8 @@ def test_codex_manifest_exposes_plugin_components():
     assert (ROOT / "skills/jj-workflow/SKILL.md").is_file()
     assert (ROOT / "skills/setup/SKILL.md").is_file()
     assert (ROOT / "skills/handoff/SKILL.md").is_file()
-    assert (ROOT / "bin/workflow").resolve() == ROOT / "scripts/workflow"
-    assert (ROOT / "bin/conflicts").resolve() == ROOT / "scripts/conflicts"
+    assert (ROOT / "bin/workflow").resolve() == ROOT / "skills/jj-workflow/scripts/workflow"
+    assert (ROOT / "bin/conflicts").resolve() == ROOT / "skills/jj-workflow/scripts/conflicts"
 
 
 def test_shared_hook_uses_portable_plugin_root():
@@ -41,9 +41,10 @@ def test_status_hook_is_registered_unmatched_on_post_tool_batch():
     commands = [hook["command"] for group in hooks for hook in group["hooks"]]
 
     assert commands == [
-        'fish "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/jj_status.fish"'
+        'fish "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}'
+        '/skills/jj-workflow/scripts/hooks/jj_status.fish"'
     ]
     # No matcher: PostToolBatch describes a whole batch, not one tool, so there is
     # nothing to match on. The hook does its own filtering from tool_calls[].
     assert all("matcher" not in group for group in hooks)
-    assert (ROOT / "scripts/hooks/jj_status.fish").is_file()
+    assert (ROOT / "skills/jj-workflow/scripts/hooks/jj_status.fish").is_file()

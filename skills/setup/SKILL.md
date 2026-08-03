@@ -71,9 +71,12 @@ is idempotent; report what was already in place.
    `<HOOKS>` and the settings file go together, because only a repo-local
    install has a path every contributor resolves the same way:
 
-   - **Repo-local install** — `<HOOKS>` is `$CLAUDE_PROJECT_DIR/scripts/hooks`.
+   - **Repo-local install** — `<HOOKS>` is `$CLAUDE_PROJECT_DIR/scripts/hooks`
+     (`install.fish` flattens the toolkit into the target repo's `scripts/`).
      Portable, so it belongs in the tracked `.claude/settings.json`.
-   - **Plugin install** — the toolkit lives outside the repo, and no variable
+   - **Plugin install** — inside the plugin the scripts ship beside the skill
+     that documents them, so the tail of the path is
+     `skills/jj-workflow/scripts/hooks`. The toolkit lives outside the repo, and no variable
      usable in a project settings file points at it (`${CLAUDE_PLUGIN_ROOT}` is
      only set for hooks a plugin itself declares). So `<HOOKS>` must be an
      absolute machine path — which makes it machine-specific config that MUST

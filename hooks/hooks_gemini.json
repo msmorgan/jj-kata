@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "fish scripts/hooks/jj_guard.fish"
+            "command": "fish skills/jj-workflow/scripts/hooks/jj_guard.fish"
           }
         ]
       }

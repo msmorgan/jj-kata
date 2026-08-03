@@ -5,15 +5,22 @@ description: Use when working in a jj (Jujutsu) repo that uses the jj-workflow t
 
 # jj-workflow
 
-The `workflow` and `conflicts` commands are on PATH (this plugin's `bin/`).
-In Codex, the plugin's trusted PreToolUse hook prepends that directory to each
-shell call because Codex manifests do not provide a native `bin/` field. If
-either command does not resolve, stop and ask the user to review and trust this
-plugin's hook in `/hooks`; do not substitute repo-local scripts that may be
-absent or stale. Repos with a local install expose the same tools as
-`scripts/workflow` and `scripts/conflicts`. Every command targets the jj
-workspace you run it FROM — its repo, its lock — so always `cd` into the
-workspace you mean.
+The `workflow` and `conflicts` commands are on PATH (this plugin's `bin/`), and
+in Codex the plugin's trusted PreToolUse hook prepends that directory to each
+shell call because Codex manifests do not provide a native `bin/` field.
+
+**If either command does not resolve on PATH, run it out of this skill's own
+directory** — `scripts/workflow`, `scripts/conflicts`, beside this file. That is
+where they live; `bin/` is only a pair of symlinks to them. Use the skill dir's
+absolute path, not a guess at a repo-relative one, and do not substitute a
+`scripts/workflow` you find in the project you are working on: a repo-local
+install is a separate, possibly older copy. (In Codex, a missing command usually
+means the plugin hook is untrusted — worth telling the user they can review it
+in `/hooks`.)
+
+Every command targets the jj workspace you run it FROM — its repo, its lock —
+so `cd` into the workspace you mean and invoke the tool by absolute path;
+never `cd` to the toolkit.
 
 Key rules:
 

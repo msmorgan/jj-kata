@@ -13,7 +13,7 @@ if test -z "$target"; or not test -d "$target"
 end
 
 set -l here (path resolve (status dirname))
-set -l src $here/scripts
+set -l src $here/skills/jj-workflow/scripts
 set target (path resolve $target)
 
 set -l mode symlink

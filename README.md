@@ -39,7 +39,13 @@ isolated workspace.
 
 This puts `workflow` and `conflicts` on the Bash tool's PATH (`bin/`), registers
 the PreToolUse guard and the PostToolBatch [status line](#the-status-line)
-automatically (both activate only inside jj repos), and ships the usage skill. Then, once per repo, run `/jj-workflow:setup` — it sets
+automatically (both activate only inside jj repos), and ships the usage skill.
+
+Inside the plugin the executables live in `skills/jj-workflow/scripts/`, beside
+the skill that documents them — so an agent that reads the skill can reach them
+relatively instead of guessing at a path, and `bin/` is only a pair of symlinks.
+Anything referring to the toolkit inside the plugin (hooks, `bin/`) points there;
+nothing hard-codes it twice. Then, once per repo, run `/jj-workflow:setup` — it sets
 the `immutable_heads()` repo-config alias (the actual trunk protection, which is
 per-repo state a plugin can't carry) and walks the optional config. Every
 command targets the jj workspace you run it from, so one global copy serves all

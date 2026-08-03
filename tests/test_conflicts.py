@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CONFLICTS = ROOT / "scripts" / "conflicts"
+CONFLICTS = ROOT / "skills" / "jj-workflow" / "scripts" / "conflicts"
 
 # Load the extension-less script as a module for unit tests.
 _loader = importlib.machinery.SourceFileLoader("conflicts_mod", str(CONFLICTS))
