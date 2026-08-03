@@ -514,6 +514,26 @@ carries the doc template and the full protocol.
 Conflicts and working-copy divergences land in the feature workspace, never on trunk.
 Three recovery commands run **from the affected feature workspace**:
 
+> Before any command rewrites the shared default line it **banks every
+> workspace** — snapshots on-disk edits into each working-copy commit — so the
+> rewrite carries them along. A workspace that is already **stale** can't be
+> banked (jj declines to snapshot a stale working copy), and un-staling it is
+> worse: `update-stale` would snapshot those edits against the stale operation,
+> forking the op log into a **divergence** and replacing the workspace's files
+> with the other side. So a stale workspace is **left strictly alone** — skipped
+> by both the bank and the un-stale that follows the rewrite — and the command
+> carries on. A long-parked workspace never blocks `integrate`; run `repair`
+> there when you next work in it.
+>
+> One divergence route remains and is **not preventable** from here: a jj command
+> run in another workspace *while* a rewrite is in flight. Their `jj st`
+> snapshots that workspace's working-copy change at the same moment it is being
+> rebased; both ops descend from one op head and jj's reconcile leaves two
+> successors. The flock only serializes `workflow` commands, not everyone's `jj`.
+> Mutating commands therefore check afterwards and print `WARNING — this
+> operation left N DIVERGENT change(s)` rather than let it pass as success. The
+> work landed; run `repair` in the affected workspace.
+
 > **A conflicting `refresh` (exit `69`) is routine, not a broken state** — it is
 > what trunk moving while you work looks like. Run `resolve`; keep `repair` for
 > genuinely wrong state (staleness, divergence). Either way, act **immediately**

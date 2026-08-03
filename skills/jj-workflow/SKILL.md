@@ -81,6 +81,21 @@ Key rules:
   -m …` (or `jj describe -m …` then `jj new`). Work still in `@`, undescribed work,
   and a described-but-empty `@` all stop it; nothing is rewritten, fix the working
   copy and re-run.
+- **A STALE workspace is skipped, not fixed and not blocking.** Before rewriting
+  the shared line the toolkit banks every workspace; one that is already stale
+  can't be banked (jj declines) and must not be un-staled (that snapshots its
+  edits against the stale operation, forks the op log, and diverges it while
+  replacing its files). So it is left exactly as found and the command carries
+  on — a long-parked workspace never blocks `integrate`. It prints a `note —
+  leaving N stale workspace(s) untouched`; run `workflow repair` there when you
+  next work in one.
+- **If a command ends with `WARNING — this operation left N DIVERGENT
+  change(s)`,** a jj command ran in another workspace while this one was
+  rewriting the shared line — their `jj st` snapshotted that workspace's
+  working-copy change at the same moment it was being rebased, and jj's reconcile
+  left two successors. The flock can't prevent this; a command you don't control
+  isn't serializable. Your work DID land — don't re-run. Run `workflow repair` in
+  the affected workspace to converge them.
 - On working-copy **divergence** or other genuinely wrong state (a stale
   workspace after a concurrent op), run `workflow repair` yourself from inside
   the feature workspace and reason through it step by step — this is

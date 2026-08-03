@@ -163,14 +163,35 @@ end
 # The rewrite rebases the other workspaces' WC commits; an edit still sitting
 # un-snapshotted on disk would otherwise be re-snapshotted into the OLD
 # (hidden) commit by that workspace's next command — the two-successor
-# working-copy divergence. Runs under the caller's flock. An already-stale
-# workspace refuses the snapshot — skip it: its own session owns that
-# recovery, and its WC is banked as of its last op anyway.
+# working-copy divergence. Runs under the caller's flock.
+#
+# A workspace that REFUSES the snapshot is already stale. It is recorded in
+# $__unbankable and then left strictly alone — not banked, and (crucially) not
+# un-staled by __unstale_workspaces afterwards. Touching it is what diverges it:
+# `workspace update-stale` on a stale working copy that ALSO has on-disk edits
+# snapshots them against the STALE operation head, forking the op log, and the
+# reconcile leaves two successors of one change id while the workspace's files
+# are replaced with the other side. Verified: the whole command still exits 0,
+# so it reads as success. We cannot bank it (jj declines) and cannot safely
+# un-stale it, so the only correct move is not to touch it at all — its own
+# session owns that recovery, via `workflow repair`, which un-stales and then
+# converges the result keeping the half that holds the work.
+#
+# Deliberately NOT a refusal: `util snapshot` fails on a stale but CLEAN
+# workspace too, and a long-lived parked workspace (a floating cursor) is a
+# normal thing to keep around. Blocking every integrate on one would be worse
+# than the bug. Leaving it stale is inert — the rewrite below simply carries on
+# without it.
 function __snapshot_workspaces
+    set -g __unbankable
     for ws in (jj workspace list -T 'name ++ "\n"')
         set -l root (jj workspace root --name $ws 2>/dev/null); or continue
         command jj -R "$root" util snapshot >/dev/null 2>&1
+        or set -a __unbankable "$ws"
     end
+    set -q __unbankable[1]; or return 0
+    echo >&2 "$(status filename): note — leaving "(count $__unbankable)" stale workspace(s) untouched: "(string join ', ' $__unbankable)". Run 'workflow repair' there when you next work in one; this operation carries on without it."
+    return 0
 end
 
 # The mirror of __snapshot_workspaces, run AFTER a default-line rewrite: the
@@ -183,8 +204,13 @@ end
 # command has run — closes that window: disk still equals what we banked, so
 # update-stale fast-forwards the pointer with nothing to diverge. A workspace
 # that isn't stale is a harmless no-op.
+# Workspaces __snapshot_workspaces could not bank are SKIPPED here: they were
+# already stale before we started, so we never captured their on-disk edits, and
+# un-staling them is precisely the operation that would fork the op log and
+# diverge them. Leave them exactly as found.
 function __unstale_workspaces
     for ws in (jj workspace list -T 'name ++ "\n"')
+        contains -- "$ws" $__unbankable; and continue
         set -l root (jj workspace root --name $ws 2>/dev/null); or continue
         command jj -R "$root" workspace update-stale >/dev/null 2>&1
     end
@@ -747,6 +773,12 @@ function __drop_one --argument-names name ws_dir
     # The commits stay recoverable via the op log until gc; the dir is just a
     # checkout copy plus build junk — delete it outright, no archive.
     and rm -rf "$ws_dir"
+    set -l rc $status
+    # Mirror the bank: abandoning the claim reparented default's line, so any
+    # SIBLING whose WC sat in the rewritten graph is now stale. Clear it while we
+    # still hold the flock (see __unstale_workspaces).
+    __unstale_workspaces
+    return $rc
 end
 
 # `drop --integrated`: sweep every integrated (claim bookmark gone), empty feature
@@ -848,6 +880,9 @@ function __workflow_refresh
             echo >&2 "$(status filename): refreshing $ws"
             __refresh_reorder "$ws"; or return    # stop at the first conflict/failure
         end
+        # Mirror the bank: the reorders rewrote the shared line under every
+        # workspace, so clear the staleness while we still hold the flock.
+        __unstale_workspaces
         echo >&2 "$(status filename): refreshed "(count $targets)" workspace(s): "(string join ', ' $targets)"."
         return 0
     end
@@ -866,6 +901,12 @@ function __workflow_refresh
         # From default with a name → the old reorder-under-default@.
         __snapshot_workspaces
         __refresh_reorder "$name"
+        set -l rc $status
+        # Mirror the bank even on a conflict stop: the reorder rewrote the shared
+        # line either way, and a workspace left stale is the first half of the
+        # divergence precondition (see __snapshot_workspaces).
+        __unstale_workspaces
+        return $rc
     else
         # From a feature workspace with an explicit name — ONLY its own: this run's
         # flock is the INVOKING workspace's, so detaching another feature's stack
@@ -1367,6 +1408,14 @@ if not set -q _WORKFLOW_LOCKED; and contains -- "$argv[1]" claim start drop refr
     return $rc
 end
 
+# Divergences the repo already had, so the check below reports only what THIS
+# run introduced — a pre-existing one is its owner's business, not a reason to
+# nag on every command. Only worth computing for the mutating commands.
+set -l div_before
+if contains -- "$argv[1]" claim start drop refresh integrate
+    set div_before (jj log --no-graph -r 'divergent()' -T 'change_id.short() ++ "\n"' --ignore-working-copy 2>/dev/null)
+end
+
 switch $argv[1]
     case claim
         __workflow_claim $argv[2..]
@@ -1389,4 +1438,25 @@ switch $argv[1]
     case '*'
         __workflow_usage
 end
-return $status
+set -l rc $status
+
+# A shared-line rewrite can race a jj command someone runs in ANOTHER workspace:
+# their `jj st` snapshots that workspace's working-copy change at the same moment
+# we rebase it, both ops descend from one op head, and jj's reconcile leaves two
+# successors of one change id. The flock cannot prevent this — the racing command
+# isn't ours to serialize — but the operation must not report success while the
+# repo carries a divergence nobody mentioned. Measured at ~1 in 8 under
+# deliberate contention. Report only what this run introduced; never fail on it
+# (the work itself did land, and the recovery is the workspace owner's).
+if contains -- "$argv[1]" claim start drop refresh integrate
+    set -l new_div
+    for d in (jj log --no-graph -r 'divergent()' -T 'change_id.short() ++ "\n"' --ignore-working-copy 2>/dev/null)
+        contains -- "$d" $div_before; or contains -- "$d" $new_div; or set -a new_div $d
+    end
+    if set -q new_div[1]
+        echo >&2 "$(status filename): WARNING — this operation left "(count $new_div)" DIVERGENT change(s): "(string join ', ' $new_div)"."
+        echo >&2 "  A jj command probably ran in another workspace while this one was rewriting. The work landed, but that workspace now has two versions of one change and its files may have been swapped."
+        echo >&2 "  Run 'workflow repair' in the affected workspace — it converges them, keeping the half that holds the work."
+    end
+end
+return $rc
