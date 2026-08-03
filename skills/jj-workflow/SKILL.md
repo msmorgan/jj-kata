@@ -18,9 +18,12 @@ workspace you mean.
 Key rules:
 
 - **NEVER pipe a `workflow` command into `tail`/`head`/`grep`/`less` or any
-  other command.** The workflow's exit status is load-bearing — 0 success,
-  2 refusal (e.g. un-integrated work, empty/undescribed change), 69 conflict
-  stop, 75 lock timeout — and a pipe replaces it with the downstream command's
+  other command.** The workflow's exit status is load-bearing, and the four codes
+  are distinct on purpose — 0 success; 2 refusal, declined before touching
+  anything (bad arguments, wrong workspace, a merge `default@`, a feature behind
+  trunk, un-integrated work at `drop`); 69 **expected stop**, a conflict or an
+  unclosed `@` left in the workspace for you to fix; 75 lock timeout — and a
+  pipe replaces it with the downstream command's
   status, silently masking a refusal or conflict as success. Run it bare and
   read its own exit code and stderr. If you must capture output, redirect to a
   file (`workflow integrate NAME >out.log 2>&1`) and check `$status`, never pipe.
@@ -57,6 +60,15 @@ Key rules:
   (no argument) from inside the feature workspace — it detaches the stack onto
   the trunk tip; `integrate` re-joins the claim. `refresh` owns feature-vs-trunk
   conflicts; `integrate` assumes a clean, already-refreshed feature.
+- **A conflicting `refresh` is routine, not a broken state** — it is what trunk
+  moving while you work looks like, and it belongs to the ordinary lifecycle.
+  Run `workflow resolve` from inside the workspace: it walks the conflicted
+  stack **oldest-first**, rebasing each resolution forward, so a single edit
+  often clears several commits at once. Do NOT hand-resolve at the tip — jj
+  prints its own `jj new` / `jj squash` recipe right above the toolkit's, and
+  following it fixes the commit you happen to be standing on while leaving
+  older ones in the stack conflicted. Re-run `resolve` until it exits 0, then
+  re-run the command that stopped. Keep `repair` for genuinely wrong state.
 - Two preconditions refuse cleanly rather than doing something surprising:
   **P1** — `refresh`, `integrate`, and `start` refuse when `default@` is a merge
   ("default@ is a merge; the coordinator line must be linear"); abandon or resolve
@@ -69,13 +81,13 @@ Key rules:
   -m …` (or `jj describe -m …` then `jj new`). Work still in `@`, undescribed work,
   and a described-but-empty `@` all stop it; nothing is rewritten, fix the working
   copy and re-run.
-- On ANY conflict (a command exiting 69) or working-copy divergence, immediately
-  run `workflow repair` (or `workflow resolve`) yourself from inside the feature
-  workspace and reason through the conflict step by step — this is
+- On working-copy **divergence** or other genuinely wrong state (a stale
+  workspace after a concurrent op), run `workflow repair` yourself from inside
+  the feature workspace and reason through it step by step — this is
   **agent-initiated**; the toolkit does NOT auto-run repair, it only surfaces the
   stop. `repair` = one-stop recovery (update-stale + converge if divergent +
-  resolve if conflicted); `resolve` walks a conflicted stack oldest-first. Both
-  drop you onto the conflict and print the exact conflict-marker locations as
+  resolve if conflicted). Like `resolve` above, it drops you onto the
+  conflict and prints the exact conflict-marker locations as
   `file:line` hits (e.g. `…/f.txt:12:<<<<<<< conflict 1 of 2`) — Read those lines,
   remove every marker, then re-run the same command until it exits 0.
 - A workspace created through EnterWorktree (WorktreeCreate hook) is a normal

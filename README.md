@@ -272,10 +272,12 @@ writable *only* from `default`'s own context, a mis-targeted rewrite refuses
 rather than corrupts.
 
 > **Never pipe a `workflow` command into `tail`, `head`, `grep`, `less`, or
-> anything else.** Its exit status is load-bearing — `0` success, `2` refusal
-> (un-integrated work, an empty/undescribed change), `69` conflict stop or an
-> unclosed working copy at integrate, `75`
-> lock timeout — and a pipe reports the downstream command's status instead,
+> anything else.** Its exit status is load-bearing, and the four codes are
+> distinct on purpose — `0` success; `2` refusal, declined before touching
+> anything (bad arguments, wrong workspace, a merge `default@`, a feature behind
+> trunk, un-integrated work at `drop`); `69` **expected stop**, a conflict or an
+> unclosed working copy left in the workspace for you to fix; `75` lock timeout.
+> A pipe reports the downstream command's status instead,
 > silently masking a refusal or conflict as success. Run it bare and check its
 > own exit code; to capture output, redirect to a file (`workflow integrate NAME
 > >out.log 2>&1`) rather than piping.
@@ -365,7 +367,8 @@ An ad-hoc claim that never adopted a ticket is an empty commit by then — integ
 work. Ticketed claims are non-empty (they carry their ticket moves) and stay.
 
 If a conflict arises during the refresh step, integrate stops (exit 69) and leaves the
-conflict in place in `../NAME`. Resolve it there and re-run `integrate NAME`.
+conflict in place in `../NAME`. Run `workflow resolve` there — it walks the conflicted
+stack oldest-first — then re-run `integrate NAME`.
 
 ### Dropping a feature
 
@@ -511,10 +514,16 @@ carries the doc template and the full protocol.
 Conflicts and working-copy divergences land in the feature workspace, never on trunk.
 Three recovery commands run **from the affected feature workspace**:
 
-> **On any conflict (exit `69`) or divergence, run `repair` (or `resolve`)
-> immediately and reason through the conflict step by step.** This is
-> **agent-initiated** — the toolkit *never* auto-runs repair; it only stops and
-> hands you the workspace. Both commands drop you onto the conflict and print the
+> **A conflicting `refresh` (exit `69`) is routine, not a broken state** — it is
+> what trunk moving while you work looks like. Run `resolve`; keep `repair` for
+> genuinely wrong state (staleness, divergence). Either way, act **immediately**
+> and reason through the conflict step by step. This is **agent-initiated** — the
+> toolkit *never* auto-runs recovery; it only stops and hands you the workspace.
+> Note that jj prints its own `jj new` / `jj squash` recipe just above the
+> toolkit's message: ignore it. It resolves the commit you happen to be standing
+> on, while `resolve` walks the stack **oldest-first** and rebases each
+> resolution forward, so a single edit often clears several commits at once.
+> Both commands drop you onto the conflict and print the
 > exact conflict-marker locations as `file:line` hits (e.g.
 > `…/f.txt:12:<<<<<<< conflict 1 of 2`), so you know precisely which lines to open
 > — no whole-file scan. Read those lines, remove every marker, re-run until exit 0.

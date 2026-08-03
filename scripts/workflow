@@ -200,13 +200,28 @@ function __require_linear_trunk
     end
 end
 
+# The recipe printed at EVERY conflict stop. Naming the command is the point:
+# the success path already prints an exact next command, and withholding one on
+# the failure path is backwards — that is where the operator is least sure what
+# to type. Two other jobs: it promotes the usage text's "one commit at a time"
+# framing to the moment it matters, and it countermands jj's own hint, which jj
+# prints immediately ABOVE this and which is five specific lines of `jj new` /
+# `jj squash` against the plugin's one. That hint is the manual version of
+# `resolve`, but a reader standing at the tip applies it there and leaves older
+# commits in the stack conflicted.
+function __conflict_next_steps --argument-names ws_dir what
+    echo >&2 "$(status filename): $what."
+    echo >&2 "  Next: run 'workflow resolve' in $ws_dir — it walks the conflicted stack one commit at a time, oldest-first, so a single edit often clears several. Re-run this command once it reports all conflicts resolved."
+    echo >&2 "  (Ignore jj's 'jj new' / 'jj squash' hint above: 'workflow resolve' does that walk for you, and starts at the OLDEST conflicted commit rather than the one you are standing on.)"
+end
+
 # Scan REVSET for recorded conflicts (a conflicted rebase exits 0). If any:
-# leave them in place and return the 69 "expected stop" sentinel (wrapper maps
-# it to exit 2; integrate refuses to fold past it). Else 0.
+# leave them in place and return the 69 "expected stop" sentinel (it reaches the
+# caller as exit 69; integrate refuses to fold past it). Else 0.
 function __conflict_stop --argument-names revset ws_dir what
     set -l conflicted (jj log --no-graph -r "$revset & conflicts()" -T 'change_id.short()' --ignore-working-copy)
     test -z "$conflicted"; and return 0
-    echo >&2 "$(status filename): $what — resolve it in $ws_dir, then re-run."
+    __conflict_next_steps "$ws_dir" "$what"
     return 69
 end
 
@@ -895,7 +910,7 @@ function __refresh_detach
     command jj -R "$ws_dir" workspace update-stale
     or test -n "$conflicted"; or return 1
     if test -n "$conflicted"
-        echo >&2 "$(status filename): $name now conflicts with the trunk tip — resolve it in $ws_dir, then re-run."
+        __conflict_next_steps "$ws_dir" "$name now conflicts with the trunk tip"
         return 69
     end
 end
@@ -1342,12 +1357,12 @@ if not set -q _WORKFLOW_LOCKED; and contains -- "$argv[1]" claim start drop refr
     # -w 600: wait up to 10 min (a held lock spans one op, incl. claim/start's slow
     # workspace provisioning) rather than failing fast under contention. -E 75: on
     # timeout exit 75, distinct from the command's own codes (incl. 2), so a genuine
-    # "couldn't acquire" is never mistaken for the operation's result.
+    # "couldn't acquire" is never mistaken for the operation's result — which is
+    # why 75 is PROPAGATED, not folded into 1. Callers branch on the exit code.
     flock -w 600 -E 75 "$project_dir/.jj/workflow.lock" "$scripts_dir/workflow" $argv
     set -l rc $status
     if test $rc -eq 75
         echo >&2 "$(status filename): timed out waiting for the workflow lock — another claim/start/drop/refresh/integrate is holding it. Re-run once it finishes."
-        return 1
     end
     return $rc
 end
@@ -1374,6 +1389,4 @@ switch $argv[1]
     case '*'
         __workflow_usage
 end
-set -l rc $status
-test $rc -eq 69; and return 2
-return $rc
+return $status

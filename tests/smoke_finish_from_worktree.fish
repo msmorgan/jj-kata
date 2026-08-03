@@ -565,14 +565,27 @@ end
 popd
 
 # feat-y edits the SAME line, then refreshes onto the advanced trunk (xxx vs yyy)
-# → a real 69 conflict left in feat-y (the wrapper maps 69 to exit 2).
+# → a real conflict left in feat-y. The 69 sentinel must reach the CALLER intact:
+# the docs promise conflict-stop (69) and plain refusal (2) are distinguishable by
+# exit code, and a caller that can't tell them apart falls back to parsing stderr.
 pushd ../feat-y
 printf 'yyy\n' > f.txt
 jj describe -m "y edit" >/dev/null
-./scripts/workflow refresh >/dev/null 2>&1
+set -l refresh_out (./scripts/workflow refresh 2>&1)
 set -l rc_refresh $status
-test $rc_refresh -ne 0; or begin
-    echo >&2 "smoke: refresh did not surface the trunk conflict (rc=$rc_refresh) (task8)"
+test $rc_refresh -eq 69; or begin
+    echo >&2 "smoke: refresh did not exit 69 on a trunk conflict (rc=$rc_refresh) (task8)"
+    popd
+    exit 1
+end
+# The stop must NAME the command that clears it — the failure path is where the
+# operator is least sure what to type — and countermand jj's competing hint.
+string match -q -r "workflow resolve" -- $refresh_out
+and string match -q -r "oldest-first" -- $refresh_out
+and string match -q -r "jj squash" -- $refresh_out
+or begin
+    echo >&2 "smoke: conflict stop did not name 'workflow resolve' / countermand jj's hint (task8)"
+    printf '%s\n' $refresh_out >&2
     popd
     exit 1
 end
