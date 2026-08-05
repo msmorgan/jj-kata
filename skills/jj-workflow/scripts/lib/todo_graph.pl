@@ -12,7 +12,7 @@ my %exists;   # slug -> 1 if it is a real ticket OR a census row
 my $SLUG = qr/\b((?:engine|core|parse|macro|pipeline|shape|kw|ka|aw|runner|format|canon|tokens|noncanon)-[a-z0-9-]+)\b/;
 
 # 1. ticket files: docs/tickets/<folder>/<slug>.md
-for my $f (qw(critical planned maybe wip done)) {
+for my $f (qw(bugs critical planned maybe wip done)) {
     my $dir = "$root/$f";
     opendir(my $dh, $dir) or next;
     for my $name (readdir $dh) {
@@ -63,7 +63,7 @@ while (my $line = <$cf>) {
 close $cf;
 
 sub done { ($folder{$_[0]} // '') eq 'done' }
-sub triage { my $f = $folder{$_[0]} // ''; $f eq 'critical' || $f eq 'planned' || $f eq 'maybe' }
+sub triage { my $f = $folder{$_[0]} // ''; $f eq 'bugs' || $f eq 'critical' || $f eq 'planned' || $f eq 'maybe' }
 
 # readiness: a triage item whose every need exists and is done.
 sub ready {
@@ -79,7 +79,7 @@ sub blocked {
     return 0;
 }
 
-my @order = ('critical','planned','maybe','wip','done','census');
+my @order = ('bugs','critical','planned','maybe','wip','done','census');
 my %rank; @rank{@order} = 0..$#order;
 sub by_folder { ($rank{$folder{$a}//'census'} <=> $rank{$folder{$b}//'census'}) || ($a cmp $b) }
 

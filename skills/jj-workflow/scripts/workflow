@@ -119,9 +119,9 @@ function __rollback --argument-names savepoint
     jj op restore "$savepoint"
 end
 
-# Path of NAME's ticket in a triage folder (critical/planned/maybe), if any.
+# Path of NAME's ticket in a triage folder (bugs/critical/planned/maybe), if any.
 function __ticket_triage_path --argument-names name
-    for folder in critical planned maybe
+    for folder in bugs critical planned maybe
         set -l p "$project_dir/docs/tickets/$folder/$name.md"
         if test -f $p
             echo $p
@@ -260,8 +260,8 @@ function __conflict_stop --argument-names revset ws_dir what
     return 69
 end
 
-# Claim NAME: move its ticket into wip/. From a triage folder (critical/planned/
-# maybe) it's a rename; a census-only mechanic is minted fresh into wip/. The move
+# Claim NAME: move its ticket into wip/. From a triage folder (bugs/critical/
+# planned/maybe) it's a rename; a census-only mechanic is minted fresh into wip/. The move
 # or add lands in the claim commit, so `drop` reverts it automatically. An
 # already-claimed (wip/) or finished (done/) name, or an unknown one, fails the claim.
 function __claim_todo

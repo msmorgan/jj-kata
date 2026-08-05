@@ -1,8 +1,11 @@
 import json
+import os
+import subprocess
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
+TODO_GRAPH = ROOT / "skills/jj-workflow/scripts/lib/todo_graph.pl"
 
 
 def test_codex_manifest_exposes_plugin_components():
@@ -18,6 +21,29 @@ def test_codex_manifest_exposes_plugin_components():
     assert (ROOT / "skills/handoff/SKILL.md").is_file()
     assert (ROOT / "bin/workflow").resolve() == ROOT / "skills/jj-workflow/scripts/workflow"
     assert (ROOT / "bin/conflicts").resolve() == ROOT / "skills/jj-workflow/scripts/conflicts"
+
+
+def test_todo_graph_treats_bugs_as_ordered_triage(tmp_path):
+    tickets = tmp_path / "tickets"
+    (tickets / "bugs").mkdir(parents=True)
+    (tickets / "planned").mkdir()
+    (tickets / "bugs/core-bug.md").write_text("---\nneeds: []\n---\n")
+    (tickets / "planned/core-feature.md").write_text("---\nneeds: []\n---\n")
+    census = tickets / "census.md"
+    census.write_text("")
+
+    result = subprocess.run(
+        ["perl", str(TODO_GRAPH), "ready"],
+        env={**os.environ, "TODO_ROOT": str(tickets), "TODO_CENSUS": str(census)},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "core-bug  (bugs)",
+        "core-feature  (planned)",
+    ]
 
 
 def test_shared_hook_uses_portable_plugin_root():

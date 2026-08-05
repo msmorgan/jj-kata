@@ -393,7 +393,7 @@ scripts/workflow claim TICKET_A TICKET_B
 ```
 
 `claim TICKET_NAME`:
-- Moves the ticket file from its triage folder (`critical/`, `planned/`, or `maybe/`)
+- Moves the ticket file from its triage folder (`bugs/`, `critical/`, `planned/`, or `maybe/`)
   into `docs/tickets/wip/`, inside a new claim commit bookmarked `NAME` on
   `default@`'s linear history.
 - Creates the `NAME` workspace directory under the workspace base (`../NAME` by default).
@@ -532,7 +532,7 @@ Work items are markdown files under `docs/tickets/`, with the folder name as the
 
 | Folder | Status |
 |--------|--------|
-| `critical/`, `planned/`, `maybe/` | Triage — claimable |
+| `bugs/`, `critical/`, `planned/`, `maybe/` | Triage — claimable |
 | `wip/` | Claimed — in-flight |
 | `done/` | Integrated |
 

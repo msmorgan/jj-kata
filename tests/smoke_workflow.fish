@@ -293,8 +293,8 @@ echo "ok: start no longer depends on a __tip bookmark"
 # AND titles the feature commit "complete NAME" — must NOT get a second, EMPTY
 # "complete NAME" appended by integrate (that empty-but-described dup is not
 # auto-pruned; the `xyz|sxx` duplicate-complete incident, 2026-07-19).
-mkdir -p docs/tickets/planned
-echo "# ticket bug-x" >docs/tickets/planned/bug-x.md
+mkdir -p docs/tickets/bugs
+echo "# ticket bug-x" >docs/tickets/bugs/bug-x.md
 jj commit -m "add bug-x ticket" >/dev/null; or begin
     echo >&2 "smoke: committing bug-x ticket failed"
     exit 1
