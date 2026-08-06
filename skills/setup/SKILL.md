@@ -84,11 +84,10 @@ is idempotent; report what was already in place.
    `hooks.json` for `SessionStart` and `PostToolBatch`. Codex has neither
    event; there, run `workflow status` by hand when orientation is needed.
 
-6. Sanity check: run the toolkit the way the /jj-workflow:jj-workflow skill
-   says to — by absolute path out of *that* skill's own directory,
-   `<skill dir>/scripts/workflow` with no arguments, which prints usage. It is
-   not on PATH and is not supposed to be; if it is missing, the plugin's skill
-   directory is the only place to look for it.
+6. Sanity check: run `../jj-workflow/scripts/workflow` — relative to this
+   skill's own directory — with no arguments; it prints usage. It is not on
+   PATH and is not supposed to be, so that directory is the only place to look
+   for it.
 
 7. In Codex, remind the user to open `/hooks` once and trust this plugin's
    PreToolUse guard. Installing a plugin does not implicitly trust its

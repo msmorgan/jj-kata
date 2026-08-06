@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -34,6 +35,19 @@ def test_skill_routes_commands_by_its_own_directory():
     assert "this skill's own directory" in skill
     assert "scripts/workflow" in skill
     assert "scripts/conflicts" in skill
+
+
+def test_sibling_skills_reach_the_toolkit_by_a_path_that_resolves():
+    # A sibling skill names the toolkit the same way the toolkit's own skill
+    # does: relative to the skill directory it is written in. Cheap to get
+    # subtly wrong, and an agent following a broken path has nothing to fall
+    # back on now that the command is not on PATH.
+    checked = 0
+    for skill_md in (ROOT / "skills").glob("*/SKILL.md"):
+        for rel in re.findall(r"`(\.\./[\w./-]+)`", skill_md.read_text()):
+            assert (skill_md.parent / rel).resolve().exists(), f"{skill_md}: {rel}"
+            checked += 1
+    assert checked, "no cross-skill relative paths found — did the idiom change?"
 
 
 def test_guard_hook_only_decides_never_rewrites():

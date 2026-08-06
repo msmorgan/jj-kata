@@ -16,8 +16,9 @@ every routine status check, so nobody has to remember to look.
 Two halves below — **Writing a handoff**, and **Resuming from a handoff**. Read
 the one you need.
 
-Commands below are spelled `workflow`; run it by absolute path out of the
-/jj-workflow:jj-workflow skill's own directory (`<skill dir>/scripts/workflow`).
+Commands below are spelled `workflow`. It lives at
+`../jj-workflow/scripts/workflow`, relative to this skill's own directory —
+call it by that absolute path, from the workspace you mean.
 
 ## Writing a handoff
 
