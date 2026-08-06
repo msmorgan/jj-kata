@@ -6,6 +6,12 @@
 source (path dirname (path resolve (status filename)))/lib/setup.fish flock
 or return
 
+# How this script names itself in its own messages. `status filename` is the
+# full path it was invoked by, which — now that the toolkit is reached by
+# absolute path out of the installed skill — is a 90-character plugin-cache
+# path on every line. The basename is the only part that identifies anything.
+set -g _jjw_prog (path basename (status filename))
+
 # Whether the invoking workspace is the coordinator (default) rather than a
 # feature ws. Defined before the guard below, which consults it.
 function __on_default
@@ -18,7 +24,7 @@ end
 function __require_self_or_default --argument-names name
     __on_default; and return 0
     test "$(path basename $project_dir)" = "$name"; and return 0
-    echo >&2 "$(status filename): can't act on '$name' from another workspace — run it from '$name' or from default."
+    echo >&2 "$_jjw_prog: can't act on '$name' from another workspace — run it from '$name' or from default."
     return 2
 end
 
@@ -33,13 +39,13 @@ end
 # workspace, and status is specifically about reporting WHICH one that is.
 if not contains -- "$argv[1]" repair converge resolve refresh integrate claim handoffs status
     and not __on_default
-    echo >&2 "$(status filename): '$argv[1]' runs from the default workspace (creation/cross-feature ops are coordinator-only)."
+    echo >&2 "$_jjw_prog: '$argv[1]' runs from the default workspace (creation/cross-feature ops are coordinator-only)."
     return 1
 end
 
 function __workflow_usage
     echo >&2 "\
-Usage: $(status filename) <command> [<args>]
+Usage: $_jjw_prog <command> [<args>]
   Commands:
     claim TODO           Claim a todo item and start a workspace named TODO.
     claim TODO... --into NAME
@@ -199,7 +205,7 @@ function __snapshot_workspaces
         or set -a __unbankable "$ws"
     end
     set -q __unbankable[1]; or return 0
-    echo >&2 "$(status filename): note — leaving "(count $__unbankable)" stale workspace(s) untouched: "(string join ', ' $__unbankable)". Run 'workflow repair' there when you next work in one; this operation carries on without it."
+    echo >&2 "$_jjw_prog: note — leaving "(count $__unbankable)" stale workspace(s) untouched: "(string join ', ' $__unbankable)". Run 'workflow repair' there when you next work in one; this operation carries on without it."
     return 0
 end
 
@@ -230,7 +236,7 @@ end
 # merge, so the intersection is empty exactly when default@ is a merge.
 function __require_linear_trunk
     if test -z "$(jj log --no-graph -r 'default@- & fork_point(default@-)' -T 'change_id' --ignore-working-copy)"
-        echo >&2 "$(status filename): default@ is a merge; the coordinator line must be linear — abandon or resolve the merge, then retry."
+        echo >&2 "$_jjw_prog: default@ is a merge; the coordinator line must be linear — abandon or resolve the merge, then retry."
         return 2
     end
 end
@@ -245,7 +251,7 @@ end
 # `resolve`, but a reader standing at the tip applies it there and leaves older
 # commits in the stack conflicted.
 function __conflict_next_steps --argument-names ws_dir what
-    echo >&2 "$(status filename): $what."
+    echo >&2 "$_jjw_prog: $what."
     echo >&2 "  Next: run 'workflow resolve' in $ws_dir — it walks the conflicted stack one commit at a time, oldest-first, so a single edit often clears several. Re-run this command once it reports all conflicts resolved."
     echo >&2 "  (Ignore jj's 'jj new' / 'jj squash' hint above: 'workflow resolve' does that walk for you, and starts at the OLDEST conflicted commit rather than the one you are standing on.)"
 end
@@ -276,10 +282,10 @@ function __claim_todo
             mv (__ticket_triage_path $name) "$tickets/wip/$name.md"
             # switch propagates mv's status — never mask a failure
         case wip
-            echo >&2 "$(status filename): '$name' is already claimed (in wip/)."
+            echo >&2 "$_jjw_prog: '$name' is already claimed (in wip/)."
             return 1
         case done
-            echo >&2 "$(status filename): '$name' is already done."
+            echo >&2 "$_jjw_prog: '$name' is already done."
             return 1
         case census
             set -l cmd (__todo_cmd)
@@ -287,10 +293,10 @@ function __claim_todo
             and test -s "$tickets/wip/$name.md"
             and return 0
             rm -f "$tickets/wip/$name.md"
-            echo >&2 "$(status filename): minting '$name' from the census failed."
+            echo >&2 "$_jjw_prog: minting '$name' from the census failed."
             return 1
         case unknown
-            echo >&2 "$(status filename): no ticket or census row named '$name'."
+            echo >&2 "$_jjw_prog: no ticket or census row named '$name'."
             return 1
     end
 end
@@ -366,7 +372,7 @@ function __provision_ws --argument-names ws_dir
     set -l hook_path $project_dir/$hook
     if test -x "$hook_path"
         if not "$hook_path" "$ws_dir"
-            echo >&2 "$(status filename): provision hook '$hook' failed for $ws_dir — finish provisioning by hand."
+            echo >&2 "$_jjw_prog: provision hook '$hook' failed for $ws_dir — finish provisioning by hand."
             return 1
         end
     end
@@ -385,15 +391,15 @@ function __workflow_start
         return 0
     end
     if string match -rq -- '^-' "$name"
-        echo >&2 "$(status filename): NAME may not start with '-' (got '$name'). Did you mean '--help'?"
+        echo >&2 "$_jjw_prog: NAME may not start with '-' (got '$name'). Did you mean '--help'?"
         return 2
     end
     if test -z $name
-        echo >&2 "$(status filename): a workspace NAME is required."
+        echo >&2 "$_jjw_prog: a workspace NAME is required."
         return 2
     end
     if set -q argv[2]
-        echo >&2 "$(status filename): expected exactly one NAME (got: $argv)."
+        echo >&2 "$_jjw_prog: expected exactly one NAME (got: $argv)."
         return 2
     end
     set ws_dir (__workspace_base)/$name
@@ -401,7 +407,7 @@ function __workflow_start
     # with a cryptic "destination exists", and knowing it's absent now lets the
     # rollback below safely delete the partial workspace it creates.
     if test -e "$ws_dir"
-        echo >&2 "$(status filename): workspace dir '$ws_dir' already exists — remove or rename it, then retry."
+        echo >&2 "$_jjw_prog: workspace dir '$ws_dir' already exists — remove or rename it, then retry."
         return 1
     end
     # Refuse a merge default@ up front with the same clear message refresh/integrate
@@ -446,7 +452,7 @@ function __workflow_claim
     or return
     if set -q _flag_into
         if set -q _flag_or_start
-            echo >&2 "$(status filename): --or-start and --into don't combine."
+            echo >&2 "$_jjw_prog: --or-start and --into don't combine."
             return 2
         end
         # `--into` is the coordinator's explicit cross-feature fold: it targets a
@@ -455,12 +461,12 @@ function __workflow_claim
         # feature ws (for the self-fold below); reject the --into form there and
         # point at the no-flag self-fold, which folds into THIS ws's own claim.
         if not __on_default
-            echo >&2 "$(status filename): 'claim --into NAME' runs from the default workspace. From a feature ws, use 'claim TODO...' (no --into) to fold into THIS workspace's own claim."
+            echo >&2 "$_jjw_prog: 'claim --into NAME' runs from the default workspace. From a feature ws, use 'claim TODO...' (no --into) to fold into THIS workspace's own claim."
             return 1
         end
         __workflow_adopt "$_flag_into" $argv
         or return
-        echo >&2 "$(status filename): folded "(string join ', ' $argv)" into $_flag_into's claim."
+        echo >&2 "$_jjw_prog: folded "(string join ', ' $argv)" into $_flag_into's claim."
     else if not __on_default
         # Self-fold: from a feature ws, `claim TODO...` (no --into) folds each TODO
         # into THIS workspace's own claim — no --into, no cd. __require_self_or_default
@@ -479,12 +485,12 @@ function __workflow_claim
         or return
         __workflow_adopt "$self" $argv
         or return
-        echo >&2 "$(status filename): folded "(string join ', ' $argv)" into $self's claim — this workspace now owns "(count $argv)" more todo(s); 'integrate' finishes them all."
+        echo >&2 "$_jjw_prog: folded "(string join ', ' $argv)" into $self's claim — this workspace now owns "(count $argv)" more todo(s); 'integrate' finishes them all."
     else
         # One workspace per TODO on this path — extra TODOs would be silently
         # dropped by __workflow_start (it reads only $argv[1]). Refuse instead.
         if set -q argv[2]
-            echo >&2 "$(status filename): 'claim' without --into starts ONE workspace for ONE todo — claim them one at a time, or fold extras into an existing workspace with 'claim TODO... --into NAME'."
+            echo >&2 "$_jjw_prog: 'claim' without --into starts ONE workspace for ONE todo — claim them one at a time, or fold extras into an existing workspace with 'claim TODO... --into NAME'."
             return 2
         end
         # --or-start (the EnterWorktree hook's mode): claim when NAME names a
@@ -528,7 +534,7 @@ function __claim_fresh --argument-names name
     and begin
         not jj log --no-graph -r "$name" -T 'empty' --ignore-working-copy | string match -q true
         or begin
-            echo >&2 "$(status filename): $name's claim commit is empty — the ticket move was lost (a concurrent op on default). Nothing kept; re-run 'claim $name'."
+            echo >&2 "$_jjw_prog: $name's claim commit is empty — the ticket move was lost (a concurrent op on default). Nothing kept; re-run 'claim $name'."
             false
         end
     end
@@ -557,7 +563,7 @@ function __workflow_adopt
     set -l tdir "$project_dir/docs/tickets"
 
     if not set -q tickets[1]
-        echo >&2 "$(status filename): 'claim --into $into' needs at least one TODO to fold in."
+        echo >&2 "$_jjw_prog: 'claim --into $into' needs at least one TODO to fold in."
         return 2
     end
     # NAME must be a live feature: a workspace to own the tickets, and a claim commit
@@ -565,7 +571,7 @@ function __workflow_adopt
     set -l ws_dir (jj workspace root --name "$into")
     or return
     if not jj bookmark list -T 'name ++ "\n"' | string match -q -- "$into"
-        echo >&2 "$(status filename): no claim bookmark '$into' to fold into (is it a live workspace?)."
+        echo >&2 "$_jjw_prog: no claim bookmark '$into' to fold into (is it a live workspace?)."
         return 1
     end
 
@@ -660,11 +666,11 @@ end
 # Prints `NAME<TAB>PATH` per hit; grep-style status (0 = found, 1 = none).
 function __workflow_handoffs
     if contains -- "$argv[1]" -h --help
-        echo >&2 "Usage: $(status filename) handoffs   (no arguments)"
+        echo >&2 "Usage: $_jjw_prog handoffs   (no arguments)"
         return 2
     end
     if set -q argv[1]
-        echo >&2 "$(status filename): handoffs takes no arguments — it always scans every workspace."
+        echo >&2 "$_jjw_prog: handoffs takes no arguments — it always scans every workspace."
         return 2
     end
     set -l current (__current_workspace_name)
@@ -677,12 +683,12 @@ function __workflow_handoffs
         printf '%s\t%s\n' "$name" "$ws_dir/HANDOFF.md"
     end
     if not set -q found[1]
-        echo >&2 "$(status filename): no handoff docs — nothing paused mid-flight."
+        echo >&2 "$_jjw_prog: no handoff docs — nothing paused mid-flight."
         return 1
     end
     set -l here ""
     contains -- "$current" $found; and set here " (you are in '$current')"
-    echo >&2 "$(status filename): "(count $found)" handoff doc(s): $found$here"
+    echo >&2 "$_jjw_prog: "(count $found)" handoff doc(s): $found$here"
     return 0
 end
 
@@ -712,7 +718,7 @@ function __workflow_status
     argparse -S porcelain -- $argv
     or return 2
     if set -q argv[1]
-        echo >&2 "$(status filename): status takes no arguments (got '$argv[1]')."
+        echo >&2 "$_jjw_prog: status takes no arguments (got '$argv[1]')."
         return 2
     end
 
@@ -835,11 +841,11 @@ function __workflow_drop
 
     if set -q _flag_integrated
         if set -q _flag_force
-            echo >&2 "$(status filename): --integrated never force-drops — it only sweeps already-integrated, empty workspaces. Target one explicitly with `drop --force NAME`."
+            echo >&2 "$_jjw_prog: --integrated never force-drops — it only sweeps already-integrated, empty workspaces. Target one explicitly with `drop --force NAME`."
             return 2
         end
         if set -q argv[1]
-            echo >&2 "$(status filename): `drop --integrated` sweeps every integrated workspace — don't pass a NAME."
+            echo >&2 "$_jjw_prog: `drop --integrated` sweeps every integrated workspace — don't pass a NAME."
             return 2
         end
         if set -q _flag_dry_run
@@ -851,13 +857,13 @@ function __workflow_drop
     end
 
     if set -q _flag_dry_run
-        echo >&2 "$(status filename): --dry-run only applies to `drop --integrated`."
+        echo >&2 "$_jjw_prog: --dry-run only applies to `drop --integrated`."
         return 2
     end
 
     set -l name $argv[1]
     if test -z "$name"
-        echo >&2 "$(status filename): a workspace NAME is required (or `drop --integrated` to sweep integrated ones)."
+        echo >&2 "$_jjw_prog: a workspace NAME is required (or `drop --integrated` to sweep integrated ones)."
         return 2
     end
     set -l ws_dir (jj workspace root --name "$name")
@@ -873,9 +879,9 @@ function __workflow_drop
         if test -n "$(__unintegrated_work $name)"
             # The claim bookmark doubles as the "not yet integrated" marker.
             if test -n "$(jj log --no-graph -r "bookmarks(exact:\"$name\")" -T 'change_id.short()' --ignore-working-copy 2>/dev/null)"
-                echo >&2 "$(status filename): $name has un-integrated work (its claim bookmark still exists). Run `integrate $name` first, or `drop --force $name` to discard it."
+                echo >&2 "$_jjw_prog: $name has un-integrated work (its claim bookmark still exists). Run `integrate $name` first, or `drop --force $name` to discard it."
             else
-                echo >&2 "$(status filename): $name has new work since its last integrate. Integrate again, or `drop --force $name` to discard it."
+                echo >&2 "$_jjw_prog: $name has new work since its last integrate. Integrate again, or `drop --force $name` to discard it."
             end
             return 2
         end
@@ -906,7 +912,7 @@ function __drop_one --argument-names name ws_dir
     # failure direction.
     set stack (jj log --no-graph -r "default@..$name@" -T 'change_id.short() ++ "\n"' --ignore-working-copy)
     or begin
-        echo >&2 "$(status filename): could not resolve $name@'s stack."
+        echo >&2 "$_jjw_prog: could not resolve $name@'s stack."
         return 1
     end
 
@@ -992,15 +998,15 @@ function __drop_sweep
     set -l verb dropped
     set -q _flag_dry_run; and set verb "would drop"
     if set -q dropped[1]
-        echo >&2 "$(status filename): $verb "(count $dropped)" integrated workspace(s): $dropped"
+        echo >&2 "$_jjw_prog: $verb "(count $dropped)" integrated workspace(s): $dropped"
     else
-        echo >&2 "$(status filename): no integrated workspaces to drop."
+        echo >&2 "$_jjw_prog: no integrated workspaces to drop."
     end
     if set -q kept[1]
-        echo >&2 "$(status filename): kept "(count $kept)" workspace(s) with work since integrate: $kept"
+        echo >&2 "$_jjw_prog: kept "(count $kept)" workspace(s) with work since integrate: $kept"
     end
     if set -q failed[1]
-        echo >&2 "$(status filename): FAILED to drop: $failed"
+        echo >&2 "$_jjw_prog: FAILED to drop: $failed"
         return 1
     end
     return 0
@@ -1024,14 +1030,14 @@ function __workflow_refresh
 
     if set -q _flag_all
         if set -q argv[1]
-            echo >&2 "$(status filename): 'refresh --all' takes no WORKSPACE name (got '$argv[1]')."
+            echo >&2 "$_jjw_prog: 'refresh --all' takes no WORKSPACE name (got '$argv[1]')."
             return 2
         end
         # Reorder rewrites default's shared line — it must hold DEFAULT's lock. From
         # a feature workspace this run re-exec'd under that workspace's private lock,
         # which serializes against nothing that touches default.
         if test -z "$on_default"
-            echo >&2 "$(status filename): 'refresh --all' rewrites default's shared line — run it from the default workspace."
+            echo >&2 "$_jjw_prog: 'refresh --all' rewrites default's shared line — run it from the default workspace."
             return 2
         end
         # Every workspace but the default coordinator, in jj's (alphabetical) order.
@@ -1040,18 +1046,18 @@ function __workflow_refresh
             test "$ws" = default; or set -a targets "$ws"
         end
         if not set -q targets[1]
-            echo >&2 "$(status filename): no non-default workspaces to refresh."
+            echo >&2 "$_jjw_prog: no non-default workspaces to refresh."
             return 0
         end
         __snapshot_workspaces
         for ws in $targets
-            echo >&2 "$(status filename): refreshing $ws"
+            echo >&2 "$_jjw_prog: refreshing $ws"
             __refresh_reorder "$ws"; or return    # stop at the first conflict/failure
         end
         # Mirror the bank: the reorders rewrote the shared line under every
         # workspace, so clear the staleness while we still hold the flock.
         __unstale_workspaces
-        echo >&2 "$(status filename): refreshed "(count $targets)" workspace(s): "(string join ', ' $targets)"."
+        echo >&2 "$_jjw_prog: refreshed "(count $targets)" workspace(s): "(string join ', ' $targets)"."
         return 0
     end
 
@@ -1061,7 +1067,7 @@ function __workflow_refresh
         # `set -q` — the var is always DEFINED (empty off-default), and `set -q`
         # on a defined-but-empty local is true.
         if test -n "$on_default"
-            echo >&2 "$(status filename): refresh needs a WORKSPACE name (or --all), or run it from a feature workspace."
+            echo >&2 "$_jjw_prog: refresh needs a WORKSPACE name (or --all), or run it from a feature workspace."
             return 2
         end
         __refresh_detach (path basename $project_dir)
@@ -1081,7 +1087,7 @@ function __workflow_refresh
         # from here would race that workspace's own refresh/integrate unserialized.
         # (Basename == workspace name holds for toolkit-created feature workspaces.)
         if test "$name" != (path basename $project_dir)
-            echo >&2 "$(status filename): refresh '$name' from the default workspace (reorder), or run a no-arg refresh inside $name's own workspace (detach) — refreshing it from here would hold the wrong lock."
+            echo >&2 "$_jjw_prog: refresh '$name' from the default workspace (reorder), or run a no-arg refresh inside $name's own workspace (detach) — refreshing it from here would hold the wrong lock."
             return 2
         end
         __refresh_detach "$name"
@@ -1135,11 +1141,11 @@ function __refresh_reorder
     # the commit id won't.
     set root (__feature_roots "$name"); or return 1
     if not set -q root[1]
-        echo >&2 "$(status filename): could not locate $name's feature root."
+        echo >&2 "$_jjw_prog: could not locate $name's feature root."
         return 1
     end
     if set -q root[2]
-        echo >&2 "$(status filename): $name's stack has multiple roots — reorder can't carry it in one piece; integrate it, or simplify the stack by hand."
+        echo >&2 "$_jjw_prog: $name's stack has multiple roots — reorder can't carry it in one piece; integrate it, or simplify the stack by hand."
         return 1
     end
 
@@ -1191,7 +1197,7 @@ function __integrate_steps
     # started later) carry no work to lose, so they don't count — the from-default
     # reorder path still integrates a feature stacked below an empty sibling claim.
     if test -n "$(jj log --no-graph -r "$name"'@-..default@- & ~empty()' -T 'change_id' --ignore-working-copy)"
-        echo >&2 "$(status filename): $name is behind trunk — run 'workflow refresh' inside it first, then integrate."
+        echo >&2 "$_jjw_prog: $name is behind trunk — run 'workflow refresh' inside it first, then integrate."
         return 2
     end
     # P3: the workspace must hand off a CLOSED stack — its @ empty and undescribed
@@ -1208,13 +1214,13 @@ function __integrate_steps
     set -l wc_empty (jj log --no-graph -r "$name"@ -T 'if(empty, "y", "")' --ignore-working-copy)
     set -l wc_desc (jj log --no-graph -r "$name"@ -T 'if(description, "y", "")' --ignore-working-copy)
     if test -z "$wc_empty" -a -n "$wc_desc"
-        echo >&2 "$(status filename): $name@ still holds the work itself — integrate folds only closed commits. Run 'jj new' in $ws_dir to cap it with an empty change, then re-integrate."
+        echo >&2 "$_jjw_prog: $name@ still holds the work itself — integrate folds only closed commits. Run 'jj new' in $ws_dir to cap it with an empty change, then re-integrate."
         return 69
     else if test -z "$wc_empty" -a -z "$wc_desc"
-        echo >&2 "$(status filename): $name has undescribed work in its workspace — describe it (jj describe -m …) and cap it with 'jj new', or abandon it, then re-integrate."
+        echo >&2 "$_jjw_prog: $name has undescribed work in its workspace — describe it (jj describe -m …) and cap it with 'jj new', or abandon it, then re-integrate."
         return 69
     else if test -n "$wc_desc"
-        echo >&2 "$(status filename): $name@ is described but empty — that reads as work in progress. Finish it, or clear the description / abandon it, then re-integrate."
+        echo >&2 "$_jjw_prog: $name@ is described but empty — that reads as work in progress. Finish it, or clear the description / abandon it, then re-integrate."
         return 69
     end
     # else: empty + undescribed — the clean trailing-commit shape.
@@ -1294,7 +1300,7 @@ function __integrate_steps
         set -l fold_conflict (jj -R "$default_dir" log --no-graph -r '@ & conflicts()' -T 'change_id.short()' --ignore-working-copy)
         test -z "$fold_conflict"
         or begin
-            echo >&2 "$(status filename): folding default@ onto $name's tip conflicts — rolling back; commit or clear default@'s in-flight edits, then re-integrate."
+            echo >&2 "$_jjw_prog: folding default@ onto $name's tip conflicts — rolling back; commit or clear default@'s in-flight edits, then re-integrate."
             false
         end
     end
@@ -1591,7 +1597,7 @@ if not set -q _WORKFLOW_LOCKED; and contains -- "$argv[1]" claim start drop refr
             end
             return 0
         end
-        echo >&2 "$(status filename): timed out waiting for the workflow lock — another claim/start/drop/refresh/integrate is holding it. Re-run once it finishes."
+        echo >&2 "$_jjw_prog: timed out waiting for the workflow lock — another claim/start/drop/refresh/integrate is holding it. Re-run once it finishes."
     end
     return $rc
 end
@@ -1644,7 +1650,7 @@ if contains -- "$argv[1]" claim start drop refresh integrate
         contains -- "$d" $div_before; or contains -- "$d" $new_div; or set -a new_div $d
     end
     if set -q new_div[1]
-        echo >&2 "$(status filename): WARNING — this operation left "(count $new_div)" DIVERGENT change(s): "(string join ', ' $new_div)"."
+        echo >&2 "$_jjw_prog: WARNING — this operation left "(count $new_div)" DIVERGENT change(s): "(string join ', ' $new_div)"."
         echo >&2 "  A jj command probably ran in another workspace while this one was rewriting. The work landed, but that workspace now has two versions of one change and its files may have been swapped."
         echo >&2 "  Run 'workflow repair' in the affected workspace — it converges them, keeping the half that holds the work."
     end

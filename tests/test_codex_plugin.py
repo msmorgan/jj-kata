@@ -50,6 +50,15 @@ def test_sibling_skills_reach_the_toolkit_by_a_path_that_resolves():
     assert checked, "no cross-skill relative paths found — did the idiom change?"
 
 
+def test_workflow_messages_name_the_program_not_its_path():
+    # Invoked by absolute path out of the installed skill, `status filename` is
+    # a ~90-character plugin-cache path — noise on every notice and refusal.
+    src = (ROOT / "skills/jj-workflow/scripts/workflow").read_text()
+
+    assert "$(status filename)" not in src
+    assert "set -g _jjw_prog (path basename (status filename))" in src
+
+
 def test_guard_hook_only_decides_never_rewrites():
     # Command discovery must not depend on a hook firing: a hook that is
     # untrusted, unmatched, or simply not supported by the host is invisible,
