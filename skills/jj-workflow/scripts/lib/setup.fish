@@ -13,8 +13,9 @@ end
 set -q deps_ok; or return 1
 
 # The project root is the CWD's jj workspace root — NOT this script copy's
-# location. One toolkit copy (a repo-local install or a plugin's bin/ on PATH)
-# then serves every workspace: the target repo, the lock, and the ticket paths
+# location. One toolkit copy (a repo-local install, or the copy inside an
+# installed plugin's skill) serves every workspace: the repo, the lock, and the
+# ticket paths
 # all follow where you RUN the command, so there is no wrong-copy failure mode.
 set -g project_dir (command jj workspace root --ignore-working-copy 2>/dev/null)
 if test -z "$project_dir"

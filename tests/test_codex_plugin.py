@@ -19,8 +19,33 @@ def test_codex_manifest_exposes_plugin_components():
     assert (ROOT / "skills/jj-workflow/SKILL.md").is_file()
     assert (ROOT / "skills/setup/SKILL.md").is_file()
     assert (ROOT / "skills/handoff/SKILL.md").is_file()
-    assert (ROOT / "bin/workflow").resolve() == ROOT / "skills/jj-workflow/scripts/workflow"
-    assert (ROOT / "bin/conflicts").resolve() == ROOT / "skills/jj-workflow/scripts/conflicts"
+    # The executables ship inside the skill that documents them, and NOWHERE
+    # else — the skill tells an agent to run them relative to its own directory,
+    # so a second copy (a bin/ shim, a PATH entry) is one more thing to go stale.
+    for name in ("workflow", "conflicts"):
+        script = ROOT / "skills/jj-workflow/scripts" / name
+        assert script.is_file() and os.access(script, os.X_OK)
+    assert not (ROOT / "bin").exists()
+
+
+def test_skill_routes_commands_by_its_own_directory():
+    skill = (ROOT / "skills/jj-workflow/SKILL.md").read_text()
+
+    assert "this skill's own directory" in skill
+    assert "scripts/workflow" in skill
+    assert "scripts/conflicts" in skill
+
+
+def test_guard_hook_only_decides_never_rewrites():
+    # Command discovery must not depend on a hook firing: a hook that is
+    # untrusted, unmatched, or simply not supported by the host is invisible,
+    # and the toolkit would silently vanish. So the guard allows or blocks and
+    # rewrites nothing.
+    hook = (ROOT / "skills/jj-workflow/scripts/hooks/jj_guard.fish").read_text()
+
+    assert "updatedInput" not in hook
+    assert "export PATH" not in hook
+    assert "JJ_WORKFLOW_HOST" not in hook
 
 
 def test_todo_graph_treats_bugs_as_ordered_triage(tmp_path):

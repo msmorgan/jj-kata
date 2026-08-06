@@ -37,15 +37,15 @@ isolated workspace.
 /plugin install jj-workflow@jj-workflow
 ```
 
-This puts `workflow` and `conflicts` on the Bash tool's PATH (`bin/`), registers
-the PreToolUse guard and the PostToolBatch [status line](#the-status-line)
-automatically (both activate only inside jj repos), and ships the usage skill.
+This ships the usage skill and registers the PreToolUse guard and the
+PostToolBatch [status line](#the-status-line) automatically (both activate only
+inside jj repos).
 
-Inside the plugin the executables live in `skills/jj-workflow/scripts/`, beside
-the skill that documents them — so an agent that reads the skill can reach them
-relatively instead of guessing at a path, and `bin/` is only a pair of symlinks.
-Anything referring to the toolkit inside the plugin (hooks, `bin/`) points there;
-nothing hard-codes it twice. Then, once per repo, run `/jj-workflow:setup` — it sets
+The executables live in `skills/jj-workflow/scripts/`, beside the skill that
+documents them — the skill tells the agent to run `scripts/workflow` and
+`scripts/conflicts` relative to its own directory, which is how every other
+skill-with-tools works. Nothing is put on PATH, and there is no second copy to go
+stale. Then, once per repo, run `/jj-workflow:setup` — it sets
 the `immutable_heads()` repo-config alias (the actual trunk protection, which is
 per-repo state a plugin can't carry) and walks the optional config. Every
 command targets the jj workspace you run it from, so one global copy serves all
@@ -65,15 +65,20 @@ codex plugin add jj-workflow@jj-workflow
 
 Start a new Codex thread after installation so its skills, hooks, and command
 aliases are loaded. The plugin provides the `$jj-workflow:jj-workflow` and
-`$jj-workflow:setup` skills, puts `workflow` and `conflicts` on the shell
-`PATH` for each Codex shell call, and bundles the repo-aware
-`PreToolUse(Bash)` guard. Codex plugin manifests do not currently expose a
-native `bin/` field, so the trusted hook performs that PATH injection using
-Codex's supported command-rewrite response. The hook also makes
-`.codex/workspaces/` the default feature-workspace base so new workspaces stay
-inside Codex's writable repository sandbox. Open `/hooks` once to review and
-trust the hook; Codex intentionally does not trust executable plugin hooks
-merely because the plugin was installed.
+`$jj-workflow:setup` skills and bundles the repo-aware `PreToolUse(Bash)` guard.
+
+The two executables are run out of the skill's own directory
+(`skills/jj-workflow/scripts/`), exactly as on Claude Code — nothing depends on
+Codex exposing a `bin/` field or on a hook firing, so the tools are reachable
+the moment the skill loads. Because `..` is outside Codex's writable sandbox,
+`workflow` notices the unwritable parent on its own and puts feature workspaces
+under the in-repo `.codex/workspaces/` instead; add that path to the repo's
+`.gitignore` (see [Configuration](#configuration)).
+
+The guard hook is a separate matter: open `/hooks` once to review and trust it.
+Codex intentionally does not trust executable plugin hooks merely because the
+plugin was installed, and until it is trusted the git/bypass-flag ban is not
+enforced there.
 
 Then invoke `$jj-workflow:setup` once per jj repo. It installs the repo-local
 `immutable_heads()` alias, which is the actual trunk protection. Optionally set
@@ -153,18 +158,7 @@ It also sets the repo-config `immutable_heads()` alias that protects the trunk l
 ## Repository shape
 
 The toolkit expects one `default` workspace (the coordinator) plus any number
-of feature workspaces. Codex plugin sessions default to an in-repo base so
-their workspaces remain inside the sandbox's writable root:
-
-```
-~/code/myproj/
-  myproj/                           ← coordinator (`default`)
-    .codex/workspaces/
-      feature-a/                    ← Codex feature workspace
-      feature-b/
-```
-
-Other hosts and repo-local installs retain the sibling default:
+of feature workspaces. The default is siblings of the coordinator directory:
 
 ```
 ~/code/myproj/
@@ -173,13 +167,26 @@ Other hosts and repo-local installs retain the sibling default:
   feature-b/
 ```
 
+When that parent directory is **not writable** — the shape of a sandboxed agent
+host such as Codex, which exposes the repo root and little else — the default
+becomes an in-repo base instead, so workspaces land somewhere writable:
+
+```
+~/code/myproj/
+  myproj/                           ← coordinator (`default`)
+    .codex/workspaces/
+      feature-a/                    ← feature workspace
+      feature-b/
+```
+
 The coordinator's **workspace name** is always `default` (jj's initial workspace), but
 its **directory name** is yours to choose — pick it when you clone/init, and name it
 after the project (as above) so IDEs and agents see a unique root instead of yet another
 `default/`. Nothing hardcodes a `../default` path: scripts resolve the coordinator with
 `jj workspace root --name default`. Feature workspace directories are created by the
-toolkit and always match their workspace name (`.codex/workspaces/NAME` under
-Codex, `../NAME` elsewhere). Set `workspace_dir` in `jjworkflow.toml` to
+toolkit and always match their workspace name (`../NAME`, or
+`.codex/workspaces/NAME` when the parent is unwritable). Set `workspace_dir` in
+`jjworkflow.toml` to
 override either default—relative paths resolve against the repo root, absolute
 paths are used as-is. Any in-repo base must be ignored, or jj will snapshot
 every child workspace into the coordinator's working copy. If `.codex/*` is
@@ -265,6 +272,8 @@ editor-opening command can't hang the agent (the toolkit always passes `-m`):
 ```
 
 Exit 2 from the hook blocks the tool call with the error on stderr; exit 0 allows it.
+The hook only ever *decides* — it never rewrites the command it was handed, and
+nothing about reaching the toolkit's own executables depends on it running.
 
 ---
 
@@ -741,8 +750,8 @@ optional; a missing file uses the defaults shown:
 
 ```toml
 # Directory that holds feature workspaces. Relative paths resolve against the
-# repo root. Defaults: ".codex/workspaces" in Codex plugin sessions, ".."
-# elsewhere. Omit to retain that host-aware default; uncomment to override.
+# repo root. Defaults to ".." — or ".codex/workspaces" when that parent is not
+# writable (a sandboxed host). Omit to keep that; uncomment to override.
 # workspace_dir = ".custom/workspaces"
 
 # Executable run after a new workspace is created, with the workspace dir as $1.

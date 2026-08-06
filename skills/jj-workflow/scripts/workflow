@@ -1,8 +1,8 @@
 #!/usr/bin/env fish
 
 # Resolve this script's real location first (it may be invoked through a
-# symlink, e.g. a plugin's bin/), then let setup.fish derive $project_dir from
-# the CWD's jj workspace root — every command targets where you RUN it.
+# symlink), then let setup.fish derive $project_dir from the CWD's jj workspace
+# root — every command targets where you RUN it, not where it lives.
 source (path dirname (path resolve (status filename)))/lib/setup.fish flock
 or return
 
@@ -328,15 +328,20 @@ function __jjworkflow_config --argument-names key default
 end
 
 # Base directory holding feature workspaces. jjworkflow.toml `workspace_dir`,
-# resolved against the project root unless absolute. The normal default is `..`
-# (siblings of the project dir). Codex's plugin hook sets JJ_WORKFLOW_HOST, which
-# changes the default to `.codex/workspaces` so every workspace stays inside the
-# sandbox's writable repo root. An explicit workspace_dir always wins.
+# resolved against the project root unless absolute, always wins.
+#
+# The default is `..` (siblings of the project dir) — UNLESS that parent is not
+# writable, which is the shape of a sandboxed agent host (Codex and friends
+# expose the repo root and little else). There the default becomes the in-repo
+# `.codex/workspaces`, so every workspace lands somewhere the agent can actually
+# write. This is decided from the filesystem rather than from a host marker
+# exported by a hook: a hook that does not fire is invisible, an unwritable
+# parent is not.
 # Any in-repo base MUST be gitignored, or jj would snapshot every child
 # workspace into the coordinator's working copy.
 function __workspace_base
     set -l default_dir ..
-    if set -q JJ_WORKFLOW_HOST; and test "$JJ_WORKFLOW_HOST" = codex
+    if not test -w (path dirname -- $project_dir)
         set default_dir .codex/workspaces
     end
     set -l dir (__jjworkflow_config workspace_dir $default_dir)
@@ -362,8 +367,8 @@ function __provision_ws --argument-names ws_dir
 end
 
 # Spin up a NAME-bookmarked base commit on default@- with a NAME workspace dir
-# (under the configured workspace base; Codex defaults to
-# .codex/workspaces/NAME, other hosts to ../NAME) on top, leaving default's @
+# (under the configured workspace base — ../NAME, or .codex/workspaces/NAME on a
+# sandboxed host with an unwritable parent) on top, leaving default's @
 # put. The base commit starts EMPTY; ticket ownership is always folded in
 # afterwards by __workflow_adopt (claim = start + adopt), so this is the single
 # workspace-creation path and adopt the single ticket-move path.

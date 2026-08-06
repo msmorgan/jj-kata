@@ -29,12 +29,12 @@ is idempotent; report what was already in place.
    `workspace_dir`, `provision_hook`, `todo_cmd`. Codex sets `PLUGIN_ROOT`;
    Claude Code sets `CLAUDE_PLUGIN_ROOT`.
 
-   The workspace-location default is host-aware: the Codex plugin uses
-   `.codex/workspaces` so feature workspaces stay inside the sandbox's writable
-   repo root; other installs use sibling directories (`..`). An explicit
-   `workspace_dir` overrides either default. Any in-repo workspace directory
-   must be ignored; if `.codex/*` is not already covered by a global excludes
-   file, add `.codex/workspaces/` to the repo's `.gitignore`.
+   The workspace-location default is sibling directories (`..`) — unless the
+   repo's parent is not writable, the shape of a sandboxed host such as Codex,
+   in which case it becomes the in-repo `.codex/workspaces` so workspaces stay
+   somewhere writable. An explicit `workspace_dir` overrides both. Any in-repo
+   workspace directory must be ignored; if `.codex/*` is not already covered by
+   a global excludes file, add `.codex/workspaces/` to the repo's `.gitignore`.
 
 4. Recommend setting `JJ_EDITOR=false` so no ad-hoc jj command can hang waiting
    on an editor (the toolkit itself always passes `-m`):
@@ -107,8 +107,14 @@ is idempotent; report what was already in place.
    PURPOSE: registered globally they would hijack EnterWorktree in plain-git
    repos.
 
-7. Sanity check: `workflow` with no arguments prints usage (the plugin's
-   PreToolUse hook prepends its `bin/` to each Codex shell call). The hook ships
-   with this plugin and needs no registration. In Codex, if `workflow` is not
-   found, stop and ask the user to use `/hooks` to review and trust the pending
-   plugin hook; plugin installation does not implicitly trust executable hooks.
+7. Sanity check: run the toolkit the way the /jj-workflow:jj-workflow skill
+   says to — by absolute path out of *that* skill's own directory,
+   `<skill dir>/scripts/workflow` with no arguments, which prints usage. It is
+   not on PATH and is not supposed to be; if it is missing, the plugin's skill
+   directory is the only place to look for it.
+
+8. In Codex, remind the user to open `/hooks` once and trust this plugin's
+   PreToolUse guard. Installing a plugin does not implicitly trust its
+   executable hooks, and until it is trusted the git / bypass-flag ban is not
+   enforced. This does not affect whether the commands run — only whether jj
+   misuse is caught.

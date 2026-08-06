@@ -5,22 +5,24 @@ description: Use when working in a jj (Jujutsu) repo that uses the jj-workflow t
 
 # jj-workflow
 
-The `workflow` and `conflicts` commands are on PATH (this plugin's `bin/`), and
-in Codex the plugin's trusted PreToolUse hook prepends that directory to each
-shell call because Codex manifests do not provide a native `bin/` field.
+The toolkit is two executables that ship inside this skill:
 
-**If either command does not resolve on PATH, run it out of this skill's own
-directory** — `scripts/workflow`, `scripts/conflicts`, beside this file. That is
-where they live; `bin/` is only a pair of symlinks to them. Use the skill dir's
-absolute path, not a guess at a repo-relative one, and do not substitute a
-`scripts/workflow` you find in the project you are working on: a repo-local
-install is a separate, possibly older copy. (In Codex, a missing command usually
-means the plugin hook is untrusted — worth telling the user they can review it
-in `/hooks`.)
+- `scripts/workflow` — the claim → work → integrate feature lifecycle
+- `scripts/conflicts` — conflict inspector and resolver
 
-Every command targets the jj workspace you run it FROM — its repo, its lock —
-so `cd` into the workspace you mean and invoke the tool by absolute path;
-never `cd` to the toolkit.
+**Both paths are relative to this skill's own directory** — the directory this
+`SKILL.md` was loaded from, not the project you are working in. That is the only
+place they live. Nothing is on PATH; call them by absolute path:
+
+```
+<skill dir>/scripts/workflow status
+```
+
+Every command targets the jj workspace you run it FROM — its repo, its lock — so
+`cd` into the workspace you mean and invoke the tool by its absolute path; never
+`cd` to the skill directory. Do not substitute a `scripts/workflow` you find in
+the project you are working on: a repo-local install is a separate, possibly
+older copy.
 
 Key rules:
 
@@ -45,9 +47,10 @@ Key rules:
   `refresh`, `claim` (self-fold), and `integrate` THIS workspace in place — no
   `cd` back to `default`. Naming a sibling from a feature workspace is refused.
 - Each feature = `workflow claim NAME` (ticketed) or `workflow start NAME`
-  (ad-hoc), run from `default` → work in the NAME workspace (Codex plugin:
-  `.codex/workspaces/NAME` so it remains inside the sandbox; other installs:
-  sibling `../NAME`; explicit `workspace_dir` overrides either default) →
+  (ad-hoc), run from `default` → work in the NAME workspace (sibling `../NAME`,
+  or `.codex/workspaces/NAME` when the project's parent directory is not
+  writable — the shape of a sandboxed host; `workspace_dir` in `jjworkflow.toml`
+  overrides both) →
   finish it with `workflow integrate` (NO name) from INSIDE that workspace, or
   `workflow integrate NAME` from `default`. Self-integrate reaches into
   `default` internally to advance trunk; the immutability alias makes that the

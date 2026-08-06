@@ -41,50 +41,16 @@
 # Read stdin payload
 set -l payload (cat | string join \n)
 
-# Codex does not currently add a plugin's bin/ directory to ordinary shell
-# commands, and it spawns a FRESH shell per run_command — so nothing exported by
-# one call survives to the next, and there is no session to set up once. Plugin
-# hooks do receive PLUGIN_ROOT, though, and PreToolUse may rewrite Bash input, so
-# the prepend rides along inside the command itself. This makes `workflow` and
-# `conflicts` resolve without modifying the user's shell startup files, and lets
-# workflow keep feature workspaces inside the sandboxed repo.
+# This hook only ever ALLOWS or BLOCKS — it never rewrites the command. The
+# toolkit's own executables are reached by absolute path out of the skill
+# directory that documents them (see skills/jj-workflow/SKILL.md); nothing here
+# injects PATH, environment, or anything else into a shell call.
 #
-# The rewrite is SCOPED to commands that mention a toolkit command — the export
-# is pure overhead on the other 99% of shell calls, and an untouched command is
-# also an unsurprising one (nothing to explain in the transcript, nothing to
-# collide with a caller's own PATH juggling). The probe deliberately
-# over-approximates: it ignores quoting and matches substrings, so it may fire on
-# a command that merely says "workflow" in a message. A spurious export is
-# harmless; a missed one is not. The known gap is indirection — a Makefile or
-# wrapper script that invokes bare `workflow` without naming it in the command
-# line gets no prepend. Call the tool directly, or use a repo-local install's
-# scripts/workflow path.
-# Claude does not set PLUGIN_ROOT; Gemini has its own allow/deny response shape.
-#
-# The directory to prepend is derived from THIS file's own location rather than
-# from $PLUGIN_ROOT + a hard-coded subpath: the scripts sit beside the skill that
-# documents them, and a self-relative answer cannot drift out of sync with that
-# layout the way a second copy of the path would. PLUGIN_ROOT is still the gate —
-# it is what says "this is a Codex plugin session" — just not the map.
-set -g _jjg_scripts_dir (path dirname (path dirname (path resolve (status filename))))
-
-function _jjg_allow --argument-names cmd is_bash_hook is_gemini
+# Allowing is silence (exit 0) for the Claude/Codex payload shape; Gemini wants
+# an explicit allow/deny JSON decision instead.
+function _jjg_allow --argument-names is_gemini
     if test "$is_gemini" = "true"
         echo '{"decision": "allow"}'
-    else if test "$is_bash_hook" = "true"; and set -q PLUGIN_ROOT; and test -n "$PLUGIN_ROOT"
-        and string match -rq -- 'workflow|conflicts' -- $cmd
-        jq -n --arg bin "$_jjg_scripts_dir" --arg command "$cmd" \
-            '{hookSpecificOutput:{
-                hookEventName:"PreToolUse",
-                permissionDecision:"allow",
-                updatedInput:{
-                    command:(
-                        "export PATH=" + ($bin | @sh) + ":\"$PATH\"\n"
-                        + "export JJ_WORKFLOW_HOST=codex\n"
-                        + $command
-                    )
-                }
-            }}'
     end
 end
 
@@ -121,7 +87,7 @@ while not test -d "$d/.jj"
     set -l parent (path dirname $d)
     if test "$parent" = "$d"
         # Not a jj repo: allow execution
-        _jjg_allow "$cmd" "$is_bash_hook" "$is_gemini"
+        _jjg_allow "$is_gemini"
         exit 0
     end
     set d $parent
@@ -134,7 +100,7 @@ end
 # so no evasion slips past: the precise verdict is still the tokenizer's.
 set -l probe (string replace -a -- '\\' '' $cmd | string replace -a -- "'" '' | string replace -a -- '"' '')
 if not string match -rq -- 'git|--config|--ignore-immutable' -- $probe
-    _jjg_allow "$cmd" "$is_bash_hook" "$is_gemini"
+    _jjg_allow "$is_gemini"
     exit 0
 end
 
@@ -282,5 +248,5 @@ while test $j -le $ntok
     set j (math $j + 1)
 end
 
-_jjg_allow "$cmd" "$is_bash_hook" "$is_gemini"
+_jjg_allow "$is_gemini"
 exit 0
