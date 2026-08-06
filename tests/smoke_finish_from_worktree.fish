@@ -2,13 +2,16 @@
 # Smoke: install the toolkit into a throwaway jj repo, start a workspace, integrate it.
 # The coordinator dir is deliberately named `myproj`, NOT `default`: the workspace
 # NAME is always `default`, but its directory name is the user's choice, and the
-# toolkit must resolve it via `jj workspace root --name default` — never `../default`.
+# toolkit must resolve it via `jj workspace root --name default` — never `$ws/default`.
 # Nesting under $work also keeps feature-workspace siblings out of the temp root.
 # Fish has no `set -e`, so each step that must succeed is guarded with `; or ...`.
 
 set -l tk (path resolve (status dirname)/..)
+set -g wf $tk/skills/jj-workflow/scripts/workflow
+set -g cf $tk/skills/jj-workflow/scripts/conflicts
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
@@ -16,10 +19,8 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed"
     exit 1
 end
-$tk/install.fish $coord >/dev/null; or begin
-    echo >&2 "smoke: install failed"
-    exit 1
-end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 
 # Ignore patterns for the junk files created below: ignored build litter must
 # not register as "work" anywhere (drop's refusal check, integrate).
@@ -27,12 +28,12 @@ printf '*.tmp\njunk.d/\n' >.gitignore
 
 # Commit the installed scripts so jj tracks them and they propagate to new workspaces.
 # (jj workspace add checks out a commit; untracked files stay only in the default WC.)
-jj commit -m "install toolkit" >/dev/null; or begin
+jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed"
     exit 1
 end
 
-# The default workspace resolves to the renamed coordinator dir, not ../default.
+# The default workspace resolves to the renamed coordinator dir, not $ws/default.
 test "$(jj workspace root --name default)" = "$coord"; or begin
     echo >&2 "smoke: workspace root --name default != $coord"
     exit 1
@@ -41,18 +42,18 @@ echo "ok: default workspace maps to renamed dir myproj/"
 
 # --- Positive control: with a linear (single-parent) default@, a no-arg refresh
 # from inside a feature workspace succeeds (P1 must not reject the normal case). ---
-./scripts/workflow start feat-ok >/dev/null 2>&1; or begin
+$wf start feat-ok >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-ok failed"
     exit 1
 end
-pushd ../feat-ok
+pushd $ws/feat-ok
 echo hello >note.txt
 jj describe -m "feat: note" >/dev/null 2>&1; or begin
     echo >&2 "smoke: describe feat-ok failed"
     popd
     exit 1
 end
-./scripts/workflow refresh >/dev/null 2>&1
+$wf refresh >/dev/null 2>&1
 set -l rc_ok $status
 popd
 test $rc_ok -eq 0; or begin
@@ -62,7 +63,7 @@ end
 echo "ok: P1 allows refresh when default@ is linear"
 
 # --- P1 negative: a merge default@ must make refresh refuse with a clear message. ---
-./scripts/workflow start feat-m >/dev/null 2>&1; or begin
+$wf start feat-m >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-m failed"
     exit 1
 end
@@ -82,8 +83,8 @@ test (count (jj log --no-graph -r 'default@-' -T 'change_id.short() ++ "\n"' --i
     echo >&2 "smoke: default@ is not a 2-parent merge as expected"
     exit 1
 end
-pushd ../feat-m
-./scripts/workflow refresh >/dev/null 2>&1
+pushd $ws/feat-m
+$wf refresh >/dev/null 2>&1
 set -l rc $status
 popd
 test $rc -ne 0; or begin
@@ -97,6 +98,7 @@ echo "ok: P1 refuses refresh when default@ is a merge"
 # a merge in the temp repo above, so we start a FRESH temp repo here. ---
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
@@ -104,12 +106,10 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task4)"
     exit 1
 end
-$tk/install.fish $coord >/dev/null; or begin
-    echo >&2 "smoke: install failed (task4)"
-    exit 1
-end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
-jj commit -m "install toolkit" >/dev/null; or begin
+jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task4)"
     exit 1
 end
@@ -120,16 +120,16 @@ end
 echo "ok: task4 fresh coordinator maps to renamed dir myproj/"
 
 # Cross-feature refused: a feature ws may not integrate a sibling.
-./scripts/workflow start feat-b >/dev/null 2>&1; or begin
+$wf start feat-b >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-b failed"
     exit 1
 end
-./scripts/workflow start feat-c >/dev/null 2>&1; or begin
+$wf start feat-c >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-c failed"
     exit 1
 end
-pushd ../feat-b
-./scripts/workflow integrate feat-c >/dev/null 2>&1
+pushd $ws/feat-b
+$wf integrate feat-c >/dev/null 2>&1
 set -l rc_cross $status
 popd
 test $rc_cross -ne 0; or begin
@@ -139,8 +139,8 @@ end
 echo "ok: cross-feature op refused from a feature workspace"
 
 # Creation still default-only: `start` from inside a feature ws must be refused.
-pushd ../feat-b
-./scripts/workflow start anything >/dev/null 2>&1
+pushd $ws/feat-b
+$wf start anything >/dev/null 2>&1
 set -l rc_start $status
 popd
 test $rc_start -ne 0; or begin
@@ -153,6 +153,7 @@ echo "ok: creation (start) still refused from a feature workspace"
 # so nothing from the guard sections above pollutes the trunk line. ---
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
@@ -160,12 +161,10 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task5A)"
     exit 1
 end
-$tk/install.fish $coord >/dev/null; or begin
-    echo >&2 "smoke: install failed (task5A)"
-    exit 1
-end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
-jj commit -m "install toolkit" >/dev/null; or begin
+jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task5A)"
     exit 1
 end
@@ -176,16 +175,16 @@ end
 echo "ok: task5A fresh coordinator maps to renamed dir myproj/"
 
 # Start feat-int with committed work, then integrate it FROM INSIDE with no NAME.
-./scripts/workflow start feat-int >/dev/null 2>&1; or begin
+$wf start feat-int >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-int"
     exit 1
 end
-pushd ../feat-int
+pushd $ws/feat-int
 echo work >w.txt
 # Close the work: integrate refuses unless the workspace @ is empty+undescribed.
 jj commit -m "feat: real work" >/dev/null
 set -l work_id (jj log --no-graph -r @- -T 'change_id.short()')
-./scripts/workflow integrate >/dev/null 2>&1; or begin
+$wf integrate >/dev/null 2>&1; or begin
     echo >&2 "smoke: self-integrate failed"
     popd
     exit 1
@@ -210,6 +209,7 @@ echo "ok: self-integrate advances trunk and parks the workspace"
 # refused until refreshed. Fresh temp repo. ---
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
@@ -217,12 +217,10 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task5B)"
     exit 1
 end
-$tk/install.fish $coord >/dev/null; or begin
-    echo >&2 "smoke: install failed (task5B)"
-    exit 1
-end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
-jj commit -m "install toolkit" >/dev/null; or begin
+jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task5B)"
     exit 1
 end
@@ -232,29 +230,29 @@ test "$(jj workspace root --name default)" = "$coord"; or begin
 end
 echo "ok: task5B fresh coordinator maps to renamed dir myproj/"
 
-./scripts/workflow start feat-old >/dev/null 2>&1; or begin
+$wf start feat-old >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-old"
     exit 1
 end
-./scripts/workflow start feat-new >/dev/null 2>&1; or begin
+$wf start feat-new >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-new"
     exit 1
 end
 # Integrate feat-new (self) — advances trunk with REAL work, leaving feat-old behind.
-pushd ../feat-new
+pushd $ws/feat-new
 echo n >n.txt
 jj commit -m "feat: n" >/dev/null
-./scripts/workflow integrate >/dev/null 2>&1; or begin
+$wf integrate >/dev/null 2>&1; or begin
     echo >&2 "smoke: integrate feat-new (setup for P2) failed"
     popd
     exit 1
 end
 popd
 # feat-old is now behind the advanced trunk — a self-integrate must REFUSE.
-pushd ../feat-old
+pushd $ws/feat-old
 echo o >o.txt
 jj commit -m "feat: o" >/dev/null
-./scripts/workflow integrate >/dev/null 2>&1
+$wf integrate >/dev/null 2>&1
 set -l rc $status
 popd
 test $rc -ne 0; or begin
@@ -263,9 +261,9 @@ test $rc -ne 0; or begin
 end
 echo "ok: P2 refuses a stale feature"
 # …and after refresh it succeeds.
-pushd ../feat-old
-./scripts/workflow refresh >/dev/null 2>&1
-./scripts/workflow integrate >/dev/null 2>&1
+pushd $ws/feat-old
+$wf refresh >/dev/null 2>&1
+$wf integrate >/dev/null 2>&1
 set -l rc2 $status
 popd
 test $rc2 -eq 0; or begin
@@ -279,6 +277,7 @@ echo "ok: P2 accepts a refreshed feature"
 # temp repo. ---
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
@@ -286,12 +285,10 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task5C)"
     exit 1
 end
-$tk/install.fish $coord >/dev/null; or begin
-    echo >&2 "smoke: install failed (task5C)"
-    exit 1
-end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
-jj commit -m "install toolkit" >/dev/null; or begin
+jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task5C)"
     exit 1
 end
@@ -301,14 +298,14 @@ test "$(jj workspace root --name default)" = "$coord"; or begin
 end
 echo "ok: task5C fresh coordinator maps to renamed dir myproj/"
 
-./scripts/workflow start feat-c >/dev/null 2>&1; or begin
+$wf start feat-c >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-c"
     exit 1
 end
-pushd ../feat-c
+pushd $ws/feat-c
 echo c >c.txt
 jj commit -m "feat: c" >/dev/null
-./scripts/workflow integrate >/dev/null 2>&1; or begin
+$wf integrate >/dev/null 2>&1; or begin
     echo >&2 "smoke: integrate feat-c failed"
     popd
     exit 1
@@ -334,6 +331,7 @@ echo "ok: advance splice keeps the trunk line linear"
 # is launched from a feature ws). Fresh temp repo. ---
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
@@ -341,12 +339,10 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task5D)"
     exit 1
 end
-$tk/install.fish $coord >/dev/null; or begin
-    echo >&2 "smoke: install failed (task5D)"
-    exit 1
-end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
-jj commit -m "install toolkit" >/dev/null; or begin
+jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task5D)"
     exit 1
 end
@@ -356,24 +352,24 @@ test "$(jj workspace root --name default)" = "$coord"; or begin
 end
 echo "ok: task5D fresh coordinator maps to renamed dir myproj/"
 
-./scripts/workflow start feat-s1 >/dev/null 2>&1; or begin
+$wf start feat-s1 >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-s1"
     exit 1
 end
-pushd ../feat-s1
+pushd $ws/feat-s1
 echo s1 >s1.txt
 jj commit -m "s1 work" >/dev/null
 popd
-./scripts/workflow start feat-s2 >/dev/null 2>&1; or begin
+$wf start feat-s2 >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-s2"
     exit 1
 end
 # Un-snapshotted edit in feat-s2 — no jj command touches feat-s2 after this write.
-echo dirty >../feat-s2/dirty.txt
+echo dirty >$ws/feat-s2/dirty.txt
 # Self-integrate feat-s1 from inside it; feat-s2's WC must be banked first.
-pushd ../feat-s1
-./scripts/workflow refresh >/dev/null 2>&1
-./scripts/workflow integrate >/dev/null 2>&1; or begin
+pushd $ws/feat-s1
+$wf refresh >/dev/null 2>&1
+$wf integrate >/dev/null 2>&1; or begin
     echo >&2 "smoke: self-integrate feat-s1 failed"
     popd
     exit 1
@@ -393,6 +389,7 @@ echo "ok: self-integrate banks sibling workspaces' edits (no divergence)"
 # exercised. Fresh temp repo — prior blocks leave the trunk line dirty. ---
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
@@ -400,12 +397,10 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task5E)"
     exit 1
 end
-$tk/install.fish $coord >/dev/null; or begin
-    echo >&2 "smoke: install failed (task5E)"
-    exit 1
-end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
-jj commit -m "install toolkit" >/dev/null; or begin
+jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task5E)"
     exit 1
 end
@@ -419,12 +414,12 @@ echo "ok: task5E fresh coordinator maps to renamed dir myproj/"
 mkdir -p docs/tickets/planned
 printf -- '---\nneeds: []\n---\n# t-real\n' > docs/tickets/planned/t-real.md
 jj commit -m "add ticket t-real" >/dev/null
-./scripts/workflow claim t-real >/dev/null 2>&1; or begin echo >&2 "smoke: claim t-real failed"; exit 1; end
+$wf claim t-real >/dev/null 2>&1; or begin echo >&2 "smoke: claim t-real failed"; exit 1; end
 test -f docs/tickets/wip/t-real.md; or begin echo >&2 "smoke: t-real not in wip/ after claim"; exit 1; end
-pushd ../t-real
+pushd $ws/t-real
 echo realwork > r.txt
 jj commit -m "feat: real work" >/dev/null
-./scripts/workflow integrate >/dev/null 2>&1; or begin echo >&2 "smoke: ticketed self-integrate failed"; popd; exit 1; end
+$wf integrate >/dev/null 2>&1; or begin echo >&2 "smoke: ticketed self-integrate failed"; popd; exit 1; end
 popd
 # The wip->done move is now on trunk...
 test -f docs/tickets/done/t-real.md; or begin echo >&2 "smoke: t-real not moved to done/ after integrate"; exit 1; end
@@ -443,6 +438,7 @@ echo "ok: ticketed self-integrate moves wip->done and records a completion commi
 # describe weirdness). Fresh temp repo — prior blocks leave the trunk dirty. ---
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
@@ -450,12 +446,10 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task6)"
     exit 1
 end
-$tk/install.fish $coord >/dev/null; or begin
-    echo >&2 "smoke: install failed (task6)"
-    exit 1
-end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
-jj commit -m "install toolkit" >/dev/null; or begin
+jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task6)"
     exit 1
 end
@@ -474,7 +468,7 @@ jj commit -m "add triage tickets t-alpha t-beta" >/dev/null
 # Fresh single claim from default: creates the workspace AND describes the claim
 # exactly `claim t-alpha` (fresh-claim path must stay intact after the accretion
 # change — no "claim t-alpha, t-alpha", no leftover "start t-alpha").
-./scripts/workflow claim t-alpha >/dev/null 2>&1; or begin echo >&2 "smoke: claim t-alpha failed (task6)"; exit 1; end
+$wf claim t-alpha >/dev/null 2>&1; or begin echo >&2 "smoke: claim t-alpha failed (task6)"; exit 1; end
 test -f docs/tickets/wip/t-alpha.md; or begin echo >&2 "smoke: t-alpha not in wip/ after claim (task6)"; exit 1; end
 test "$(jj log --no-graph -r t-alpha -T 'description.first_line()' --ignore-working-copy)" = "claim t-alpha"
 or begin echo >&2 "smoke: fresh single claim did not describe the claim 'claim t-alpha' (task6)"; exit 1; end
@@ -482,17 +476,17 @@ echo "ok: task6 fresh single claim describes the claim exactly 'claim t-alpha'"
 
 # A later sibling's un-snapshotted edit must be banked before the self-fold
 # rewrites t-alpha's older claim (and therefore rebases that sibling's WC).
-./scripts/workflow start feat-fold-sibling >/dev/null 2>&1; or begin
+$wf start feat-fold-sibling >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-fold-sibling failed (task6)"
     exit 1
 end
-echo dirty >../feat-fold-sibling/fold-dirty.txt
+echo dirty >$ws/feat-fold-sibling/fold-dirty.txt
 
 # Self-fold: from INSIDE the feature ws, `claim t-beta` (no --into) folds t-beta
 # into t-alpha's OWN claim. Assert the wip/ files from inside the ws — the fold
 # reconciles every rebased workspace checkout before returning.
-pushd ../t-alpha
-./scripts/workflow claim t-beta >/dev/null 2>&1; or begin echo >&2 "smoke: self-fold claim t-beta failed (task6)"; popd; exit 1; end
+pushd $ws/t-alpha
+$wf claim t-beta >/dev/null 2>&1; or begin echo >&2 "smoke: self-fold claim t-beta failed (task6)"; popd; exit 1; end
 test -f docs/tickets/wip/t-alpha.md -a -f docs/tickets/wip/t-beta.md
 or begin echo >&2 "smoke: both tickets not in wip/ after self-fold (task6)"; popd; exit 1; end
 popd
@@ -515,6 +509,7 @@ echo "ok: task6 claim folds into self from a feature ws and accretes the descrip
 # blocks leave the trunk line dirty. ---
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
@@ -522,12 +517,10 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task8)"
     exit 1
 end
-$tk/install.fish $coord >/dev/null; or begin
-    echo >&2 "smoke: install failed (task8)"
-    exit 1
-end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
-jj commit -m "install toolkit" >/dev/null; or begin
+jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task8)"
     exit 1
 end
@@ -544,20 +537,20 @@ jj commit -m "add f.txt" >/dev/null; or begin
     exit 1
 end
 
-./scripts/workflow start feat-y >/dev/null 2>&1; or begin
+$wf start feat-y >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-y (task8)"
     exit 1
 end
-./scripts/workflow start feat-x >/dev/null 2>&1; or begin
+$wf start feat-x >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-x (task8)"
     exit 1
 end
 
 # feat-x edits f.txt and integrates → trunk f.txt = xxx.
-pushd ../feat-x
+pushd $ws/feat-x
 printf 'xxx\n' > f.txt
 jj commit -m "x edit" >/dev/null
-./scripts/workflow integrate >/dev/null 2>&1; or begin
+$wf integrate >/dev/null 2>&1; or begin
     echo >&2 "smoke: integrate feat-x (task8)"
     popd
     exit 1
@@ -568,10 +561,10 @@ popd
 # → a real conflict left in feat-y. The 69 sentinel must reach the CALLER intact:
 # the docs promise conflict-stop (69) and plain refusal (2) are distinguishable by
 # exit code, and a caller that can't tell them apart falls back to parsing stderr.
-pushd ../feat-y
+pushd $ws/feat-y
 printf 'yyy\n' > f.txt
 jj describe -m "y edit" >/dev/null
-set -l refresh_out (./scripts/workflow refresh 2>&1)
+set -l refresh_out ($wf refresh 2>&1)
 set -l rc_refresh $status
 test $rc_refresh -eq 69; or begin
     echo >&2 "smoke: refresh did not exit 69 on a trunk conflict (rc=$rc_refresh) (task8)"
@@ -590,7 +583,7 @@ or begin
     exit 1
 end
 # resolve drops the agent onto the conflict AND prints the marker file:line hits.
-set -l out (./scripts/workflow resolve 2>&1)
+set -l out ($wf resolve 2>&1)
 popd
 # The locator line reads `<abs>/f.txt:<line>:<<<<<<< conflict N of M` — seven-or-
 # more brackets, lowercase "conflict" (verified against jj 0.43's real markers).

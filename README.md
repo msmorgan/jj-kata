@@ -70,17 +70,15 @@ aliases are loaded. The plugin provides the `$jj-workflow:jj-workflow` and
 The two executables are run out of the skill's own directory
 (`skills/jj-workflow/scripts/`), exactly as on Claude Code — nothing depends on
 Codex exposing a `bin/` field or on a hook firing, so the tools are reachable
-the moment the skill loads. Because `..` is outside Codex's writable sandbox,
-`workflow` notices the unwritable parent on its own and puts feature workspaces
-under the in-repo `.codex/workspaces/` instead; add that path to the repo's
-`.gitignore` (see [Configuration](#configuration)).
+the moment the skill loads. Feature workspaces go in the repo's `.workspaces/`,
+which is inside Codex's writable sandbox, so nothing needs configuring.
 
 The guard hook is a separate matter: open `/hooks` once to review and trust it.
 Codex intentionally does not trust executable plugin hooks merely because the
 plugin was installed, and until it is trusted the git/bypass-flag ban is not
 enforced there.
 
-Then invoke `$jj-workflow:setup` once per jj repo. It installs the repo-local
+Then invoke `$jj-workflow:setup` once per jj repo. It sets the repo-config
 `immutable_heads()` alias, which is the actual trunk protection. Optionally set
 `JJ_EDITOR=false` for Codex shell commands in the trusted repo's
 `.codex/config.toml`:
@@ -94,104 +92,37 @@ Codex does not provide Claude Code's `EnterWorktree`/`WorktreeRemove` hook
 events. Use `workflow claim NAME` or `workflow start NAME` to create isolated
 jj workspaces instead.
 
-### Repo-local (no Claude Code required)
-
-```bash
-# Symlink mode — updates to jj-workflow propagate to your repo automatically.
-./install.fish /path/to/your/repo
-
-# Copy mode — independent copies; upgrade by re-running.
-./install.fish --copy /path/to/your/repo
-```
-
-This installs into `your-repo/scripts/`:
-
-```
-scripts/
-  workflow                    ← claim/integrate lifecycle manager
-  conflicts                   ← conflict inspector + resolver
-  todo                        ← ticket dependency graph
-  hooks/
-    jj_guard.fish             ← Claude Code PreToolUse guard
-    jj_status.fish            ← Claude Code PostToolBatch status line
-  lib/
-    setup.fish                ← shared sourcing helpers
-    todo_graph.pl             ← dependency graph engine
-```
-
-It also sets the repo-config `immutable_heads()` alias that protects the trunk line
-(see [Trunk immutability](#trunk-immutability-repo-config)).
-
-**Manual follow-ups after install:**
-
-1. Register `scripts/hooks/jj_guard.fish` as a Claude Code PreToolUse(Bash) hook in
-   `.claude/settings.json`, and set env `JJ_EDITOR=false` there (see
-   [The jj_guard hook](#the-jj_guard-hook)).
-2. Register `scripts/hooks/jj_status.fish` as a `SessionStart` **and**
-   `PostToolBatch` hook in the same file, so an agent is oriented when it starts
-   and kept current after each batch of tool calls (see
-   [The status line](#the-status-line)). Unlike the worktree hooks below, this
-   one is safe anywhere: outside a jj repo it exits silently.
-3. Copy `jjworkflow.example.toml` → `jjworkflow.toml` and edit if defaults don't fit.
-4. Add a `scripts/provision-workspace` executable if new workspaces need shared or
-   generated directories (see [Appendix](#appendix-example-provision-workspace-hook)).
-5. Optional, for repos where Claude Code background sessions run: register
-   `scripts/hooks/worktree_create.fish` / `worktree_remove.fish` as
-   `WorktreeCreate`/`WorktreeRemove` hooks (this repo's own
-   `.claude/settings.json` is the template) — EnterWorktree then creates
-   jj-workflow feature workspaces instead of git worktrees. Per-repo only:
-   registered globally these hooks would hijack EnterWorktree in plain-git
-   repos. **Which settings file depends on the install:** repo-local installs
-   reference `$CLAUDE_PROJECT_DIR/scripts/hooks/…`, which is portable and
-   belongs in the tracked `.claude/settings.json`; a **plugin install** has no
-   variable a project settings file can use to reach the plugin root, so its
-   absolute path is machine-specific and must go in the untracked
-   `.claude/settings.local.json` — never commit a `/home/<user>/…` hook path. Note when
-   ending such a session: `ExitWorktree`'s git-native pre-remove check can't read
-   a jj workspace and refuses with "could not verify worktree state" — call it
-   with `discard_changes: true`. That only skips the bogus git gate; it does not
-   force-discard, because the `WorktreeRemove` hook's *non-force* `workflow drop`
-   is still the real gate and keeps any un-integrated work.
-
 ---
 
 ## Repository shape
 
-The toolkit expects one `default` workspace (the coordinator) plus any number
-of feature workspaces. The default is siblings of the coordinator directory:
+The toolkit expects one `default` workspace (the coordinator) plus any number of
+feature workspaces, which live in `.workspaces/` inside the repo:
 
 ```
-~/code/myproj/
-  myproj/           ← coordinator (`default`)
-  feature-a/        ← feature workspace
-  feature-b/
+myproj/                 ← coordinator (`default`)
+  .workspaces/
+    feature-a/          ← feature workspace
+    feature-b/
 ```
 
-When that parent directory is **not writable** — the shape of a sandboxed agent
-host such as Codex, which exposes the repo root and little else — the default
-becomes an in-repo base instead, so workspaces land somewhere writable:
-
-```
-~/code/myproj/
-  myproj/                           ← coordinator (`default`)
-    .codex/workspaces/
-      feature-a/                    ← feature workspace
-      feature-b/
-```
+In-repo because that is the one place every host can write — a sandboxed agent
+host (Codex and friends) exposes the repo root and little else, so a base outside
+the repo is simply unavailable there. The toolkit keeps `.workspaces/` invisible
+to jj by putting a `.gitignore` holding `*` **inside it**, which ignores the
+directory's whole contents including that file. Nothing to add to your repo's
+own `.gitignore`, and no setup step to forget.
 
 The coordinator's **workspace name** is always `default` (jj's initial workspace), but
 its **directory name** is yours to choose — pick it when you clone/init, and name it
 after the project (as above) so IDEs and agents see a unique root instead of yet another
 `default/`. Nothing hardcodes a `../default` path: scripts resolve the coordinator with
 `jj workspace root --name default`. Feature workspace directories are created by the
-toolkit and always match their workspace name (`../NAME`, or
-`.codex/workspaces/NAME` when the parent is unwritable). Set `workspace_dir` in
-`jjworkflow.toml` to
-override either default—relative paths resolve against the repo root, absolute
-paths are used as-is. Any in-repo base must be ignored, or jj will snapshot
-every child workspace into the coordinator's working copy. If `.codex/*` is
-not already in a global excludes file, add `.codex/workspaces/` to the repo's
-`.gitignore`.
+toolkit and always match their workspace name (`.workspaces/NAME`). Set
+`workspace_dir` in `jjworkflow.toml` to override the base — relative paths
+resolve against the repo root, absolute paths are used as-is, and `".."` gives
+you the sibling layout. Any base inside the repo gets the same self-ignore
+treatment; a base outside it needs none.
 
 Workspace directories are transient, but only `drop` deletes them: `integrate`
 keeps the workspace (its working copy parked on the integrated tip, ready for
@@ -205,7 +136,7 @@ recoverable via the op log until gc). Nothing is archived.
 
 ## Trunk immutability (repo config)
 
-Immutability lives in **one shared repo-config alias**, not a wrapper. `install.fish`
+Immutability lives in **one shared repo-config alias**, not a wrapper. `/jj-workflow:setup`
 sets it:
 
 ```toml
@@ -252,24 +183,11 @@ to override'`, `jj diff --git`. Quote/backslash evasion still fails closed — `
 status`, `jj --'config' …`, and a `git`/`--config` hidden in `$(…)` (even inside
 double quotes) are all still refused.
 
-Register it in `.claude/settings.json`, and set `JJ_EDITOR=false` so a stray
-editor-opening command can't hang the agent (the toolkit always passes `-m`):
-
-```json
-{
-  "env": { "JJ_EDITOR": "false" },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          { "type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_guard.fish\"" }
-        ]
-      }
-    ]
-  }
-}
-```
+**The plugin registers it for you**; it activates only inside jj repos. Also set
+`JJ_EDITOR=false` so a stray editor-opening command can't hang the agent (the
+toolkit always passes `-m`) — `"env": {"JJ_EDITOR": "false"}` in
+`.claude/settings.json`, or `[shell_environment_policy]` in Codex's
+`.codex/config.toml`.
 
 Exit 2 from the hook blocks the tool call with the error on stderr; exit 0 allows it.
 The hook only ever *decides* — it never rewrites the command it was handed, and
@@ -306,14 +224,9 @@ state.
 
 ### As a hook
 
-`scripts/hooks/jj_status.fish` reports that line to an agent at session start and
-after each batch of tool calls. **The plugin registers it for you**; repo-local
-installs add it to `.claude/settings.json`:
-
-```json
-"SessionStart":   [ { "hooks": [ { "type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_status.fish\"" } ] } ],
-"PostToolBatch":  [ { "hooks": [ { "type": "command", "command": "fish \"$CLAUDE_PROJECT_DIR/scripts/hooks/jj_status.fish\"" } ] } ]
-```
+`skills/jj-workflow/scripts/hooks/jj_status.fish` reports that line to an agent
+at session start and after each batch of tool calls. **The plugin registers it
+for you** on both events — there is nothing to add to a settings file.
 
 The two events cover opposite ends of the same problem. **`SessionStart`** is the
 one moment an agent knows nothing at all about where it is, so the line reports
@@ -750,8 +663,8 @@ optional; a missing file uses the defaults shown:
 
 ```toml
 # Directory that holds feature workspaces. Relative paths resolve against the
-# repo root. Defaults to ".." — or ".codex/workspaces" when that parent is not
-# writable (a sandboxed host). Omit to keep that; uncomment to override.
+# repo root. Default: ".workspaces" (self-ignored by the toolkit). Set ".." for
+# the sibling layout. Omit to keep the default; uncomment to override.
 # workspace_dir = ".custom/workspaces"
 
 # Executable run after a new workspace is created, with the workspace dir as $1.

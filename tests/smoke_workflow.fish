@@ -2,13 +2,16 @@
 # Smoke: install the toolkit into a throwaway jj repo, start a workspace, integrate it.
 # The coordinator dir is deliberately named `myproj`, NOT `default`: the workspace
 # NAME is always `default`, but its directory name is the user's choice, and the
-# toolkit must resolve it via `jj workspace root --name default` — never `../default`.
+# toolkit must resolve it via `jj workspace root --name default` — never `$ws/default`.
 # Nesting under $work also keeps feature-workspace siblings out of the temp root.
 # Fish has no `set -e`, so each step that must succeed is guarded with `; or ...`.
 
 set -l tk (path resolve (status dirname)/..)
+set -g wf $tk/skills/jj-workflow/scripts/workflow
+set -g cf $tk/skills/jj-workflow/scripts/conflicts
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
@@ -16,10 +19,8 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed"
     exit 1
 end
-$tk/install.fish $coord >/dev/null; or begin
-    echo >&2 "smoke: install failed"
-    exit 1
-end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 
 # Ignore patterns for the junk files created below: ignored build litter must
 # not register as "work" anywhere (drop's refusal check, integrate).
@@ -27,29 +28,29 @@ printf '*.tmp\njunk.d/\n' >.gitignore
 
 # Commit the installed scripts so jj tracks them and they propagate to new workspaces.
 # (jj workspace add checks out a commit; untracked files stay only in the default WC.)
-jj commit -m "install toolkit" >/dev/null; or begin
+jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed"
     exit 1
 end
 
-# The default workspace resolves to the renamed coordinator dir, not ../default.
+# The default workspace resolves to the renamed coordinator dir, not $ws/default.
 test "$(jj workspace root --name default)" = "$coord"; or begin
     echo >&2 "smoke: workspace root --name default != $coord"
     exit 1
 end
 echo "ok: default workspace maps to renamed dir myproj/"
 
-./scripts/workflow start feat-x; or begin
+$wf start feat-x; or begin
     echo >&2 "smoke: workflow start failed"
     exit 1
 end
-test -d ../feat-x; or begin
-    echo >&2 "smoke: ../feat-x was not created"
+test -d $ws/feat-x; or begin
+    echo >&2 "smoke: $ws/feat-x was not created"
     exit 1
 end
-echo "ok: workspace ../feat-x created"
+echo "ok: workspace $ws/feat-x created"
 
-pushd ../feat-x
+pushd $ws/feat-x
 echo hello >note.txt
 # Ignored junk (per the committed .gitignore) — must not count as work.
 echo scratch >scratch.tmp
@@ -62,7 +63,7 @@ jj describe -m "feat: note" >/dev/null; or begin
 end
 # refresh from INSIDE the child workspace, no NAME — must be allowed (guard) and
 # succeed (detach path; a no-op here since trunk hasn't advanced).
-./scripts/workflow refresh; or begin
+$wf refresh; or begin
     echo >&2 "smoke: refresh from child workspace failed"
     popd
     exit 1
@@ -75,7 +76,7 @@ echo "ok: refresh from child workspace"
 # must rewrite nothing: @ is checked before the refresh/re-join, so the
 # workspace is left exactly as it was.
 set -l wc_before (jj log --no-graph -r @ -T 'change_id.short()')
-./scripts/workflow integrate feat-x >/dev/null 2>&1
+$wf integrate feat-x >/dev/null 2>&1
 and begin
     echo >&2 "smoke: integrate accepted an unclosed (non-empty) working copy"
     popd
@@ -95,7 +96,7 @@ jj new >/dev/null; or begin
 end
 # …but an empty @ that carries a description reads as work in progress: refused too.
 jj describe -m "wip: next thing" >/dev/null
-./scripts/workflow integrate feat-x >/dev/null 2>&1
+$wf integrate feat-x >/dev/null 2>&1
 and begin
     echo >&2 "smoke: integrate accepted an empty-but-described working copy"
     popd
@@ -110,24 +111,24 @@ echo "ok: integrate refuses a non-empty @ and an empty-but-described @"
 popd
 
 # Plain drop must refuse while feat-x still holds un-integrated work.
-./scripts/workflow drop feat-x >/dev/null 2>&1
+$wf drop feat-x >/dev/null 2>&1
 and begin
     echo >&2 "smoke: plain drop dropped un-integrated work"
     exit 1
 end
-test -d ../feat-x; or begin
+test -d $ws/feat-x; or begin
     echo >&2 "smoke: refused drop still deleted the workspace dir"
     exit 1
 end
 echo "ok: plain drop refuses un-integrated work"
 
-./scripts/workflow integrate feat-x >/dev/null 2>&1; or begin
+$wf integrate feat-x >/dev/null 2>&1; or begin
     echo >&2 "smoke: integrate failed"
     exit 1
 end
 # Integrate keeps the workspace, its WC parked as a fresh change on the
 # integrated tip (default@-).
-test -d ../feat-x; or begin
+test -d $ws/feat-x; or begin
     echo >&2 "smoke: workspace dir gone after integrate (should be kept)"
     exit 1
 end
@@ -154,12 +155,12 @@ end
 echo "ok: empty ad-hoc claim elided at integrate"
 
 # Post-integrate plain drop drops it (the claim bookmark is gone).
-./scripts/workflow drop feat-x >/dev/null 2>&1; or begin
+$wf drop feat-x >/dev/null 2>&1; or begin
     echo >&2 "smoke: post-integrate drop failed (rc=$status)"
     exit 1
 end
-test ! -e ../feat-x; or begin
-    echo >&2 "smoke: ../feat-x still exists after drop"
+test ! -e $ws/feat-x; or begin
+    echo >&2 "smoke: $ws/feat-x still exists after drop"
     exit 1
 end
 echo "ok: plain drop retires integrated workspace"
@@ -168,11 +169,11 @@ echo "ok: plain drop retires integrated workspace"
 # work stacked on top of the doomed feature must survive (2026-07-16 incident:
 # the old unbounded `roots()::` sweep followed descendants into another
 # feature's commits).
-./scripts/workflow start feat-y >/dev/null 2>&1; or begin
+$wf start feat-y >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-y failed"
     exit 1
 end
-pushd ../feat-y
+pushd $ws/feat-y
 echo y1 >y.txt
 jj commit -m "feat-y work" >/dev/null; or begin
     echo >&2 "smoke: feat-y commit failed"
@@ -181,11 +182,11 @@ jj commit -m "feat-y work" >/dev/null; or begin
 end
 set -l w_id (jj log --no-graph -r @- -T 'change_id.short()')
 popd
-./scripts/workflow start feat-z >/dev/null 2>&1; or begin
+$wf start feat-z >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-z failed"
     exit 1
 end
-pushd ../feat-z
+pushd $ws/feat-z
 echo z1 >z.txt
 jj commit -m "feat-z work" >/dev/null; or begin
     echo >&2 "smoke: feat-z commit failed"
@@ -201,7 +202,7 @@ jj rebase -r $z_id -d $w_id >/dev/null; or begin
     exit 1
 end
 popd
-./scripts/workflow drop --force feat-y >/dev/null 2>&1; or begin
+$wf drop --force feat-y >/dev/null 2>&1; or begin
     echo >&2 "smoke: drop --force feat-y failed"
     exit 1
 end
@@ -222,11 +223,11 @@ echo "ok: drop --force bounded to its own stack"
 # edits first (__snapshot_workspaces) — otherwise the rewrite rebases a stale
 # WC commit and the edit gets re-snapshotted into the hidden predecessor by
 # that workspace's next command (working-copy divergence).
-./scripts/workflow start feat-p >/dev/null 2>&1; or begin
+$wf start feat-p >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-p failed"
     exit 1
 end
-pushd ../feat-p
+pushd $ws/feat-p
 echo p1 >p.txt
 jj commit -m "feat-p work" >/dev/null; or begin
     echo >&2 "smoke: feat-p commit failed"
@@ -234,15 +235,15 @@ jj commit -m "feat-p work" >/dev/null; or begin
     exit 1
 end
 popd
-./scripts/workflow start feat-w >/dev/null 2>&1; or begin
+$wf start feat-w >/dev/null 2>&1; or begin
     echo >&2 "smoke: start feat-w failed"
     exit 1
 end
 # Un-snapshotted edit: no jj command touches feat-w after this write.
-echo dirty >../feat-w/dirty.txt
+echo dirty >$ws/feat-w/dirty.txt
 # feat-w's claim sits above feat-p's, so integrating feat-p reorders the line
 # under feat-w — the staleness event under test.
-./scripts/workflow integrate feat-p >/dev/null 2>&1; or begin
+$wf integrate feat-p >/dev/null 2>&1; or begin
     echo >&2 "smoke: integrate feat-p failed"
     exit 1
 end
@@ -254,12 +255,12 @@ end
 echo "ok: default-side rewrite banks other workspaces' edits first"
 
 # --help must print usage and NOT start a feature; a dash-leading NAME is refused.
-./scripts/workflow start --help >/dev/null 2>&1
+$wf start --help >/dev/null 2>&1
 and begin
     echo >&2 "smoke: 'start --help' should exit non-zero (usage), not succeed"
     exit 1
 end
-test ! -e ../--help; or begin
+test ! -e $ws/--help; or begin
     echo >&2 "smoke: 'start --help' created a feature workspace named --help"
     exit 1
 end
@@ -273,11 +274,11 @@ echo "ok: 'start --help' prints usage instead of starting a feature"
 # Regression: a pre-existing __tip bookmark must NOT wedge creation (the old
 # fixed-name `jj bookmark create __tip` failed "already exists").
 jj bookmark create __tip -r @ >/dev/null 2>&1
-./scripts/workflow start feat-tip >/dev/null 2>&1; or begin
+$wf start feat-tip >/dev/null 2>&1; or begin
     echo >&2 "smoke: start wedged by a pre-existing __tip bookmark"
     exit 1
 end
-test -d ../feat-tip; or begin
+test -d $ws/feat-tip; or begin
     echo >&2 "smoke: feat-tip workspace not created"
     exit 1
 end
@@ -299,11 +300,11 @@ jj commit -m "add bug-x ticket" >/dev/null; or begin
     echo >&2 "smoke: committing bug-x ticket failed"
     exit 1
 end
-./scripts/workflow claim bug-x >/dev/null 2>&1; or begin
+$wf claim bug-x >/dev/null 2>&1; or begin
     echo >&2 "smoke: claim bug-x failed"
     exit 1
 end
-pushd ../bug-x
+pushd $ws/bug-x
 echo work >bug-x-work.txt
 # The agent does integrate's job itself: move the ticket to done/ and title the
 # commit "complete bug-x". done/ isn't tracked yet (empty dirs don't propagate),
@@ -320,7 +321,7 @@ jj commit -m "complete bug-x" >/dev/null; or begin
     exit 1
 end
 popd
-./scripts/workflow integrate bug-x >/dev/null 2>&1; or begin
+$wf integrate bug-x >/dev/null 2>&1; or begin
     echo >&2 "smoke: integrate bug-x failed"
     exit 1
 end

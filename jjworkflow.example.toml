@@ -6,12 +6,11 @@
 provision_hook = "scripts/provision-workspace"
 
 # Directory that holds feature workspaces. Relative paths resolve against the
-# repo root; absolute paths are used as-is. If it points INSIDE the repo (e.g.
-# ".claude/worktrees"), gitignore that directory — otherwise jj snapshots every
-# child workspace into the coordinator's working copy. Default: ".." (siblings
-# of the repo dir) — or ".codex/workspaces" when that parent is NOT writable,
-# which is the shape of a sandboxed agent host and keeps workspaces inside the
-# writable repo root. Omit this key to keep that; uncomment only to override.
+# repo root; absolute paths are used as-is. Default: ".workspaces" inside the
+# repo, which every host can write to. Any base INSIDE the repo is made
+# invisible to jj automatically (a `.gitignore` holding `*` is dropped in it),
+# so there is nothing to add to your own .gitignore. Use ".." for the sibling
+# layout. Omit this key to keep the default; uncomment only to override.
 # workspace_dir = ".custom/workspaces"
 
 # Project ticket/census tool `claim` consults for unknown names: must support

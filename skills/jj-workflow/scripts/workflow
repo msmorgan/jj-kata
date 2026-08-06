@@ -327,29 +327,35 @@ function __jjworkflow_config --argument-names key default
     echo $default
 end
 
-# Base directory holding feature workspaces. jjworkflow.toml `workspace_dir`,
-# resolved against the project root unless absolute, always wins.
+# Base directory holding feature workspaces: `.workspaces/` inside the repo.
+# jjworkflow.toml `workspace_dir` overrides it, resolved against the project root
+# unless absolute.
 #
-# The default is `..` (siblings of the project dir) — UNLESS that parent is not
-# writable, which is the shape of a sandboxed agent host (Codex and friends
-# expose the repo root and little else). There the default becomes the in-repo
-# `.codex/workspaces`, so every workspace lands somewhere the agent can actually
-# write. This is decided from the filesystem rather than from a host marker
-# exported by a hook: a hook that does not fire is invisible, an unwritable
-# parent is not.
-# Any in-repo base MUST be gitignored, or jj would snapshot every child
-# workspace into the coordinator's working copy.
+# In-repo by default because that is the one location every host can write. A
+# sandboxed agent host (Codex and friends) exposes the repo root and little else,
+# so a sibling base outside the repo is simply unavailable there — and a default
+# that works everywhere beats one that needs a per-host escape hatch.
+# An in-repo base MUST be ignored, or jj would snapshot every child workspace
+# into the coordinator's working copy; __ignore_base below is what guarantees it.
 function __workspace_base
-    set -l default_dir ..
-    if not test -w (path dirname -- $project_dir)
-        set default_dir .codex/workspaces
-    end
-    set -l dir (__jjworkflow_config workspace_dir $default_dir)
+    set -l dir (__jjworkflow_config workspace_dir .workspaces)
     if string match -q -- '/*' $dir
         path resolve -- $dir
     else
         path resolve -- $project_dir/$dir
     end
+end
+
+# Make an in-repo workspace base invisible to jj, by dropping a `.gitignore`
+# holding `*` INSIDE the base itself. That one line ignores the base's entire
+# contents including the .gitignore file, so nothing about it is ever snapshotted
+# and nothing outside the directory the toolkit already owns is touched — no edit
+# to the repo's tracked .gitignore, no per-repo setup step to forget. A base
+# outside the repo needs none of this.
+function __ignore_base --argument-names base
+    string match -q -- "$project_dir/*" "$base"; or return 0
+    test -e "$base/.gitignore"; and return 0
+    printf '*\n' >"$base/.gitignore"
 end
 
 # `jj workspace add` only checks out tracked files; an executable at
@@ -367,8 +373,8 @@ function __provision_ws --argument-names ws_dir
 end
 
 # Spin up a NAME-bookmarked base commit on default@- with a NAME workspace dir
-# (under the configured workspace base — ../NAME, or .codex/workspaces/NAME on a
-# sandboxed host with an unwritable parent) on top, leaving default's @
+# (under the configured workspace base — .workspaces/NAME by default) on top,
+# leaving default's @
 # put. The base commit starts EMPTY; ticket ownership is always folded in
 # afterwards by __workflow_adopt (claim = start + adopt), so this is the single
 # workspace-creation path and adopt the single ticket-move path.
@@ -401,8 +407,13 @@ function __workflow_start
     # Refuse a merge default@ up front with the same clear message refresh/integrate
     # give, rather than letting the jj new splice below fail on an empty -A revset.
     __require_linear_trunk; or return
-    # A custom base may not exist yet (first workspace under it).
+    # The base may not exist yet (first workspace under it). Create it and, if it
+    # lives inside the repo, make it invisible to jj BEFORE the workspace lands
+    # in it — an in-repo base that is ignored one command too late has already
+    # been snapshotted into the coordinator's working copy.
     mkdir -p (path dirname $ws_dir)
+    or return 1
+    __ignore_base (__workspace_base)
     or return 1
 
     set savepoint (__savepoint)

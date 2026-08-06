@@ -6,18 +6,21 @@
 # anything, and stay quiet until something STRUCTURAL moves.
 
 set -l tk (path resolve (status dirname)/..)
+set -g wf $tk/skills/jj-workflow/scripts/workflow
+set -g cf $tk/skills/jj-workflow/scripts/conflicts
 set -l work (mktemp -d)
 set -l coord $work/myproj
+set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 jj git init >/dev/null 2>&1; or begin; echo >&2 "smoke-status: jj init failed"; exit 1; end
-$tk/install.fish --copy $coord >/dev/null; or begin; echo >&2 "smoke-status: install failed"; exit 1; end
+jj config set --repo 'revset-aliases."immutable_heads()"' \
+    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
 echo A >f.txt
-jj commit -m "install toolkit" >/dev/null 2>&1
+jj commit -m "base" >/dev/null 2>&1
 or begin; echo >&2 "smoke-status: commit failed"; exit 1; end
 
-set -l wf $coord/scripts/workflow
-set -l hook $coord/scripts/hooks/jj_status.fish
+set -l hook $tk/skills/jj-workflow/scripts/hooks/jj_status.fish
 
 # --- The line itself ---------------------------------------------------------
 
@@ -65,7 +68,7 @@ or begin; echo >&2 "smoke-status: key did not move across a commit"; exit 1; end
 
 fish $wf start feat >/dev/null 2>&1
 or begin; echo >&2 "smoke-status: start failed"; exit 1; end
-cd $work/feat; or begin; echo >&2 "smoke-status: no feat workspace dir"; exit 1; end
+cd $ws/feat; or begin; echo >&2 "smoke-status: no feat workspace dir"; exit 1; end
 
 # status runs from a feature workspace (it only reads, so it is exempt from the
 # coordinator-only gate) and reports THAT workspace, not default.
@@ -90,7 +93,7 @@ or begin; echo >&2 "smoke-status: want '1 unintegrated', got: $line"; exit 1; en
 cd $coord; or exit 1
 echo C >f.txt
 jj commit -m "trunk moves" >/dev/null 2>&1
-cd $work/feat; or exit 1
+cd $ws/feat; or exit 1
 fish $wf refresh >/dev/null 2>&1
 set line (fish $wf status)
 string match -q '*⚠*conflicted*' -- $line

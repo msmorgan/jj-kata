@@ -20,9 +20,7 @@ place they live. Nothing is on PATH; call them by absolute path:
 
 Every command targets the jj workspace you run it FROM — its repo, its lock — so
 `cd` into the workspace you mean and invoke the tool by its absolute path; never
-`cd` to the skill directory. Do not substitute a `scripts/workflow` you find in
-the project you are working on: a repo-local install is a separate, possibly
-older copy.
+`cd` to the skill directory.
 
 Key rules:
 
@@ -47,10 +45,9 @@ Key rules:
   `refresh`, `claim` (self-fold), and `integrate` THIS workspace in place — no
   `cd` back to `default`. Naming a sibling from a feature workspace is refused.
 - Each feature = `workflow claim NAME` (ticketed) or `workflow start NAME`
-  (ad-hoc), run from `default` → work in the NAME workspace (sibling `../NAME`,
-  or `.codex/workspaces/NAME` when the project's parent directory is not
-  writable — the shape of a sandboxed host; `workspace_dir` in `jjworkflow.toml`
-  overrides both) →
+  (ad-hoc), run from `default` → work in the NAME workspace
+  (`.workspaces/NAME` inside the repo; `workspace_dir` in `jjworkflow.toml`
+  overrides the base) →
   finish it with `workflow integrate` (NO name) from INSIDE that workspace, or
   `workflow integrate NAME` from `default`. Self-integrate reaches into
   `default` internally to advance trunk; the immutability alias makes that the
