@@ -166,7 +166,7 @@ them (see below).
 
 ## The `jj_guard` hook
 
-`scripts/hooks/jj_guard.fish` is a Claude Code `PreToolUse(Bash)` hook that keeps an AI
+`hooks/jj_guard.fish` is a Claude Code `PreToolUse(Bash)` hook that keeps an AI
 agent from stepping outside the immutability model. It enforces two bans:
 
 - **`git` is banned outright.** This is a jj repository; git mutations corrupt or
@@ -224,7 +224,7 @@ state.
 
 ### As a hook
 
-`skills/jj-workflow/scripts/hooks/jj_status.fish` reports that line to an agent
+`hooks/jj_status.fish` reports that line to an agent
 at session start and after each batch of tool calls. **The plugin registers it
 for you** on both events — there is nothing to add to a settings file.
 
@@ -459,14 +459,15 @@ Work items are markdown files under `docs/tickets/`, with the folder name as the
 | `done/` | Integrated |
 
 Each ticket file can carry `needs:` frontmatter listing dependency slugs. The
-`scripts/todo` tool reads that graph without opening individual files:
+toolkit's `todo` tool — beside `workflow` in the skill's `scripts/` — reads
+that graph without opening individual files:
 
 ```bash
-scripts/todo ready           # items whose every dependency is in done/ (claimable now)
-scripts/todo blocked         # items with at least one unmet dependency
-scripts/todo graph SLUG      # upstream deps + downstream blockers for SLUG
-scripts/todo check           # detect cycles and dangling dependency references
-scripts/todo needs SLUG      # print SLUG's direct needs, one per line
+todo ready           # items whose every dependency is in done/ (claimable now)
+todo blocked         # items with at least one unmet dependency
+todo graph SLUG      # upstream deps + downstream blockers for SLUG
+todo check           # detect cycles and dangling dependency references
+todo needs SLUG      # print SLUG's direct needs, one per line
 ```
 
 Ticket moves happen inside jj commits, so `drop` reverts them automatically:
@@ -658,7 +659,8 @@ on demand.
 
 ## Configuration
 
-Copy `jjworkflow.example.toml` → `jjworkflow.toml` in your repo root. All keys are
+Copy `jjworkflow.example.toml` (beside the setup skill's `SKILL.md`) →
+`jjworkflow.toml` in your repo root. All keys are
 optional; a missing file uses the defaults shown:
 
 ```toml
@@ -671,8 +673,9 @@ optional; a missing file uses the defaults shown:
 # Default: scripts/provision-workspace
 provision_hook = "scripts/provision-workspace"
 
-# Ticket/census helper used by claim. Default: scripts/todo
-todo_cmd = "scripts/todo"
+# PROJECT-provided ticket/census helper for claim. Relative to the repo root.
+# Omitted, the toolkit's own `todo` (shipped beside `workflow`) is used.
+# todo_cmd = "scripts/mytodo"
 ```
 
 > **v1 fixed conventions:** `trunk_workspace` (the trunk workspace name, `default`) and

@@ -59,12 +59,25 @@ def test_workflow_messages_name_the_program_not_its_path():
     assert "set -g _jjw_prog (path basename (status filename))" in src
 
 
+def test_todo_defaults_to_the_shipped_tool_not_a_project_path():
+    # `todo_cmd` used to default to the project's `scripts/todo` — which existed
+    # only because the deleted installer copied it there. With no repo-local
+    # install, that default silently resolved to nothing and turned census
+    # minting off. The shipped tool beside `workflow` is the default now; a
+    # project-provided `todo_cmd` still overrides it.
+    src = (ROOT / "skills/jj-workflow/scripts/workflow").read_text()
+
+    assert "__jjworkflow_config todo_cmd scripts/todo" not in src
+    assert "echo $scripts_dir/todo" in src
+    assert (ROOT / "skills/jj-workflow/scripts/todo").is_file()
+
+
 def test_guard_hook_only_decides_never_rewrites():
     # Command discovery must not depend on a hook firing: a hook that is
     # untrusted, unmatched, or simply not supported by the host is invisible,
     # and the toolkit would silently vanish. So the guard allows or blocks and
     # rewrites nothing.
-    hook = (ROOT / "skills/jj-workflow/scripts/hooks/jj_guard.fish").read_text()
+    hook = (ROOT / "hooks/jj_guard.fish").read_text()
 
     assert "updatedInput" not in hook
     assert "export PATH" not in hook
@@ -110,10 +123,7 @@ def test_shared_hook_uses_portable_plugin_root():
 
 def test_status_hook_is_registered_unmatched_on_both_events():
     all_hooks = json.loads((ROOT / "hooks/hooks.json").read_text())["hooks"]
-    expected = (
-        'fish "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}'
-        '/skills/jj-workflow/scripts/hooks/jj_status.fish"'
-    )
+    expected = 'fish "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/jj_status.fish"'
 
     # PostToolBatch keeps the line current; SessionStart is where an agent knows
     # least. One script serves both and branches on hook_event_name.
@@ -126,4 +136,10 @@ def test_status_hook_is_registered_unmatched_on_both_events():
         # fork) is a moment the line is worth having.
         assert all("matcher" not in group for group in hooks), event
 
-    assert (ROOT / "skills/jj-workflow/scripts/hooks/jj_status.fish").is_file()
+    # Hook scripts are plugin content, invoked by the HOST via hooks.json —
+    # never by the agent and never named by a skill. They belong beside the
+    # manifest that declares them, not four levels down inside a skill.
+    for name in ("jj_guard.fish", "jj_status.fish",
+                 "worktree_create.fish", "worktree_remove.fish"):
+        assert (ROOT / "hooks" / name).is_file(), name
+    assert not (ROOT / "skills/jj-workflow/scripts/hooks").exists()

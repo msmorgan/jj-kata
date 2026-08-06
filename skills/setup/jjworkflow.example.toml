@@ -17,5 +17,5 @@ provision_hook = "scripts/provision-workspace"
 # `<todo_cmd> iscensus SLUG` (exit 0 iff SLUG is mintable) and
 # `<todo_cmd> mint SLUG` (print a wip ticket file). Relative paths resolve
 # against the repo root. Missing/non-executable → census minting is simply off.
-# Default: scripts/todo
-todo_cmd = "scripts/todo"
+# Omit this key to use the toolkit's own `todo`, shipped beside `workflow`.
+# todo_cmd = "scripts/mytodo"

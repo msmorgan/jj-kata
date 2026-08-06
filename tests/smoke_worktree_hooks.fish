@@ -18,8 +18,8 @@ mkdir -p docs/tickets/planned docs/tickets/wip docs/tickets/done
 echo '# tick-x' >docs/tickets/planned/tick-x.md
 jj commit -m "base" >/dev/null 2>&1; or begin; echo >&2 "smoke-wt: commit failed"; exit 1; end
 
-set -l create $tk/skills/jj-workflow/scripts/hooks/worktree_create.fish
-set -l remove $tk/skills/jj-workflow/scripts/hooks/worktree_remove.fish
+set -l create $tk/hooks/worktree_create.fish
+set -l remove $tk/hooks/worktree_remove.fish
 
 # Create: hook must print the workspace dir (the harness trusts this path and
 # ignores its own .claude/worktrees suggestion). Payload is the REAL harness

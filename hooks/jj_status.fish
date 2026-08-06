@@ -1,5 +1,5 @@
 #!/usr/bin/env fish
-# scripts/hooks/jj_status.fish — status line for a jj-workflow repo.
+# hooks/jj_status.fish — status line for a jj-workflow repo.
 # Registered on SessionStart (orientation) and PostToolBatch (keeping current).
 #
 # Gives an agent the thing a human gets for free from a shell prompt: where the
@@ -93,7 +93,7 @@ set -l root (command jj workspace root --ignore-working-copy 2>/dev/null)
 test -n "$root"; or exit 0
 
 set -l self (path dirname (path resolve (status filename)))
-set -l out (fish "$self/../workflow" status --porcelain 2>/dev/null)
+set -l out (fish "$self/../skills/jj-workflow/scripts/workflow" status --porcelain 2>/dev/null)
 test -n "$out"; or exit 0
 set -l parts (string split -m1 \t -- $out)
 test (count $parts) -eq 2; or exit 0

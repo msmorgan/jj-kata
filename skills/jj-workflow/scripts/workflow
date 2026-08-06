@@ -137,10 +137,15 @@ function __ticket_triage_path --argument-names name
     return 1
 end
 
-# Resolved path of the project's ticket/census tool (jjworkflow.toml todo_cmd,
-# relative to the repo root unless absolute; default scripts/todo).
+# Resolved path of the ticket/census tool. `todo_cmd` in jjworkflow.toml names a
+# PROJECT-provided one (relative to the repo root unless absolute); with no
+# config the toolkit's own `todo`, shipped beside this script, is used.
 function __todo_cmd
-    set -l cmd (__jjworkflow_config todo_cmd scripts/todo)
+    set -l cmd (__jjworkflow_config todo_cmd '')
+    if test -z "$cmd"
+        echo $scripts_dir/todo
+        return
+    end
     string match -q -- '/*' $cmd; or set cmd $project_dir/$cmd
     echo $cmd
 end
@@ -694,7 +699,7 @@ end
 
 # One line describing where this workspace stands — the shell-prompt equivalent
 # for an agent, meant to be re-read after each batch of tool calls (see
-# scripts/hooks/jj_status.fish). Runs from anywhere.
+# hooks/jj_status.fish). Runs from anywhere.
 #
 # Field order is decision order: WHICH workspace you're in decides which commands
 # are even legal, then what @ holds, then how far the stack has drifted from the

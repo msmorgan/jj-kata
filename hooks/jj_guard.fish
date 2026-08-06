@@ -1,5 +1,5 @@
 #!/usr/bin/env fish
-# scripts/hooks/jj_guard.fish — PreToolUse(Bash) guard for a jj-workflow repo.
+# hooks/jj_guard.fish — PreToolUse(Bash) guard for a jj-workflow repo.
 #
 # Codex and Claude Code both send the documented tool_name/tool_input payload.
 # Google Antigravity uses the toolCall payload handled below.

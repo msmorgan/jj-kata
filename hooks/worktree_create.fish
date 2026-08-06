@@ -42,7 +42,7 @@ cd "$droot"; or exit 1
 # session pointed at a ticket picks it up properly; anything else is an
 # ad-hoc start.
 set -l self (path dirname (path resolve (status filename)))
-fish "$self/../workflow" claim --or-start "$name" >&2
+fish "$self/../skills/jj-workflow/scripts/workflow" claim --or-start "$name" >&2
 or exit 1
 
 # Report where it landed — ask jj rather than recomputing the config.

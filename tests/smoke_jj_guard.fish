@@ -6,7 +6,7 @@
 # quote/backslash EVASION forms the guard is expressly hardened against).
 
 set -l tk (path resolve (status dirname)/..)
-set -l hook $tk/skills/jj-workflow/scripts/hooks/jj_guard.fish
+set -l hook $tk/hooks/jj_guard.fish
 set -l work (mktemp -d)
 cd $work; or exit 1
 jj git init >/dev/null 2>&1; or begin; echo >&2 "smoke-guard: jj init failed"; exit 1; end

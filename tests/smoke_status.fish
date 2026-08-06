@@ -20,7 +20,7 @@ echo A >f.txt
 jj commit -m "base" >/dev/null 2>&1
 or begin; echo >&2 "smoke-status: commit failed"; exit 1; end
 
-set -l hook $tk/skills/jj-workflow/scripts/hooks/jj_status.fish
+set -l hook $tk/hooks/jj_status.fish
 
 # --- The line itself ---------------------------------------------------------
 

@@ -24,10 +24,9 @@ is idempotent; report what was already in place.
 
 3. If the repo has no `jjworkflow.toml` and the user wants non-default behavior
    (workspace location, provision hook, ticket tool), copy
-   `${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/jjworkflow.example.toml` into the repo
-   root as `jjworkflow.example.toml` and point the user at its keys:
-   `workspace_dir`, `provision_hook`, `todo_cmd`. Codex sets `PLUGIN_ROOT`;
-   Claude Code sets `CLAUDE_PLUGIN_ROOT`.
+   `jjworkflow.example.toml` — it sits beside this SKILL.md — into the repo root
+   and point the user at its keys: `workspace_dir`, `provision_hook`,
+   `todo_cmd`.
 
    Feature workspaces default to `.workspaces/` inside the repo, which every
    host can write to. The toolkit keeps that directory invisible to jj on its
@@ -52,8 +51,7 @@ is idempotent; report what was already in place.
    "WorktreeRemove": [{"hooks": [{"type": "command", "command": "fish \"<HOOKS>/worktree_remove.fish\""}]}]
    ```
 
-   `<HOOKS>` is the plugin's `skills/jj-workflow/scripts/hooks` directory as an
-   ABSOLUTE path. No variable a project settings file can use points at the
+   `<HOOKS>` is the plugin's `hooks` directory as an ABSOLUTE path. No variable a project settings file can use points at the
    plugin root (`${CLAUDE_PLUGIN_ROOT}` is only set for hooks a plugin itself
    declares), which makes this machine-specific config: it MUST go in the
    untracked `.claude/settings.local.json`, never the tracked

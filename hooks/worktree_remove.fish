@@ -32,5 +32,5 @@ jj workspace list --ignore-working-copy -T 'name ++ "\n"' 2>/dev/null | string m
 or exit 0
 
 set -l self (path dirname (path resolve (status filename)))
-fish "$self/../workflow" drop "$name" >&2
+fish "$self/../skills/jj-workflow/scripts/workflow" drop "$name" >&2
 exit 0
