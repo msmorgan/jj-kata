@@ -60,6 +60,26 @@ Key rules:
   `--force` discards. To clear a backlog of forgotten directories, `workflow
   drop --integrated` sweeps every integrated, empty workspace at once (skips
   un-integrated ones and any resumed with new work; `--dry-run` previews).
+- **The ticket lifecycle belongs to the toolkit, not to you.** `claim` moves the
+  ticket `<triage>/` → `wip/` inside the claim commit; `integrate` moves it
+  `wip/` → `done/` and records that as the trailing `complete SLUG` commit. Those
+  two commits are the ledger — `claim SLUG` opens the record, `complete SLUG`
+  closes it. **Never move a ticket out of `wip/` yourself.** If you do, `integrate`
+  finds no move left to make, skips the completion commit, and trunk keeps a
+  `claim` that never closes; it therefore **refuses (exit 69)** when a ticket the
+  claim owns is no longer in `wip/`. Put the file back where it was
+  (`mv docs/tickets/done/SLUG.md docs/tickets/wip/SLUG.md`, then `jj squash` to
+  fold the correction into the commit that moved it) and re-integrate. Editing a
+  wip ticket's *contents* while you work is fine — only moving or deleting the
+  file is banned.
+- **A claim that turns out to be undoable ends with `drop --amend-ticket`, never
+  with `integrate`.** When the work is impossible, blocked, or premature, write
+  why into the wip ticket (a `needs:` line, an explanation), then run
+  `workflow drop --amend-ticket NAME` from `default`: it retires the workspace and
+  writes those edits back to the ticket in the triage folder it came from, as a
+  `tickets: update SLUG` commit. Integrating instead would file the ticket into
+  `done/` and book work that never happened. Work outside `docs/tickets/` still
+  blocks the drop (add `--force` to discard it along with the workspace).
 - Fold extra tickets in place: from a feature workspace, `workflow claim TODO...`
   (no `--into`) folds each into THIS workspace's own claim, accreting its
   description to `claim a, b`. The `--into NAME` form stays coordinator-only.
@@ -76,12 +96,15 @@ Key rules:
   following it fixes the commit you happen to be standing on while leaving
   older ones in the stack conflicted. Re-run `resolve` until it exits 0, then
   re-run the command that stopped. Keep `repair` for genuinely wrong state.
-- Two preconditions refuse cleanly rather than doing something surprising:
+- Preconditions refuse cleanly rather than doing something surprising:
   **P1** — `refresh`, `integrate`, and `start` refuse when `default@` is a merge
   ("default@ is a merge; the coordinator line must be linear"); abandon or resolve
   the merge on `default` first. **P2** — `integrate` refuses (exit 2) unless the
   feature already sits on the *current* trunk tip; run `workflow refresh` inside
-  the workspace first, then integrate.
+  the workspace first, then integrate. **P4** — `integrate` refuses (exit 69) when
+  a ticket the claim owns is no longer in `wip/` (see the ticket-lifecycle rule
+  above). All are checked before anything is rewritten, so a refusal leaves the
+  workspace exactly as you had it.
 - **Close your work before integrating.** `integrate` refuses (exit 69) unless the
   workspace's `@` is an EMPTY, undescribed change — it folds only commits you
   closed yourself and never promotes the working copy for you. End on `jj commit

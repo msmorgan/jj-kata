@@ -290,10 +290,14 @@ or begin
 end
 echo "ok: start no longer depends on a __tip bookmark"
 
-# Regression: an agent that hand-rolls the completion — moves its ticket wip->done
-# AND titles the feature commit "complete NAME" — must NOT get a second, EMPTY
-# "complete NAME" appended by integrate (that empty-but-described dup is not
-# auto-pruned; the `xyz|sxx` duplicate-complete incident, 2026-07-19).
+# P4: an agent that moves its own ticket out of wip/ must be REFUSED (69), not
+# quietly compensated for. Moving it is integrate's job alone; when the move rides
+# in on a feature commit, __check_todo finds nothing to move and the completion
+# commit is skipped — trunk keeps a `claim SLUG` that never closes, and the only
+# trace is a "No matching entries for paths" warning nobody reads. (Two features
+# shipped through that hole. Earlier this case was tolerated as long as the agent
+# also titled its commit "complete SLUG"; tolerating it is what taught agents the
+# habit, so the title no longer buys anything.)
 mkdir -p docs/tickets/bugs
 echo "# ticket bug-x" >docs/tickets/bugs/bug-x.md
 jj commit -m "add bug-x ticket" >/dev/null; or begin
@@ -321,22 +325,92 @@ jj commit -m "complete bug-x" >/dev/null; or begin
     exit 1
 end
 popd
-$wf integrate bug-x >/dev/null 2>&1; or begin
-    echo >&2 "smoke: integrate bug-x failed"
+$wf integrate bug-x >/dev/null 2>&1
+set -l rc $status
+test $rc -eq 69; or begin
+    echo >&2 "smoke: integrate of a hand-moved ticket should stop with 69 (got $rc)"
     exit 1
 end
-# No EMPTY commit described "complete bug-x" may exist on trunk.
+# A refusal rewrites NOTHING: the claim is untouched and trunk did not advance.
+jj bookmark list -T 'name ++ "\n"' | string match -q bug-x
+or begin
+    echo >&2 "smoke: the P4 refusal folded bug-x anyway (claim bookmark gone)"
+    exit 1
+end
 test -z "$(jj log --no-graph -r 'description(substring:"complete bug-x") & empty()' -T 'change_id' --ignore-working-copy)"
 or begin
-    echo >&2 "smoke: integrate minted an empty duplicate 'complete bug-x' commit"
+    echo >&2 "smoke: the P4 refusal minted an empty 'complete bug-x' commit"
     exit 1
 end
-# The real, non-empty completion (carrying the work + wip->done move) survives.
+echo "ok: integrate refuses (69) a ticket the feature moved out of wip/ itself"
+
+# …and the refusal is fixable exactly as its message says: put the ticket back,
+# squash the correction into the commit that moved it, re-integrate.
+pushd $ws/bug-x
+command jj workspace update-stale >/dev/null 2>&1
+mv docs/tickets/done/bug-x.md docs/tickets/wip/bug-x.md; or begin
+    echo >&2 "smoke: putting bug-x back in wip/ failed"
+    popd
+    exit 1
+end
+jj squash >/dev/null 2>&1; or begin
+    echo >&2 "smoke: squashing the bug-x correction failed"
+    popd
+    exit 1
+end
+popd
+$wf integrate bug-x >/dev/null 2>&1; or begin
+    echo >&2 "smoke: integrate bug-x failed after the ticket was put back (rc=$status)"
+    exit 1
+end
+# Exactly one completion, and it is the real (non-empty) wip->done move.
 test -n "$(jj log --no-graph -r 'description(substring:"complete bug-x") & ~empty()' -T 'change_id' --ignore-working-copy)"
 or begin
-    echo >&2 "smoke: real 'complete bug-x' commit missing after integrate"
+    echo >&2 "smoke: no real 'complete bug-x' commit after the corrected integrate"
     exit 1
 end
-echo "ok: no empty duplicate 'complete NAME' when agent pre-moves the ticket"
+test -z "$(jj log --no-graph -r 'description(substring:"complete bug-x") & empty()' -T 'change_id' --ignore-working-copy)"
+or begin
+    echo >&2 "smoke: an empty duplicate 'complete bug-x' commit was minted"
+    exit 1
+end
+test -f docs/tickets/done/bug-x.md; or begin
+    echo >&2 "smoke: bug-x did not end up in done/"
+    exit 1
+end
+echo "ok: putting the ticket back in wip/ clears the refusal and integrates cleanly"
+
+# The other shape of the same violation: the ticket deleted outright.
+mkdir -p docs/tickets/bugs
+echo "# ticket bug-y" >docs/tickets/bugs/bug-y.md
+jj commit -m "add bug-y ticket" >/dev/null; or begin
+    echo >&2 "smoke: committing bug-y ticket failed"
+    exit 1
+end
+$wf claim bug-y >/dev/null 2>&1; or begin
+    echo >&2 "smoke: claim bug-y failed"
+    exit 1
+end
+pushd $ws/bug-y
+echo work >bug-y-work.txt
+rm docs/tickets/wip/bug-y.md
+jj commit -m "feat: mirror semantics" >/dev/null; or begin
+    echo >&2 "smoke: committing bug-y work failed"
+    popd
+    exit 1
+end
+popd
+$wf integrate bug-y >/dev/null 2>&1
+set rc $status
+test $rc -eq 69; or begin
+    echo >&2 "smoke: integrate of a deleted ticket should stop with 69 (got $rc)"
+    exit 1
+end
+jj bookmark list -T 'name ++ "\n"' | string match -q bug-y
+or begin
+    echo >&2 "smoke: the P4 refusal folded bug-y anyway"
+    exit 1
+end
+echo "ok: integrate refuses (69) when the feature deleted its wip ticket"
 
 echo "SMOKE PASS"

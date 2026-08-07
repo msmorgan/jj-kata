@@ -68,6 +68,15 @@ Usage: $_jjw_prog <command> [<args>]
                          step after integrate). Refuses if the workspace holds
                          un-integrated work; `drop --force` discards the claim and
                          stack outright (recoverable via op log until gc).
+    drop WORKSPACE --amend-ticket
+                         Retire WORKSPACE the way a plain drop does, but first write
+                         its wip ticket(s) BACK to where they came from — a
+                         `tickets: update SLUG` commit on trunk carrying whatever the
+                         workspace wrote into them (a `needs:`, a note on why the work
+                         turned out impossible or premature). The correct ending for a
+                         claim that can't be done: `integrate` would file the ticket
+                         into done/ and book work that never happened. Work outside
+                         docs/tickets/ still blocks the drop (add --force to discard it).
     drop --integrated    Sweep EVERY integrated, empty workspace at once — the bulk
                          post-integrate cleanup. Skips `default`, the one you're in,
                          un-integrated workspaces, and any resumed with new work.
@@ -80,7 +89,12 @@ Usage: $_jjw_prog <command> [<args>]
     refresh --all        Reorder EVERY non-default workspace's claim under default@ (prep
                          for a push), stopping at the first that conflicts or fails.
     integrate WORKSPACE  Refresh, re-join the claim to the feature, fold WORKSPACE's
-                         work into default@. Refuses unless WORKSPACE's @ is an EMPTY,
+                         work into default@, move every ticket the claim owns
+                         wip/ -> done/, and record that as the `complete SLUG` commit.
+                         THE TICKET MOVE IS INTEGRATE'S — never move a ticket out of
+                         wip/ yourself; integrate refuses (69) if you did, because a
+                         pre-moved ticket leaves trunk with a `claim` that never closes.
+                         Refuses unless WORKSPACE's @ is an EMPTY,
                          undescribed change — close your work (`jj commit`, or `jj
                          describe` + `jj new`) first. Then `drop WORKSPACE` to retire it — the
                          default next step, so the directory doesn't dangle. The
@@ -167,6 +181,23 @@ function __ticket_state --argument-names name
             echo unknown
         end
     end
+end
+
+# The ticket slugs NAME's claim OWNS — the wip/ files its claim commit adds (one,
+# several after `claim --into`, none for an ad-hoc `start`), read off the claim's
+# own diff. REPO_DIR is default's working-copy root: the ticket files live there,
+# and jj prints diff paths relative to the CWD, so the read must be anchored at it
+# to come back repo-relative (a self-integrate runs from the feature ws, and any
+# command may be invoked from a subdirectory).
+function __claim_slugs --argument-names repo_dir name
+    set -l prev_pwd "$PWD"
+    cd "$repo_dir"
+    or return 1
+    for p in (jj diff -r "$name" --name-only --ignore-working-copy)
+        set -l s (string match -rg '^docs/tickets/wip/(.+)\.md$' -- $p)
+        test -n "$s"; and echo $s
+    end
+    cd "$prev_pwd"
 end
 
 # Roots of NAME's feature stack — the commits only NAME@ has. Correct whether
@@ -605,21 +636,12 @@ function __workflow_adopt
         # Accrete the claim's description to `claim <slug1>, <slug2>, …` from the
         # wip/ files it now owns — so a fold turns `claim a` into `claim a, b` and a
         # fresh single claim reads `claim a` (this subsumes __claim_fresh's own
-        # describe). Read the slugs off the claim's own diff (same wip-path pattern
-        # as __integrate_steps), anchored at $project_dir so jj renders the diff
-        # paths repo-relative even when invoked from a subdirectory. The describe
-        # rewrites the claim, so like the squash it needs the default context this
-        # runs in (natively from default, or via the self-fold's switch) where the
-        # claim is mutable — from a feature ws's own context it would be immutable.
+        # describe). The describe rewrites the claim, so like the squash it needs
+        # the default context this runs in (natively from default, or via the
+        # self-fold's switch) where the claim is mutable — from a feature ws's own
+        # context it would be immutable.
         and begin
-            set -l prev_pwd "$PWD"
-            cd "$project_dir"
-            set -l owned
-            for p in (jj diff -r "$into" --name-only --ignore-working-copy)
-                set -l s (string match -rg '^docs/tickets/wip/(.+)\.md$' -- $p)
-                test -n "$s"; and set -a owned $s
-            end
-            cd "$prev_pwd"
+            set -l owned (__claim_slugs "$project_dir" "$into")
             test (count $owned) -gt 0
             and jj describe -r "$into" -m "claim $(string join ', ' $owned)"
         end
@@ -638,6 +660,20 @@ end
 # --ignore-working-copy and would otherwise miss edits since NAME's last command.
 function __unintegrated_work --argument-names name
     jj log --no-graph -r "(default@..$name@) ~ empty()" -T 'change_id.short() ++ " "' --ignore-working-copy 2>/dev/null
+end
+
+# Every path NAME's un-integrated commits touch, repo-relative (anchored at
+# REPO_DIR, as __claim_slugs is, so jj renders them repo-relative from any CWD).
+# Lets `drop --amend-ticket` ask the finer question the plain gate can't: not
+# "is there work?" but "is any of it work this drop would NOT rescue?".
+function __unintegrated_paths --argument-names repo_dir name
+    set -l prev_pwd "$PWD"
+    cd "$repo_dir"
+    or return 1
+    for cid in (jj log --no-graph -r "(default@..$name@) ~ empty()" -T 'change_id.short() ++ "\n"' --ignore-working-copy 2>/dev/null)
+        jj diff -r "$cid" --name-only --ignore-working-copy
+    end
+    cd "$prev_pwd"
 end
 
 # Bank NAME's on-disk edits into its WC commit so a later --ignore-working-copy
@@ -841,12 +877,16 @@ function __status_emit --argument-names porcelain key line
 end
 
 function __workflow_drop
-    argparse -S force integrated dry-run -- $argv
+    argparse -S force integrated dry-run amend-ticket -- $argv
     or return 2
 
     if set -q _flag_integrated
         if set -q _flag_force
             echo >&2 "$_jjw_prog: --integrated never force-drops — it only sweeps already-integrated, empty workspaces. Target one explicitly with `drop --force NAME`."
+            return 2
+        end
+        if set -q _flag_amend_ticket
+            echo >&2 "$_jjw_prog: --integrated never amends tickets — it only sweeps already-integrated workspaces, whose tickets are in done/ already. Target one explicitly with `drop --amend-ticket NAME`."
             return 2
         end
         if set -q argv[1]
@@ -874,6 +914,15 @@ function __workflow_drop
     set -l ws_dir (jj workspace root --name "$name")
     or return
 
+    # --amend-ticket rescues the wip ticket's edits BEFORE the drop discards them:
+    # abandoning the claim rolls each owned ticket back to its triage folder with
+    # its PRE-claim content, so the edited text has to be stashed off the doomed
+    # workspace first and replayed onto the restored file afterwards.
+    if set -q _flag_amend_ticket
+        __amend_capture "$name" "$ws_dir"
+        or return
+    end
+
     # Plain drop (no --force) only removes what is already banked in trunk (integrated)
     # or worthless (nothing but empty commits — an untouched ad-hoc workspace). Anything
     # with real changes needs `integrate`, or an explicit --force. Snapshot NAME first:
@@ -882,17 +931,128 @@ function __workflow_drop
         __snapshot_one "$ws_dir"
         or return 1
         if test -n "$(__unintegrated_work $name)"
-            # The claim bookmark doubles as the "not yet integrated" marker.
-            if test -n "$(jj log --no-graph -r "bookmarks(exact:\"$name\")" -T 'change_id.short()' --ignore-working-copy 2>/dev/null)"
-                echo >&2 "$_jjw_prog: $name has un-integrated work (its claim bookmark still exists). Run `integrate $name` first, or `drop --force $name` to discard it."
-            else
-                echo >&2 "$_jjw_prog: $name has new work since its last integrate. Integrate again, or `drop --force $name` to discard it."
+            # --amend-ticket preserves everything under docs/tickets/, so for it the
+            # gate narrows: only work OUTSIDE that tree is still about to be lost,
+            # and only that blocks the drop. (The claim's own triage->wip move lives
+            # under docs/tickets/ too, so a ticket-notes-only workspace passes.)
+            set -l at_risk 1
+            if set -q _flag_amend_ticket
+                set at_risk 0
+                for p in (__unintegrated_paths "$project_dir" "$name")
+                    string match -q 'docs/tickets/*' -- "$p"
+                    or set at_risk 1
+                end
             end
-            return 2
+            if test $at_risk -eq 1
+                if set -q _flag_amend_ticket
+                    echo >&2 "$_jjw_prog: $name holds work outside docs/tickets/ — --amend-ticket rescues the ticket edits but would discard that. Integrate it first, or add --force to discard it."
+                    # The stash is dead weight now; the drop is not happening.
+                    rm -rf "$__amend_stash"
+                # The claim bookmark doubles as the "not yet integrated" marker.
+                else if test -n "$(jj log --no-graph -r "bookmarks(exact:\"$name\")" -T 'change_id.short()' --ignore-working-copy 2>/dev/null)"
+                    echo >&2 "$_jjw_prog: $name has un-integrated work (its claim bookmark still exists). Run `integrate $name` first, or `drop --force $name` to discard it."
+                else
+                    echo >&2 "$_jjw_prog: $name has new work since its last integrate. Integrate again, or `drop --force $name` to discard it."
+                end
+                return 2
+            end
         end
     end
 
     __drop_one "$name" "$ws_dir"
+    or begin
+        set -q _flag_amend_ticket; and rm -rf "$__amend_stash"
+        return 1
+    end
+    set -q _flag_amend_ticket; or return 0
+    __amend_apply "$name"
+end
+
+# `drop --amend-ticket` half one: stash the current text of every ticket NAME's
+# claim owns, off the workspace about to be deleted. Run BEFORE any gate that can
+# refuse, so a refusal costs only a temp dir.
+#
+# Why this exists at all: a claim that turns out to be impossible — blocked on
+# something unbuilt, mis-scoped, premature — should end with the *reason* written
+# into the ticket and the ticket back in triage. Agents reliably get this wrong,
+# editing the wip ticket in the workspace and then running `integrate`, which
+# files the ticket into done/ and books work that never happened. This is the
+# correct move spelled as one command.
+function __amend_capture --argument-names name ws_dir
+    set -g __amend_slugs (__claim_slugs "$project_dir" "$name")
+    if not set -q __amend_slugs[1]
+        echo >&2 "$_jjw_prog: $name's claim owns no wip ticket — nothing for --amend-ticket to write back (plain `drop $name`)."
+        return 2
+    end
+    # Bank the workspace's on-disk edits first. Not for our own read (we copy the
+    # files straight off its checkout) but so the gates below, which read $name@
+    # with --ignore-working-copy, see the very edits we are about to rescue.
+    __snapshot_one "$ws_dir"
+    or return 1
+
+    set -g __amend_stash (mktemp -d)
+    or return 1
+    for slug in $__amend_slugs
+        # Normally wip/, but an agent may already have moved the ticket elsewhere
+        # under docs/tickets/ inside its workspace — take it wherever it sits.
+        set -l src
+        for folder in wip done bugs critical planned maybe
+            if test -f "$ws_dir/docs/tickets/$folder/$slug.md"
+                set src "$ws_dir/docs/tickets/$folder/$slug.md"
+                break
+            end
+        end
+        if test -z "$src"
+            echo >&2 "$_jjw_prog: $name no longer has a ticket file for '$slug' — nothing to write back. Restore it in $ws_dir, or drop without --amend-ticket."
+            rm -rf "$__amend_stash"
+            return 2
+        end
+        cp "$src" "$__amend_stash/$slug.md"
+        or begin
+            rm -rf "$__amend_stash"
+            return 1
+        end
+    end
+end
+
+# `drop --amend-ticket` half two, run once the drop has rolled every owned ticket
+# back to its triage folder: replay the stashed text onto those restored files and
+# close them as ONE `tickets: update <slugs>` commit on trunk. Scoped to exactly
+# those paths, as integrate's completion commit is — default@ routinely carries
+# unrelated in-flight edits and a bare `jj commit` would sweep them in.
+function __amend_apply --argument-names name
+    set -l paths
+    for slug in $__amend_slugs
+        set -l dest (__ticket_triage_path $slug)
+        # A census-minted claim had no ticket file before it was claimed, so there
+        # is no original location to restore to. planned/ is the neutral backlog
+        # folder, and it makes the notes stick: the slug now reads as `triage`, so
+        # a later re-claim picks up this file instead of re-minting a blank one.
+        # The summary below names where each ticket landed.
+        test -n "$dest"; or set dest "$project_dir/docs/tickets/planned/$slug.md"
+        mkdir -p (path dirname "$dest")
+        and cp "$__amend_stash/$slug.md" "$dest"
+        or begin
+            echo >&2 "$_jjw_prog: dropped $name, but could not write $dest — its ticket edits are stashed in $__amend_stash (copy them out; nothing else will)."
+            return 1
+        end
+        set -a paths "$dest"
+    end
+    # Nothing to record if the tickets came back byte-identical (the workspace
+    # never actually edited them): committing anyway would mint an empty-but-
+    # described commit, which is litter jj does not auto-prune.
+    if test -z "$(jj diff --name-only $paths)"
+        echo >&2 "$_jjw_prog: dropped $name; its ticket(s) were unedited, so there was nothing to write back."
+        rm -rf "$__amend_stash"
+        return 0
+    end
+    jj commit -m "tickets: update $(string join ', ' $__amend_slugs)" $paths
+    or begin
+        echo >&2 "$_jjw_prog: dropped $name, but committing the ticket update failed — the edits are in default's working copy (and stashed in $__amend_stash); commit them yourself."
+        return 1
+    end
+    rm -rf "$__amend_stash"
+    echo >&2 "$_jjw_prog: dropped $name and wrote its ticket edits back to "(string join ', ' (string replace "$project_dir/" '' $paths))" as 'tickets: update "(string join ', ' $__amend_slugs)"'."
 end
 
 # Remove ONE workspace: forget it, abandon its claim + captured stack, delete its
@@ -1172,6 +1332,46 @@ function __refresh_reorder
     __conflict_stop "$root::" "$ws_dir" "$name now conflicts with default@"
 end
 
+# P4: every ticket the claim owns must STILL be sitting in wip/ in the workspace.
+# The wip->done move is integrate's alone — a feature that makes it itself breaks
+# the ledger. `claim SLUG` opens the record and `complete SLUG` closes it, and
+# `description(glob:"complete *")` is how shipped work is read back; when the move
+# already rode in on a feature commit, __check_todo finds no file to move and the
+# completion commit is skipped, so trunk keeps a `claim` that never closes. The
+# only trace is a `Warning: No matching entries for paths` line buried in
+# integrate's output, which is exactly as visible as it sounds — two features
+# shipped through that hole before it was noticed.
+#
+# So refuse (69, the "fix your workspace and re-run" stop) rather than compensate.
+# Refusing beats minting the missing marker after the fact: the marker would be an
+# empty-but-described commit (jj does not auto-prune those the way it does empty
+# undescribed litter), and it would silently bless a habit that has other edges —
+# the agent that moves the ticket to done/ also tends to write the completion
+# summary into the ticket that integrate's own commit was going to record.
+# Checked BEFORE any rewrite, so a refusal leaves the workspace exactly as found.
+# Editing a wip ticket's CONTENT is fine and untouched here; only moving or
+# deleting the file is the violation.
+function __require_wip_tickets --argument-names ws_dir name
+    set -e argv[1..2]
+    for s in $argv
+        test -f "$ws_dir/docs/tickets/wip/$s.md"; and continue
+        # Name where it actually went — "it's missing" is not an instruction.
+        set -l landed
+        for folder in done bugs critical planned maybe
+            test -f "$ws_dir/docs/tickets/$folder/$s.md"; and set landed $folder; and break
+        end
+        if test -n "$landed"
+            echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace moved it to $landed/ itself, so it CANNOT be integrated. The wip->done move belongs to 'integrate', which makes it AND records the 'complete $s' marker in one commit; a feature that moves the ticket first leaves trunk with a 'claim $s' that never closes."
+            echo >&2 "  Fix in $ws_dir: mv docs/tickets/$landed/$s.md docs/tickets/wip/$s.md; jj squash   (folds the correction back into the commit that moved it, leaving @ empty)"
+        else
+            echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace deleted docs/tickets/wip/$s.md, so it CANNOT be integrated. The claim owns that file and 'integrate' needs it there to move it to done/ and record the 'complete $s' marker."
+            echo >&2 "  Fix in $ws_dir: jj restore --from $name docs/tickets/wip/$s.md   (brings back the claimed copy), then 'jj squash' so @ is empty again."
+        end
+        echo >&2 "  Then re-run integrate — it does the wip->done move for you. NEVER move a ticket out of wip/ yourself."
+        return 69
+    end
+end
+
 function __integrate_steps
     set name $argv[1]
     set -l ws_dir (jj workspace root --name "$name"); or return
@@ -1230,6 +1430,16 @@ function __integrate_steps
     end
     # else: empty + undescribed — the clean trailing-commit shape.
 
+    # The tickets this claim owns — anchored at DEFAULT's root (the ticket files
+    # live in default's working copy, which self-integrate rewrites remotely) so a
+    # multi-ticket claim finishes them ALL. Read here, before any rewrite, because
+    # P4 below gates on it; the fold reuses the same list.
+    set -l slugs (__claim_slugs "$default_dir" "$name")
+    # P4: they must all still be in wip/ — see __require_wip_tickets. Last of the
+    # refuse-before-rewriting gates.
+    __require_wip_tickets "$ws_dir" "$name" $slugs
+    or return
+
     # Refresh first — always the DETACH path, so the re-join below has a detached
     # feature to thread the claim back into, and the fold never rewinds default@
     # past newer trunk work. 69 = a conflict was left in the workspace: bail with
@@ -1265,19 +1475,6 @@ function __integrate_steps
     # the op-log savepoint. Capture the workspace's WC by change id: it survives
     # integrate and gets re-parked on the new trunk tip at the end.
     set -l ws_wc (jj log --no-graph -r "$name"@ -T 'change_id.short()')
-    # The tickets this claim owns = the wip/ files its claim commit adds (one,
-    # several after `claim --into`, none for an ad-hoc `start`) — read off the
-    # claim's own diff so a multi-ticket claim finishes them ALL. jj prints diff
-    # paths relative to CWD, so anchor at DEFAULT's root (the ticket files live in
-    # default's working copy, which self-integrate rewrites remotely).
-    set -l prev_pwd "$PWD"
-    cd "$default_dir"
-    set -l slugs
-    for p in (jj diff -r "$name" --name-only --ignore-working-copy)
-        set -l s (string match -rg '^docs/tickets/wip/(.+)\.md$' -- $p)
-        test -n "$s"; and set -a slugs $s
-    end
-    cd "$prev_pwd"
     # Naming the wip+done pair per ticket scopes the completion commit to ONLY
     # the ticket moves — default@ routinely carries unrelated in-flight edits,
     # and a bare `jj commit` would sweep those strays into "complete …" (exactly
@@ -1311,14 +1508,12 @@ function __integrate_steps
     end
     and __check_todo "$default_dir" $slugs
     and if set -q slugs[1]
-        # The completion commit exists to record the wip->done ticket move as a
-        # trailing "complete …" on trunk. If that move already rode in on the
-        # feature commit — e.g. the agent moved the ticket itself — __check_todo
-        # found no wip/ file to move and default@ carries no diff for these paths;
-        # a bare `jj commit` would then mint an EMPTY but DESCRIBED "complete …"
-        # duplicate (not auto-pruned, unlike empty undescribed litter). Only commit
-        # when there is an actual move to capture. (No --ignore-working-copy: we
-        # need default@ re-snapshotted so a just-performed mv is visible.)
+        # The completion commit is the ledger entry that closes the `claim …` one.
+        # P4 guarantees there is a real wip->done move to capture, so this is never
+        # the empty-but-described commit jj declines to auto-prune. The diff check
+        # stays as the belt to P4's braces — an empty `complete …` is worse litter
+        # than a loud refusal. (No --ignore-working-copy: default@ must be
+        # re-snapshotted so the mv __check_todo just made is visible.)
         if test -n "$(jj -R "$default_dir" diff --name-only $move_paths)"
             jj -R "$default_dir" commit -m "complete $(string join ' ' $slugs)" $move_paths
         end

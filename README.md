@@ -290,8 +290,9 @@ rather than corrupts.
 > anything else.** Its exit status is load-bearing, and the four codes are
 > distinct on purpose — `0` success; `2` refusal, declined before touching
 > anything (bad arguments, wrong workspace, a merge `default@`, a feature behind
-> trunk, un-integrated work at `drop`); `69` **expected stop**, a conflict or an
-> unclosed working copy left in the workspace for you to fix; `75` lock timeout.
+> trunk, un-integrated work at `drop`); `69` **expected stop**, a conflict, an
+> unclosed working copy, or a hand-moved ticket left in the workspace for you to
+> fix; `75` lock timeout.
 > A pipe reports the downstream command's status instead,
 > silently masking a refusal or conflict as success. Run it bare and check its
 > own exit code; to capture output, redirect to a file (`workflow integrate NAME
@@ -370,7 +371,8 @@ working copy in the workspace and re-run.
    (`default@-`), then re-joins the claim to the now-current feature, rebuilding the
    "claim under `default@`, feature branching off it" shape the fold below relies on.
 2. **Fold** — moves `default@` onto the feature tip.
-3. **Complete** — moves the owned ticket(s) from `wip/` → `done/` in a final commit.
+3. **Complete** — moves the owned ticket(s) from `wip/` → `done/` in a final
+   `complete SLUG` commit.
 4. **Park** — drops the claim bookmark (the work is in `default@`'s history now)
    and re-parents the workspace's working copy as a fresh empty change on the
    integrated tip. The workspace and its directory are KEPT — the default next
@@ -381,6 +383,17 @@ An ad-hoc claim that never adopted a ticket is an empty commit by then — integ
 **elides** it (abandons the empty claim link), so trunk history carries only real
 work. Ticketed claims are non-empty (they carry their ticket moves) and stay.
 
+**Never move a ticket out of `wip/` yourself** — step 3 is integrate's job, and
+the `claim SLUG` / `complete SLUG` pair is the ledger that `jj log -r
+'description(glob:"complete *")'` reads back as shipped work. A feature that
+performs the `wip/` → `done/` move inside its own commit leaves integrate with
+nothing left to move, so the completion commit is skipped and trunk keeps a
+`claim` that never closes. Integrate therefore **refuses (exit 69, P4)** when a
+ticket the claim owns is no longer in `wip/`, naming where it went and how to put
+it back (`mv` it back, then `jj squash` to fold the correction into the commit
+that moved it). Editing a wip ticket's *contents* while you work is fine — only
+moving or deleting the file is banned.
+
 If a conflict arises during the refresh step, integrate stops (exit 69) and leaves the
 conflict in place in `../NAME`. Run `workflow resolve` there — it walks the conflicted
 stack oldest-first — then re-run `integrate NAME`.
@@ -390,6 +403,9 @@ stack oldest-first — then re-run `integrate NAME`.
 ```bash
 # Run from default:
 scripts/workflow drop NAME
+
+# The claim turned out to be undoable — keep the notes, give the ticket back:
+scripts/workflow drop --amend-ticket NAME
 
 # Sweep every integrated, empty workspace in one go — the bulk cleanup:
 scripts/workflow drop --integrated
@@ -403,6 +419,23 @@ only an already-integrated workspace, or an untouched ad-hoc one, is removed.
 `drop --force NAME` discards the feature outright: the claim and stack are
 abandoned (recoverable via the op log until gc), and the claim commit's
 abandonment rolls every owned ticket back to its triage folder automatically.
+
+**`drop --amend-ticket NAME`** is the ending for a claim that turns out **not to
+be doable** — blocked on something unbuilt, mis-scoped, premature. Write the
+reason into the wip ticket (a `needs:` line, an explanation of what has to happen
+first), then drop with the flag: the workspace is retired exactly as a plain drop
+retires it, and the edits are written back onto the ticket **in the triage folder
+it was claimed from** — the same file, at its original path — as a `tickets:
+update SLUG` commit on trunk. A claim owning several tickets sends each one home
+to its own folder in a single commit; a census-minted ticket that had no file
+before lands in `docs/tickets/planned/`, and the summary line says so.
+
+This exists because the alternative agents reach for is `integrate`, which files
+the ticket into `done/` and books work that never happened. The flag rescues only
+`docs/tickets/`: work outside it still blocks the drop (exit 2) unless you add
+`--force`, and a ticket that came back unedited produces no commit at all rather
+than an empty one. A workspace with no claimed ticket (an ad-hoc `start`) is
+refused — there is nothing to write back.
 
 **`drop --integrated`** is the same safe, plain drop applied to every workspace
 at once, for when integrated directories have piled up (agents routinely forget
@@ -474,6 +507,10 @@ Ticket moves happen inside jj commits, so `drop` reverts them automatically:
 
 - `claim`: ticket move is baked into the claim commit → `drop` reverts it.
 - `integrate`: ticket move to `done/` is baked into the completion commit.
+
+Both moves belong to the toolkit. Never move a ticket between folders by hand
+inside a feature workspace — `integrate` refuses (exit 69) if you did. To hand a
+ticket back with notes instead of finishing it, use `drop --amend-ticket NAME`.
 
 ---
 
