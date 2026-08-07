@@ -71,7 +71,7 @@ Usage: $_jjw_prog <command> [<args>]
     drop WORKSPACE --amend-ticket
                          Retire WORKSPACE the way a plain drop does, but first write
                          its wip ticket(s) BACK to where they came from — a
-                         `tickets: update SLUG` commit on trunk carrying whatever the
+                         `tickets: amend SLUG` commit on trunk carrying whatever the
                          workspace wrote into them (a `needs:`, a note on why the work
                          turned out impossible or premature). The correct ending for a
                          claim that can't be done: `integrate` would file the ticket
@@ -90,7 +90,8 @@ Usage: $_jjw_prog <command> [<args>]
                          for a push), stopping at the first that conflicts or fails.
     integrate WORKSPACE  Refresh, re-join the claim to the feature, fold WORKSPACE's
                          work into default@, move every ticket the claim owns
-                         wip/ -> done/, and record that as the `complete SLUG` commit.
+                         wip/ -> done/, and record that as the `workflow: complete SLUG`
+                         commit.
                          THE TICKET MOVE IS INTEGRATE'S — never move a ticket out of
                          wip/ yourself; integrate refuses (69) if you did, because a
                          pre-moved ticket leaves trunk with a `claim` that never closes.
@@ -460,7 +461,7 @@ function __workflow_start
 
     set savepoint (__savepoint)
     and begin
-        jj new --no-edit -A 'default@- & fork_point(default@-)' -B default@ -m "start $name"
+        jj new --no-edit -A 'default@- & fork_point(default@-)' -B default@ -m "workflow: start $name"
         and jj bookmark create $name -r default@-
         and jj workspace add "$ws_dir" -r $name
         or begin
@@ -541,7 +542,7 @@ function __workflow_claim
             # The describe rebases the just-added workspace, so heal its transient
             # staleness right away, exactly like __claim_fresh does after its adopt.
             __workflow_start $argv
-            and jj describe -r $argv[1] -m "claim $argv[1]"
+            and jj describe -r $argv[1] -m "workflow: claim $argv[1]"
             and command jj -R (jj workspace root --name $argv[1]) workspace update-stale >/dev/null 2>&1
         else
             __claim_fresh $argv[1]
@@ -643,7 +644,7 @@ function __workflow_adopt
         and begin
             set -l owned (__claim_slugs "$project_dir" "$into")
             test (count $owned) -gt 0
-            and jj describe -r "$into" -m "claim $(string join ', ' $owned)"
+            and jj describe -r "$into" -m "workflow: claim $(string join ', ' $owned)"
         end
     end
     or begin
@@ -1017,7 +1018,7 @@ end
 
 # `drop --amend-ticket` half two, run once the drop has rolled every owned ticket
 # back to its triage folder: replay the stashed text onto those restored files and
-# close them as ONE `tickets: update <slugs>` commit on trunk. Scoped to exactly
+# close them as ONE `tickets: amend <slugs>` commit on trunk. Scoped to exactly
 # those paths, as integrate's completion commit is — default@ routinely carries
 # unrelated in-flight edits and a bare `jj commit` would sweep them in.
 function __amend_apply --argument-names name
@@ -1046,13 +1047,13 @@ function __amend_apply --argument-names name
         rm -rf "$__amend_stash"
         return 0
     end
-    jj commit -m "tickets: update $(string join ', ' $__amend_slugs)" $paths
+    jj commit -m "tickets: amend $(string join ', ' $__amend_slugs)" $paths
     or begin
         echo >&2 "$_jjw_prog: dropped $name, but committing the ticket update failed — the edits are in default's working copy (and stashed in $__amend_stash); commit them yourself."
         return 1
     end
     rm -rf "$__amend_stash"
-    echo >&2 "$_jjw_prog: dropped $name and wrote its ticket edits back to "(string join ', ' (string replace "$project_dir/" '' $paths))" as 'tickets: update "(string join ', ' $__amend_slugs)"'."
+    echo >&2 "$_jjw_prog: dropped $name and wrote its ticket edits back to "(string join ', ' (string replace "$project_dir/" '' $paths))" as 'tickets: amend "(string join ', ' $__amend_slugs)"'."
 end
 
 # Remove ONE workspace: forget it, abandon its claim + captured stack, delete its
@@ -1334,10 +1335,11 @@ end
 
 # P4: every ticket the claim owns must STILL be sitting in wip/ in the workspace.
 # The wip->done move is integrate's alone — a feature that makes it itself breaks
-# the ledger. `claim SLUG` opens the record and `complete SLUG` closes it, and
-# `description(glob:"complete *")` is how shipped work is read back; when the move
-# already rode in on a feature commit, __check_todo finds no file to move and the
-# completion commit is skipped, so trunk keeps a `claim` that never closes. The
+# the ledger. `workflow: claim SLUG` opens the record and `workflow: complete SLUG`
+# closes it, and `description(glob:"workflow: complete *")` is how shipped work is
+# read back; when the move already rode in on a feature commit, __check_todo finds
+# no file to move and the completion commit is skipped, so trunk keeps a `claim`
+# that never closes. The
 # only trace is a `Warning: No matching entries for paths` line buried in
 # integrate's output, which is exactly as visible as it sounds — two features
 # shipped through that hole before it was noticed.
@@ -1369,7 +1371,7 @@ function __require_wip_tickets --argument-names ws_dir name
             test -f "$ws_dir/docs/tickets/$folder/$s.md"; and set landed $folder; and break
         end
         if test "$landed" = done
-            echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace moved it to done/ itself, so it CANNOT be integrated. The wip->done move belongs to 'integrate', which makes it AND records the 'complete $s' marker in one commit; a feature that moves the ticket first leaves trunk with a 'claim $s' that never closes."
+            echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace moved it to done/ itself, so it CANNOT be integrated. The wip->done move belongs to 'integrate', which makes it AND records the 'workflow: complete $s' marker in one commit; a feature that moves the ticket first leaves trunk with a 'workflow: claim $s' that never closes."
             echo >&2 "  Fix in $ws_dir: mv docs/tickets/done/$s.md docs/tickets/wip/$s.md; jj squash   (folds the correction back into the commit that moved it, leaving @ empty)"
             echo >&2 "  Then re-run integrate — it does the wip->done move for you. NEVER move a ticket out of wip/ yourself."
         else if test -n "$landed"
@@ -1380,10 +1382,10 @@ function __require_wip_tickets --argument-names ws_dir name
             # than at the mv, and say the mv was never needed: --amend-ticket reads
             # the ticket wherever it sits in the workspace.
             echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace moved it back to $landed/, so it CANNOT be integrated. Handing a ticket back is not something integrate can do; it only ever finishes one."
-            echo >&2 "  If the claim turned out to be undoable: run 'workflow drop --amend-ticket $name' from default. It retires the workspace and writes your ticket edits back to $s in its original triage folder as a 'tickets: update $s' commit — and it reads the ticket wherever it sits, so you did not need to move it at all."
+            echo >&2 "  If the claim turned out to be undoable: run 'workflow drop --amend-ticket $name' from default. It retires the workspace and writes your ticket edits back to $s in its original triage folder as a 'tickets: amend $s' commit — and it reads the ticket wherever it sits, so you did not need to move it at all."
             echo >&2 "  If you DID finish the work and meant to integrate, in $ws_dir: mv docs/tickets/$landed/$s.md docs/tickets/wip/$s.md; jj squash   (then re-run integrate — it does the wip->done move for you)."
         else
-            echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace deleted docs/tickets/wip/$s.md, so it CANNOT be integrated. The claim owns that file and 'integrate' needs it there to move it to done/ and record the 'complete $s' marker."
+            echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace deleted docs/tickets/wip/$s.md, so it CANNOT be integrated. The claim owns that file and 'integrate' needs it there to move it to done/ and record the 'workflow: complete $s' marker."
             echo >&2 "  Fix in $ws_dir: jj restore --from $name docs/tickets/wip/$s.md   (brings back the claimed copy), then 'jj squash' so @ is empty again."
             echo >&2 "  Then re-run integrate — it does the wip->done move for you. NEVER move a ticket out of wip/ yourself."
         end
@@ -1534,7 +1536,7 @@ function __integrate_steps
         # than a loud refusal. (No --ignore-working-copy: default@ must be
         # re-snapshotted so the mv __check_todo just made is visible.)
         if test -n "$(jj -R "$default_dir" diff --name-only $move_paths)"
-            jj -R "$default_dir" commit -m "complete $(string join ' ' $slugs)" $move_paths
+            jj -R "$default_dir" commit -m "workflow: complete $(string join ' ' $slugs)" $move_paths
         end
     end
     # Drop the now-folded claim bookmark: its commit lives on in default@'s

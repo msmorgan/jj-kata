@@ -62,9 +62,12 @@ Key rules:
   un-integrated ones and any resumed with new work; `--dry-run` previews).
 - **The ticket lifecycle belongs to the toolkit, not to you.** `claim` moves the
   ticket `<triage>/` → `wip/` inside the claim commit; `integrate` moves it
-  `wip/` → `done/` and records that as the trailing `complete SLUG` commit. Those
-  two commits are the ledger — `claim SLUG` opens the record, `complete SLUG`
-  closes it. **Never move a ticket out of `wip/` yourself.** If you do, `integrate`
+  `wip/` → `done/` and records that as the trailing `workflow: complete SLUG`
+  commit. Those two commits are the ledger — `workflow: claim SLUG` opens the
+  record, `workflow: complete SLUG` closes it. (Every commit the toolkit writes
+  for you is prefixed `workflow:`, so its own bookkeeping is greppable apart from
+  yours; the one exception is `drop --amend-ticket`, whose commit is a real ticket
+  edit and reads `tickets: amend SLUG`.) **Never move a ticket out of `wip/` yourself.** If you do, `integrate`
   finds no move left to make, skips the completion commit, and trunk keeps a
   `claim` that never closes; it therefore **refuses (exit 69)** when a ticket the
   claim owns is no longer in `wip/`. Put the file back where it was
@@ -81,7 +84,7 @@ Key rules:
   why into the wip ticket (a `needs:` line, an explanation), then run
   `workflow drop --amend-ticket NAME` from `default`: it retires the workspace and
   writes those edits back to the ticket in the triage folder it came from, as a
-  `tickets: update SLUG` commit. Integrating instead would file the ticket into
+  `tickets: amend SLUG` commit. Integrating instead would file the ticket into
   `done/` and book work that never happened. Work outside `docs/tickets/` still
   blocks the drop (add `--force` to discard it along with the workspace).
 - Fold extra tickets in place: from a feature workspace, `workflow claim TODO...`

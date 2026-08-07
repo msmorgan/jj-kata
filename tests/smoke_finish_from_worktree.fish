@@ -427,7 +427,7 @@ test ! -f docs/tickets/wip/t-real.md; or begin echo >&2 "smoke: t-real still in 
 # ...as a 'complete t-real' commit in default@'s ancestry. jj appends a trailing
 # newline to `-m` descriptions, so exact:/default match fails on jj 0.43 — a
 # substring match asserts the same "completion commit is in ancestry" fact.
-test -n "$(jj log --no-graph -r 'description(substring:"complete t-real") & ::default@' -T 'change_id' --ignore-working-copy)"
+test -n "$(jj log --no-graph -r 'description(substring:"workflow: complete t-real") & ::default@' -T 'change_id' --ignore-working-copy)"
 or begin echo >&2 "smoke: no 'complete t-real' commit on trunk after integrate"; exit 1; end
 echo "ok: ticketed self-integrate moves wip->done and records a completion commit"
 
@@ -470,7 +470,7 @@ jj commit -m "add triage tickets t-alpha t-beta" >/dev/null
 # change — no "claim t-alpha, t-alpha", no leftover "start t-alpha").
 $wf claim t-alpha >/dev/null 2>&1; or begin echo >&2 "smoke: claim t-alpha failed (task6)"; exit 1; end
 test -f docs/tickets/wip/t-alpha.md; or begin echo >&2 "smoke: t-alpha not in wip/ after claim (task6)"; exit 1; end
-test "$(jj log --no-graph -r t-alpha -T 'description.first_line()' --ignore-working-copy)" = "claim t-alpha"
+test "$(jj log --no-graph -r t-alpha -T 'description.first_line()' --ignore-working-copy)" = "workflow: claim t-alpha"
 or begin echo >&2 "smoke: fresh single claim did not describe the claim 'claim t-alpha' (task6)"; exit 1; end
 echo "ok: task6 fresh single claim describes the claim exactly 'claim t-alpha'"
 
@@ -499,7 +499,7 @@ end
 echo "ok: task6 self-fold banks sibling workspaces before rewriting the claim"
 
 # The claim now owns both tickets and its description accreted, in wip order.
-test "$(jj log --no-graph -r t-alpha -T 'description.first_line()' --ignore-working-copy)" = "claim t-alpha, t-beta"
+test "$(jj log --no-graph -r t-alpha -T 'description.first_line()' --ignore-working-copy)" = "workflow: claim t-alpha, t-beta"
 or begin echo >&2 "smoke: claim description did not accrete to 'claim t-alpha, t-beta' (task6)"; exit 1; end
 echo "ok: task6 claim folds into self from a feature ws and accretes the description"
 

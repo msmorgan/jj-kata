@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
 # Smoke: `workflow drop --amend-ticket NAME` — the correct ending for a claim that
 # turns out to be impossible. The edits the workspace made to its wip ticket must
-# come back to the ticket's ORIGINAL triage location as a `tickets: update SLUG`
+# come back to the ticket's ORIGINAL triage location as a `tickets: amend SLUG`
 # commit on trunk, and the workspace must be gone. Scenario:
 #   blocked-x   — claimed from planned/, notes added, dropped --amend-ticket
 #   multi-a/b   — one claim owning two tickets (claim --into), both written back
@@ -70,9 +70,9 @@ grep -q 'needs: some-unbuilt-thing' docs/tickets/planned/blocked-x.md; or begin
     exit 1
 end
 # …as a real, non-empty commit on trunk, and the claim is gone.
-test -n "$(jj log --no-graph -r 'description(substring:"tickets: update blocked-x") & ~empty()' -T 'change_id' --ignore-working-copy)"
+test -n "$(jj log --no-graph -r 'description(substring:"tickets: amend blocked-x") & ~empty()' -T 'change_id' --ignore-working-copy)"
 or begin
-    echo >&2 "smoke-amend: no non-empty 'tickets: update blocked-x' commit on trunk"
+    echo >&2 "smoke-amend: no non-empty 'tickets: amend blocked-x' commit on trunk"
     exit 1
 end
 not jj bookmark list -T 'name ++ "\n"' | string match -q blocked-x
@@ -82,7 +82,7 @@ or begin
 end
 # The rescue must not resurrect the claim's own work: no `claim blocked-x`
 # commit and no wip/ file anywhere on the line.
-test -z "$(jj log --no-graph -r 'description(substring:"claim blocked-x")' -T 'change_id' --ignore-working-copy)"
+test -z "$(jj log --no-graph -r 'description(substring:"workflow: claim blocked-x")' -T 'change_id' --ignore-working-copy)"
 or begin
     echo >&2 "smoke-amend: the abandoned claim commit survived"
     exit 1
@@ -114,7 +114,7 @@ grep -q 'needs: nope-b' docs/tickets/bugs/multi-b.md; or begin
     echo >&2 "smoke-amend: multi-b edits missing from bugs/ (its own origin folder)"
     exit 1
 end
-test -n "$(jj log --no-graph -r 'description(substring:"tickets: update multi-a, multi-b")' -T 'change_id' --ignore-working-copy)"
+test -n "$(jj log --no-graph -r 'description(substring:"tickets: amend multi-a, multi-b")' -T 'change_id' --ignore-working-copy)"
 or begin
     echo >&2 "smoke-amend: multi-ticket claim did not produce one combined update commit"
     exit 1
@@ -191,7 +191,7 @@ echo "ok: --amend-ticket refuses when there is no ticket to amend"
 
 # ------------------------------------------------------------- unedited
 # A claim dropped with --amend-ticket but never actually edited must NOT mint an
-# empty-but-described 'tickets: update' commit (that litter is not auto-pruned).
+# empty-but-described 'tickets: amend' commit (that litter is not auto-pruned).
 mkdir -p docs/tickets/planned
 printf '# untouched-x\n\nU.\n' >docs/tickets/planned/untouched-x.md
 jj commit -m "add untouched-x ticket" >/dev/null; or begin
@@ -206,9 +206,9 @@ $wf drop --amend-ticket untouched-x; or begin
     echo >&2 "smoke-amend: drop --amend-ticket untouched-x failed (rc=$status)"
     exit 1
 end
-test -z "$(jj log --no-graph -r 'description(substring:"tickets: update untouched-x")' -T 'change_id' --ignore-working-copy)"
+test -z "$(jj log --no-graph -r 'description(substring:"tickets: amend untouched-x")' -T 'change_id' --ignore-working-copy)"
 or begin
-    echo >&2 "smoke-amend: an unedited ticket minted an empty 'tickets: update' commit"
+    echo >&2 "smoke-amend: an unedited ticket minted an empty 'tickets: amend' commit"
     exit 1
 end
 test -f docs/tickets/planned/untouched-x.md; or begin

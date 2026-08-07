@@ -372,7 +372,7 @@ working copy in the workspace and re-run.
    "claim under `default@`, feature branching off it" shape the fold below relies on.
 2. **Fold** — moves `default@` onto the feature tip.
 3. **Complete** — moves the owned ticket(s) from `wip/` → `done/` in a final
-   `complete SLUG` commit.
+   `workflow: complete SLUG` commit.
 4. **Park** — drops the claim bookmark (the work is in `default@`'s history now)
    and re-parents the workspace's working copy as a fresh empty change on the
    integrated tip. The workspace and its directory are KEPT — the default next
@@ -384,8 +384,9 @@ An ad-hoc claim that never adopted a ticket is an empty commit by then — integ
 work. Ticketed claims are non-empty (they carry their ticket moves) and stay.
 
 **Never move a ticket out of `wip/` yourself** — step 3 is integrate's job, and
-the `claim SLUG` / `complete SLUG` pair is the ledger that `jj log -r
-'description(glob:"complete *")'` reads back as shipped work. A feature that
+the `workflow: claim SLUG` / `workflow: complete SLUG` pair is the ledger that
+`jj log -r 'description(glob:"workflow: complete *")'` reads back as shipped work.
+A feature that
 performs the `wip/` → `done/` move inside its own commit leaves integrate with
 nothing left to move, so the completion commit is skipped and trunk keeps a
 `claim` that never closes. Integrate therefore **refuses (exit 69, P4)** when a
@@ -433,8 +434,8 @@ be doable** — blocked on something unbuilt, mis-scoped, premature. Write the
 reason into the wip ticket (a `needs:` line, an explanation of what has to happen
 first), then drop with the flag: the workspace is retired exactly as a plain drop
 retires it, and the edits are written back onto the ticket **in the triage folder
-it was claimed from** — the same file, at its original path — as a `tickets:
-update SLUG` commit on trunk. A claim owning several tickets sends each one home
+it was claimed from** — the same file, at its original path — as a `tickets: amend
+SLUG` commit on trunk. A claim owning several tickets sends each one home
 to its own folder in a single commit; a census-minted ticket that had no file
 before lands in `docs/tickets/planned/`, and the summary line says so.
 
@@ -519,6 +520,20 @@ Ticket moves happen inside jj commits, so `drop` reverts them automatically:
 Both moves belong to the toolkit. Never move a ticket between folders by hand
 inside a feature workspace — `integrate` refuses (exit 69) if you did. To hand a
 ticket back with notes instead of finishing it, use `drop --amend-ticket NAME`.
+
+**Every commit the toolkit writes for you is prefixed `workflow:`** — so its
+bookkeeping greps apart from the commits you and your agents author:
+
+| command | commit |
+|---|---|
+| `start NAME` | `workflow: start NAME` |
+| `claim A`, `claim A B --into N` | `workflow: claim A, B` |
+| `integrate NAME` | `workflow: complete A B` |
+| `drop --amend-ticket NAME` | `tickets: amend A, B` |
+
+The last one is deliberately *not* `workflow:` — it is a real edit to a ticket's
+contents, not a lifecycle marker, and it is the one toolkit commit that survives
+as content rather than as a record of what the toolkit did.
 
 ---
 

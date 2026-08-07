@@ -147,7 +147,7 @@ echo "ok: integrate keeps workspace, WC parked on default@-"
 
 # An ad-hoc claim that never adopted a ticket is ELIDED from trunk at integrate
 # — no empty "start feat-x" link left in the integrated chain.
-test -z "$(jj log --no-graph -r 'description("start feat-x")' -T 'change_id' --ignore-working-copy)"
+test -z "$(jj log --no-graph -r 'description(substring:"workflow: start feat-x")' -T 'change_id' --ignore-working-copy)"
 or begin
     echo >&2 "smoke: empty 'start feat-x' claim commit survived integrate"
     exit 1
@@ -337,7 +337,7 @@ or begin
     echo >&2 "smoke: the P4 refusal folded bug-x anyway (claim bookmark gone)"
     exit 1
 end
-test -z "$(jj log --no-graph -r 'description(substring:"complete bug-x") & empty()' -T 'change_id' --ignore-working-copy)"
+test -z "$(jj log --no-graph -r 'description(substring:"workflow: complete bug-x") & empty()' -T 'change_id' --ignore-working-copy)"
 or begin
     echo >&2 "smoke: the P4 refusal minted an empty 'complete bug-x' commit"
     exit 1
@@ -364,12 +364,12 @@ $wf integrate bug-x >/dev/null 2>&1; or begin
     exit 1
 end
 # Exactly one completion, and it is the real (non-empty) wip->done move.
-test -n "$(jj log --no-graph -r 'description(substring:"complete bug-x") & ~empty()' -T 'change_id' --ignore-working-copy)"
+test -n "$(jj log --no-graph -r 'description(substring:"workflow: complete bug-x") & ~empty()' -T 'change_id' --ignore-working-copy)"
 or begin
     echo >&2 "smoke: no real 'complete bug-x' commit after the corrected integrate"
     exit 1
 end
-test -z "$(jj log --no-graph -r 'description(substring:"complete bug-x") & empty()' -T 'change_id' --ignore-working-copy)"
+test -z "$(jj log --no-graph -r 'description(substring:"workflow: complete bug-x") & empty()' -T 'change_id' --ignore-working-copy)"
 or begin
     echo >&2 "smoke: an empty duplicate 'complete bug-x' commit was minted"
     exit 1
