@@ -1351,6 +1351,14 @@ end
 # Checked BEFORE any rewrite, so a refusal leaves the workspace exactly as found.
 # Editing a wip ticket's CONTENT is fine and untouched here; only moving or
 # deleting the file is the violation.
+#
+# The gate is "still in wip/", NOT "moved to done/" — the other direction is just
+# as broken and shows up just as often: an agent that decides the claim is
+# undoable moves the ticket back to its triage folder by hand and then integrates
+# anyway, which files a ticket it never finished. Each landing spot gets its own
+# recipe, because they are three different mistakes with three different fixes
+# (done/ -> put it back; triage/ -> you wanted `drop --amend-ticket`; gone ->
+# restore it).
 function __require_wip_tickets --argument-names ws_dir name
     set -e argv[1..2]
     for s in $argv
@@ -1360,14 +1368,25 @@ function __require_wip_tickets --argument-names ws_dir name
         for folder in done bugs critical planned maybe
             test -f "$ws_dir/docs/tickets/$folder/$s.md"; and set landed $folder; and break
         end
-        if test -n "$landed"
-            echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace moved it to $landed/ itself, so it CANNOT be integrated. The wip->done move belongs to 'integrate', which makes it AND records the 'complete $s' marker in one commit; a feature that moves the ticket first leaves trunk with a 'claim $s' that never closes."
-            echo >&2 "  Fix in $ws_dir: mv docs/tickets/$landed/$s.md docs/tickets/wip/$s.md; jj squash   (folds the correction back into the commit that moved it, leaving @ empty)"
+        if test "$landed" = done
+            echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace moved it to done/ itself, so it CANNOT be integrated. The wip->done move belongs to 'integrate', which makes it AND records the 'complete $s' marker in one commit; a feature that moves the ticket first leaves trunk with a 'claim $s' that never closes."
+            echo >&2 "  Fix in $ws_dir: mv docs/tickets/done/$s.md docs/tickets/wip/$s.md; jj squash   (folds the correction back into the commit that moved it, leaving @ empty)"
+            echo >&2 "  Then re-run integrate — it does the wip->done move for you. NEVER move a ticket out of wip/ yourself."
+        else if test -n "$landed"
+            # Back to a TRIAGE folder: the agent decided the claim is undoable and
+            # hand-rolled the un-claim. That is `drop --amend-ticket`'s whole job,
+            # and integrate is the one command that cannot express it — integrating
+            # would file the ticket as finished. Point at the right command rather
+            # than at the mv, and say the mv was never needed: --amend-ticket reads
+            # the ticket wherever it sits in the workspace.
+            echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace moved it back to $landed/, so it CANNOT be integrated. Handing a ticket back is not something integrate can do; it only ever finishes one."
+            echo >&2 "  If the claim turned out to be undoable: run 'workflow drop --amend-ticket $name' from default. It retires the workspace and writes your ticket edits back to $s in its original triage folder as a 'tickets: update $s' commit — and it reads the ticket wherever it sits, so you did not need to move it at all."
+            echo >&2 "  If you DID finish the work and meant to integrate, in $ws_dir: mv docs/tickets/$landed/$s.md docs/tickets/wip/$s.md; jj squash   (then re-run integrate — it does the wip->done move for you)."
         else
             echo >&2 "$_jjw_prog: $s is no longer in wip/ — the '$name' workspace deleted docs/tickets/wip/$s.md, so it CANNOT be integrated. The claim owns that file and 'integrate' needs it there to move it to done/ and record the 'complete $s' marker."
             echo >&2 "  Fix in $ws_dir: jj restore --from $name docs/tickets/wip/$s.md   (brings back the claimed copy), then 'jj squash' so @ is empty again."
+            echo >&2 "  Then re-run integrate — it does the wip->done move for you. NEVER move a ticket out of wip/ yourself."
         end
-        echo >&2 "  Then re-run integrate — it does the wip->done move for you. NEVER move a ticket out of wip/ yourself."
         return 69
     end
 end

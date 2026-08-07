@@ -391,8 +391,16 @@ nothing left to move, so the completion commit is skipped and trunk keeps a
 `claim` that never closes. Integrate therefore **refuses (exit 69, P4)** when a
 ticket the claim owns is no longer in `wip/`, naming where it went and how to put
 it back (`mv` it back, then `jj squash` to fold the correction into the commit
-that moved it). Editing a wip ticket's *contents* while you work is fine — only
-moving or deleting the file is banned.
+that moved it).
+
+The gate is **"still in `wip/`"**, not "moved to `done/`" — the other direction is
+just as broken and just as common. An agent that decides the claim is undoable and
+moves the ticket back to its triage folder by hand, then integrates anyway, files
+a ticket it never finished; that is `drop --amend-ticket`'s job, and the refusal
+says so (and points out that `--amend-ticket` reads the ticket wherever it sits,
+so the manual move was never needed). A deleted ticket is refused too. Editing a
+wip ticket's *contents* while you work is fine — only moving or deleting the file
+is banned.
 
 If a conflict arises during the refresh step, integrate stops (exit 69) and leaves the
 conflict in place in `../NAME`. Run `workflow resolve` there — it walks the conflicted

@@ -69,9 +69,13 @@ Key rules:
   `claim` that never closes; it therefore **refuses (exit 69)** when a ticket the
   claim owns is no longer in `wip/`. Put the file back where it was
   (`mv docs/tickets/done/SLUG.md docs/tickets/wip/SLUG.md`, then `jj squash` to
-  fold the correction into the commit that moved it) and re-integrate. Editing a
-  wip ticket's *contents* while you work is fine — only moving or deleting the
-  file is banned.
+  fold the correction into the commit that moved it) and re-integrate. The gate is
+  **"still in `wip/`"**, not "moved to `done/`" — moving the ticket back to a
+  triage folder to hand it back is refused just the same, and integrating it would
+  file a ticket you never finished; that case is `drop --amend-ticket` (next
+  bullet), which reads the ticket wherever it sits, so the move was never needed.
+  Editing a wip ticket's *contents* while you work is fine — only moving or
+  deleting the file is banned.
 - **A claim that turns out to be undoable ends with `drop --amend-ticket`, never
   with `integrate`.** When the work is impossible, blocked, or premature, write
   why into the wip ticket (a `needs:` line, an explanation), then run

@@ -380,6 +380,64 @@ test -f docs/tickets/done/bug-x.md; or begin
 end
 echo "ok: putting the ticket back in wip/ clears the refusal and integrates cleanly"
 
+# P4 is "still in wip/", not "moved to done/": an agent that decides the claim is
+# undoable and moves the ticket BACK to its triage folder by hand, then integrates
+# anyway, files a ticket it never finished. Same refusal, and the message points at
+# `drop --amend-ticket` rather than at the mv.
+mkdir -p docs/tickets/planned
+echo "# ticket back-x" >docs/tickets/planned/back-x.md
+jj commit -m "add back-x ticket" >/dev/null; or begin
+    echo >&2 "smoke: committing back-x ticket failed"
+    exit 1
+end
+$wf claim back-x >/dev/null 2>&1; or begin
+    echo >&2 "smoke: claim back-x failed"
+    exit 1
+end
+pushd $ws/back-x
+mkdir -p docs/tickets/planned
+mv docs/tickets/wip/back-x.md docs/tickets/planned/back-x.md; or begin
+    echo >&2 "smoke: agent-side back-x un-claim failed"
+    popd
+    exit 1
+end
+jj commit -m "chore: back-x is blocked, giving it back" >/dev/null; or begin
+    echo >&2 "smoke: committing the back-x un-claim failed"
+    popd
+    exit 1
+end
+popd
+$wf integrate back-x >$work/back-x.log 2>&1
+set rc $status
+test $rc -eq 69; or begin
+    echo >&2 "smoke: integrate of a ticket moved back to triage should stop with 69 (got $rc)"
+    exit 1
+end
+grep -q -- "--amend-ticket" $work/back-x.log; or begin
+    echo >&2 "smoke: the triage-side refusal does not point at 'drop --amend-ticket'"
+    exit 1
+end
+jj bookmark list -T 'name ++ "\n"' | string match -q back-x
+or begin
+    echo >&2 "smoke: the P4 refusal folded back-x anyway"
+    exit 1
+end
+echo "ok: integrate refuses (69) a ticket the feature moved back to triage"
+
+# …and the command that refusal names must actually work from that state: the
+# ticket is sitting in planned/ inside the workspace, not in wip/, so the rescue
+# has to find it there.
+printf '# ticket back-x\n\nneeds: something-unbuilt\n' >$ws/back-x/docs/tickets/planned/back-x.md
+$wf drop --amend-ticket --force back-x >/dev/null 2>&1; or begin
+    echo >&2 "smoke: drop --amend-ticket on a hand-un-claimed workspace failed (rc=$status)"
+    exit 1
+end
+grep -q 'needs: something-unbuilt' docs/tickets/planned/back-x.md; or begin
+    echo >&2 "smoke: --amend-ticket did not rescue a ticket sitting outside wip/"
+    exit 1
+end
+echo "ok: --amend-ticket finds the ticket even when the feature moved it out of wip/"
+
 # The other shape of the same violation: the ticket deleted outright.
 mkdir -p docs/tickets/bugs
 echo "# ticket bug-y" >docs/tickets/bugs/bug-y.md
