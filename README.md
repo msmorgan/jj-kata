@@ -20,7 +20,7 @@ isolated workspace.
    - [Drop](#dropping-a-feature)
    - [Refresh](#refreshing-keeping-current-with-trunk)
 7. [Ticket folders as status](#ticket-folders-as-status)
-8. [Handing off unfinished work](#handing-off-unfinished-work)
+8. [Handing off an open thread](#handing-off-an-open-thread)
 9. [Recovery (repair / converge / resolve)](#recovery)
 10. [Conflicts tool](#conflicts-tool)
 11. [Configuration](#configuration)
@@ -537,26 +537,51 @@ as content rather than as a record of what the toolkit did.
 
 ---
 
-## Handing off unfinished work
+## Handing off an open thread
 
-A task rarely ends exactly when a session does. A **handoff doc** is the mid-flight
-save: a `HANDOFF.md` at a workspace root that tells a fresh agent — one with no
-memory of the conversation — what the task is, what is already committed, what the
-next concrete step is, and which decisions are settled and must not be re-opened.
+A thread rarely ends exactly when a session does. A **handoff doc** is the
+mid-flight save: a `HANDOFF.md` at a workspace root that tells a fresh agent —
+one with no memory of the conversation — what is open, what is already settled,
+and what it is being asked to hand back.
+
+**A handoff is not always work to deliver.** A discussion you want taken further
+by a different model, a call waiting on you, a change nobody has checked, and
+context that would be expensive to reconstruct are all handoffs. Every doc
+therefore opens with a **Kind**:
+
+| Kind | The next session hands back |
+|---|---|
+| `build` | a change |
+| `discuss` | the question worked up — research, design, options on the table; nothing committed |
+| `decide` | a pick among options already framed |
+| `review` | a verdict on work already done |
+| `park` | nothing; it is a save so the context isn't lost |
+
+The Kind decides what the doc must contain and what the next session may do with
+it — a `discuss` carries the question and what's already ruled out and
+deliberately has **no** "next step" (writing one presumes the answer), while a
+`park` states plainly that nothing is due. Getting it wrong is the most expensive
+mistake the doc can make: a `discuss` dressed as a `build` sends an agent off
+writing code to answer an unsettled question. An optional **Intended for** line
+routes it (`Fable`, the user, `any agent`).
 
 **The existence of the file is the signal.** There is no state to consult and no
-flag to set: a workspace holding a `HANDOFF.md` has work paused in it, and one
+flag to set: a workspace holding a `HANDOFF.md` has a thread open in it, and one
 without doesn't.
 
 ```bash
 # From anywhere — read-only scan of every workspace in the repo:
 scripts/workflow handoffs
-# feat-login   /path/to/feat-login/HANDOFF.md
+# stdout:  feat-login   /path/to/feat-login/HANDOFF.md
+# stderr:  workflow: 2 handoff doc(s): feat-login (build), mirror-api (discuss)
 ```
 
 Exit status is grep-style — **0** = at least one found, **1** = none — so it is
 safe to branch on. It runs from any workspace, takes no lock, and takes no
-arguments.
+arguments. stdout is exactly `NAME<TAB>PATH` per hit; the Kind labels go to the
+stderr summary, so a coordinator can see which threads are code to finish and
+which are a question or a park without opening every doc. A doc written before
+Kinds existed reads as `(?)`.
 
 **The doc is deliberately never committed.** It is written into the working-copy
 commit (`@`) and left there, which buys three things:
@@ -570,15 +595,18 @@ commit (`@`) and left there, which buys three things:
   paused work survives the bulk cleanup on its own.
 
 Writing one requires an **empty working copy** (commit or abandon loose edits
-first, so the doc can describe committed state by change id) and an **actual task
-in flight** — a handoff describing work nobody is doing is worse than none,
-because the next agent will act on it.
+first, so the doc can describe committed state by change id) and a **real open
+thread** — a handoff describing something nobody is carrying is worse than none,
+because the next agent will act on it. `park` does not lower that bar: "nothing
+is due" is not "nothing happened".
 
 Resuming is **burn-after-reading**: the doc is deleted the moment an agent commits
-to picking the work up, before any other step. That returns `@` to clean and empty
+to taking the thread, before any other step. That returns `@` to clean and empty
 and stops a stale doc from misleading whoever comes next. An agent that has not
 been told to resume must *ask* first — a handoff often belongs to a different
-effort than the session that stumbled onto it.
+effort than the session that stumbled onto it, and its **Intended for** line may
+name someone else entirely. A `park` is the exception to the burn: reading one is
+not taking it, so it stays put until someone converts it into real work.
 
 Both halves are driven by the `handoff` skill (`/jj-workflow:handoff`), which
 carries the doc template and the full protocol.

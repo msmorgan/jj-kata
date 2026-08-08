@@ -27,7 +27,10 @@ jj commit -m "base" >/dev/null 2>&1; or begin
     exit 1
 end
 
-set -l fails 0
+# -g, not -l: `_fail` writes the GLOBAL `fails`, and a top-scope `set -l fails`
+# would shadow it on every read below — so the final `test $fails -gt 0` saw 0
+# no matter how many assertions failed, and this file printed PASS regardless.
+set -g fails 0
 function _fail --argument-names msg
     echo >&2 "smoke-handoff: $msg"
     set -g fails (math $fails + 1)
@@ -113,6 +116,28 @@ popd
 $wf handoffs >/dev/null 2>&1
 test $status -eq 1; or _fail "deleted handoff still reported as a hit"
 echo "ok: burning the doc clears the resume signal"
+
+# --- The stderr summary names each hit's Kind. -----------------------------
+# A handoff is not always code to finish — the Kind (build/discuss/decide/review/
+# park) says what the next session hands back, and the scan surfaces it so a
+# coordinator doesn't have to open every doc to find out. stdout stays exactly
+# NAME<TAB>PATH; the labels go to stderr, which is why they can be added at all.
+printf '# HANDOFF\n\n- **Kind:** `discuss` — whether to fold X into Y\n' >$ws/feat-b/HANDOFF.md
+printf '# HANDOFF\n\nan old doc written before Kind existed\n' >$ws/feat-c/HANDOFF.md
+set out ($wf handoffs 2>/dev/null)
+# feat-a's doc was burned above, so feat-b and feat-c are the live hits.
+test (count $out) -eq 2; or _fail "expected 2 hits for the Kind check, got "(count $out)
+for line in $out
+    string match -qr '^[^\t]+\t[^\t]+$' -- $line
+    or _fail "stdout is no longer plain NAME<TAB>PATH: $line"
+end
+set -l summary ($wf handoffs 2>&1 >/dev/null)
+string match -q '*feat-b (discuss)*' -- "$summary"
+or _fail "the scan summary does not label feat-b's Kind: $summary"
+string match -q '*feat-c (?)*' -- "$summary"
+or _fail "a doc with no Kind field is not labelled '?': $summary"
+echo "ok: the scan summary names each handoff's Kind, stdout format unchanged"
+rm $ws/feat-b/HANDOFF.md $ws/feat-c/HANDOFF.md
 
 # --- Argument handling: it always scans everything. -----------------------
 $wf handoffs feat-a >/dev/null 2>&1

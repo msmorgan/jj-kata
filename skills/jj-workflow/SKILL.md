@@ -169,8 +169,16 @@ Key rules:
   means nothing changed, not that nothing was checked. Run it by hand after a
   `cd` between workspaces, or any time you are about to act on an assumption
   about where you are.
-- **A `HANDOFF.md` in any workspace means work was paused there mid-flight and
-  left a resume doc.** `workflow handoffs` scans every workspace for one
+- **A `HANDOFF.md` in any workspace means a thread was left open there** — and
+  not necessarily code to finish. Every handoff declares a **Kind** saying what
+  the next session hands back: `build` (a change), `discuss` (a question worked
+  up — research or design, nothing committed), `decide` (a pick among framed
+  options), `review` (a verdict on work already done), or `park` (nothing due; a
+  save so the context isn't lost). Read the Kind before anything else: a
+  `discuss` treated as a `build` means writing code to answer a question nobody
+  has settled, and a `park` treated as anything else means inventing work.
+  `workflow handoffs` scans every workspace for one
+  and names each hit's Kind in its summary line
   (read-only, runs from anywhere; exit 0 = found, 1 = none). Run it when picking
   up unfamiliar state, and use the /jj-workflow:handoff skill for both halves —
   writing one, and resuming from one (it is burn-after-reading: delete the doc

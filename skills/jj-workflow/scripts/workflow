@@ -717,20 +717,29 @@ function __workflow_handoffs
     end
     set -l current (__current_workspace_name)
     set -l found
+    set -l labelled
     for name in (jj workspace list -T 'name ++ "\n"' --ignore-working-copy 2>/dev/null)
         set -l ws_dir (jj workspace root --name "$name" --ignore-working-copy 2>/dev/null)
         or continue
         test -f "$ws_dir/HANDOFF.md"; or continue
         set -a found "$name"
+        # stdout stays exactly NAME<TAB>PATH — a documented, grep-able contract.
         printf '%s\t%s\n' "$name" "$ws_dir/HANDOFF.md"
+        # The Kind goes in the human-facing stderr summary instead, so a
+        # coordinator sees at a glance which hits are code to finish and which
+        # are a question, a call, a check, or a park with nothing due — without
+        # opening five files. A doc predating the Kind field just reads as `?`.
+        set -l kind (string match -rg '^\s*[-*]?\s*\*\*Kind:\*\*\s*`?([a-z]+)`?' <"$ws_dir/HANDOFF.md" | head -n1)
+        test -n "$kind"; or set kind '?'
+        set -a labelled "$name ($kind)"
     end
     if not set -q found[1]
-        echo >&2 "$_jjw_prog: no handoff docs — nothing paused mid-flight."
+        echo >&2 "$_jjw_prog: no handoff docs — no threads left open."
         return 1
     end
     set -l here ""
     contains -- "$current" $found; and set here " (you are in '$current')"
-    echo >&2 "$_jjw_prog: "(count $found)" handoff doc(s): $found$here"
+    echo >&2 "$_jjw_prog: "(count $found)" handoff doc(s): "(string join ', ' $labelled)"$here"
     return 0
 end
 
