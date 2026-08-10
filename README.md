@@ -46,8 +46,9 @@ documents them — the skill tells the agent to run `scripts/workflow` and
 `scripts/conflicts` relative to its own directory, which is how every other
 skill-with-tools works. Nothing is put on PATH, and there is no second copy to go
 stale. Then, once per repo, run `/jj-workflow:setup` — it sets
-the `immutable_heads()` repo-config alias (the actual trunk protection, which is
-per-repo state a plugin can't carry) and walks the optional config. Every
+the `immutable_heads()` repo-config alias (the actual protection for trunk and
+for features against each other, which is per-repo state a plugin can't carry)
+and walks the optional config. Every
 command targets the jj workspace you run it from, so one global copy serves all
 repos and workspaces. Use `--scope project` on install to enable it for one
 repo/team instead of globally. Setup can also wire Claude Code's EnterWorktree
@@ -79,7 +80,8 @@ plugin was installed, and until it is trusted the git/bypass-flag ban is not
 enforced there.
 
 Then invoke `$jj-workflow:setup` once per jj repo. It sets the repo-config
-`immutable_heads()` alias, which is the actual trunk protection. Optionally set
+`immutable_heads()` alias, which is the actual protection — trunk, and features
+from each other. Optionally set
 `JJ_EDITOR=false` for Codex shell commands in the trusted repo's
 `.codex/config.toml`:
 
@@ -136,25 +138,39 @@ recoverable via the op log until gc). Nothing is archived.
 
 ## Trunk immutability (repo config)
 
-Immutability lives in **one shared repo-config alias**, not a wrapper. `/jj-workflow:setup`
-sets it:
+Immutability lives in **shared repo-config aliases**, not a wrapper. `/jj-workflow:setup`
+sets them:
 
 ```toml
 # .jj/repo config (jj config set --repo)
-revset-aliases.'immutable_heads()' = "builtin_immutable_heads() | (default@ ~ @)"
+# all_if_any(rev) resolves to all() if `rev` contains any changes, else none()
+revset-aliases.'all_if_any(rev)' = "descendants(ancestors(rev))"
+revset-aliases.'immutable_heads()' = "builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))"
 ```
 
-The trick is that `@` resolves **per workspace**, so this single alias yields different
+The trick is that `@` resolves **per workspace**, so this one rule yields different
 protection depending on where jj runs:
 
 - **In a feature workspace**, `@` is that feature's working copy, so `default@ ~ @`
   reduces to `default@`. Its ancestors — the whole trunk line plus every claim commit —
-  become immutable. jj refuses, per-operation, any rebase/abandon/squash that would
-  reach shared history or another feature. Your own feature work (commits above your
-  claim, not ancestors of `default@`) stays freely rewritable.
-- **In the `default` coordinator**, `@` *is* `default@`, so `default@ ~ @` is empty and
-  the alias falls back to `builtin_immutable_heads()` (trunk only). The claim commits
-  above trunk stay mutable, so a human coordinator can always go in and fix things.
+  become immutable, and `working_copies() ~ @` adds every *sibling* feature's working
+  copy. jj refuses, per-operation, any rebase/abandon/squash that would reach shared
+  history or another feature. Your own feature work (commits above your claim, not
+  ancestors of `default@`) stays freely rewritable.
+- **In the `default` coordinator**, `@` *is* `default@`, so `default@ ~ @` is empty —
+  which collapses the whole gated term — and the alias falls back to
+  `builtin_immutable_heads()` (trunk only). Feature working copies stay mutable here,
+  which is exactly what lets `integrate`, `refresh`, and `drop` rewrite a feature's
+  stack from the coordinator. The claim commits above trunk stay mutable too, so a
+  human coordinator can always go in and fix things.
+
+`all_if_any` is an emptiness test, not a traversal: `root()` is an ancestor of every
+commit, so `descendants(ancestors(rev))` lifts a non-empty `rev` to `all()` while an
+empty one stays `none()`. That turns "am I the coordinator?" into a gate the `&` can
+read. The lift is
+what makes sibling protection possible — sibling working copies are *disjoint* from
+`default@`, so a plain `& (default@ ~ @)` would filter them out in both contexts
+instead of gating them, leaving you with trunk protection and nothing more.
 
 Because the mechanism is native jj config, you invoke `jj` directly from any
 workspace — no wrapper, no `-R` pinning. Scripts pass `-R <dir>` explicitly only when

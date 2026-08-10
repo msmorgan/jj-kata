@@ -17,8 +17,9 @@ mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 
 jj git init >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: jj init failed"; exit 1; end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 jj commit -m "base" >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: commit failed"; exit 1; end
 
 # --- 1. The default base, self-ignored. -------------------------------------
@@ -68,8 +69,9 @@ set -l coord_cfg $work/cfgproj
 mkdir -p $coord_cfg; or exit 1
 cd $coord_cfg; or exit 1
 jj git init >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: cfg jj init failed"; exit 1; end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 printf 'workspace_dir = ".claude/worktrees"\n' >jjworkflow.toml
 jj commit -m "base" >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: cfg commit failed"; exit 1; end
 
@@ -96,8 +98,9 @@ set -l coord_sib $work/sibproj
 mkdir -p $coord_sib; or exit 1
 cd $coord_sib; or exit 1
 jj git init >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: sibling jj init failed"; exit 1; end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 printf 'workspace_dir = ".."\n' >jjworkflow.toml
 jj commit -m "base" >/dev/null 2>&1; or begin; echo >&2 "smoke-wsdir: sibling commit failed"; exit 1; end
 

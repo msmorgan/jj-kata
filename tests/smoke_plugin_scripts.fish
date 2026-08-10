@@ -16,8 +16,9 @@ cd $coord; or exit 1
 
 jj git init >/dev/null 2>&1; or begin; echo >&2 "smoke-scripts: jj init failed"; exit 1; end
 # The only per-repo step there is: the immutability alias.
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)'
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))'
 or begin; echo >&2 "smoke-scripts: config set failed"; exit 1; end
 
 # Project-provided ticket tool wired via jjworkflow.toml todo_cmd.

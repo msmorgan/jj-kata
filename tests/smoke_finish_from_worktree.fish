@@ -19,8 +19,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 
 # Ignore patterns for the junk files created below: ignored build litter must
 # not register as "work" anywhere (drop's refusal check, integrate).
@@ -106,8 +107,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task4)"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
 jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task4)"
@@ -161,8 +163,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task5A)"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
 jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task5A)"
@@ -217,8 +220,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task5B)"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
 jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task5B)"
@@ -285,8 +289,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task5C)"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
 jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task5C)"
@@ -339,8 +344,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task5D)"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
 jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task5D)"
@@ -397,8 +403,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task5E)"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
 jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task5E)"
@@ -446,8 +453,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task6)"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
 jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task6)"
@@ -517,8 +525,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed (task8)"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 printf '*.tmp\njunk.d/\n' >.gitignore
 jj commit -m "base" >/dev/null; or begin
     echo >&2 "smoke: commit failed (task8)"

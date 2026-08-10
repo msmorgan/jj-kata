@@ -21,8 +21,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke-amend: jj git init failed"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 
 mkdir -p docs/tickets/planned docs/tickets/bugs
 printf '# blocked-x\n\nDo the thing.\n' >docs/tickets/planned/blocked-x.md

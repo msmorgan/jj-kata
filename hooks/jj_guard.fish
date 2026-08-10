@@ -5,10 +5,13 @@
 # Google Antigravity uses the toolCall payload handled below.
 #
 # Immutability itself lives in repo config, not a wrapper:
-#   immutable_heads() = builtin_immutable_heads() | (default@ ~ @)
+#   all_if_any(rev)   = descendants(ancestors(rev))   # all() if rev has any changes
+#   immutable_heads() = builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))
 # `@` resolves per-workspace, so that one shared alias locks the whole default
-# line from every FEATURE workspace while leaving the `default` coordinator open
-# (there default@ ~ @ is empty). jj is invoked directly. This hook is the single
+# line — plus every SIBLING feature's working copy — from every FEATURE
+# workspace, while leaving the `default` coordinator open (there default@ ~ @ is
+# empty, which collapses the gated term, so the coordinator can still rewrite a
+# feature's stack). jj is invoked directly. This hook is the single
 # enforcement layer, with two bans:
 #   1. git — this is a jj repo; git mutations corrupt/confuse the state.
 #   2. jj with --config / --config-file / --ignore-immutable — the flags that

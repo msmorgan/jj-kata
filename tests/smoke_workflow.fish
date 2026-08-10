@@ -19,8 +19,9 @@ jj git init --colocate >/dev/null; or begin
     echo >&2 "smoke: jj git init failed"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 
 # Ignore patterns for the junk files created below: ignored build litter must
 # not register as "work" anywhere (drop's refusal check, integrate).

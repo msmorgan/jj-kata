@@ -20,8 +20,9 @@ jj git init >/dev/null 2>&1; or begin
     echo >&2 "smoke-handoff: jj git init failed"
     exit 1
 end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 jj commit -m "base" >/dev/null 2>&1; or begin
     echo >&2 "smoke-handoff: commit failed"
     exit 1

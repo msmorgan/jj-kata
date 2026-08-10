@@ -34,10 +34,13 @@ Key rules:
   status, silently masking a refusal or conflict as success. Run it bare and
   read its own exit code and stderr. If you must capture output, redirect to a
   file (`workflow integrate NAME >out.log 2>&1`) and check `$status`, never pipe.
-- Run `jj` directly; trunk immutability is enforced by a repo-config
-  `immutable_heads()` alias, not a wrapper. Never run `git` (blocked by the
-  guard hook), and never pass `--config`/`--config-file`/`--ignore-immutable`
-  (they bypass the guard and are blocked too).
+- Run `jj` directly; immutability is enforced by a repo-config
+  `immutable_heads()` alias, not a wrapper. From a feature workspace it locks
+  trunk **and every sibling feature's working copy** — you can only rewrite your
+  own; from `default` it collapses to trunk alone, so the coordinator can still
+  rewrite any feature's stack. Never run `git` (blocked by the guard hook), and
+  never pass `--config`/`--config-file`/`--ignore-immutable` (they bypass the
+  guard and are blocked too).
 - **Two-tier model.** The `default` coordinator owns creation and cross-feature
   ops — `workflow start NAME`, `workflow claim NAME`, `workflow drop NAME`, and
   any `integrate NAME` / `claim ... --into NAME` naming a *sibling* all run from

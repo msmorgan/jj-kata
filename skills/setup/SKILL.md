@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Set up the jj-workflow toolkit in the current jj repo — configure the trunk-immutability guard and optional per-repo config. Use when the user asks to set up, install, initialize, or onboard jj-workflow in a repository.
+description: Set up the jj-workflow toolkit in the current jj repo — configure the immutability guard and optional per-repo config. Use when the user asks to set up, install, initialize, or onboard jj-workflow in a repository.
 ---
 
 # jj-workflow setup
@@ -10,17 +10,27 @@ is idempotent; report what was already in place.
 
 1. Confirm this is a jj repo: `jj workspace root`. If it fails, stop and say so.
 
-2. Set the trunk-immutability alias (repo config; `@` resolves per-workspace, so
-   this one alias locks the default line from every feature workspace while
-   leaving the coordinator open):
+2. Set the immutability alias (repo config; `@` resolves per-workspace, so this
+   one alias locks the default line *and* every sibling feature's working copy
+   from any feature workspace, while leaving the coordinator open):
 
    ```
-   jj config set --repo 'revset-aliases."immutable_heads()"' 'builtin_immutable_heads() | (default@ ~ @)'
+   # all_if_any(rev) resolves to all() if `rev` contains any changes, else none()
+   jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))'
+   jj config set --repo 'revset-aliases."immutable_heads()"' 'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))'
    ```
 
-   Verify: `jj config list --repo` shows the alias. **This step is the actual
-   protection** — without it, any feature workspace can rewrite shared trunk
-   history with plain jj commands.
+   Set both keys — `immutable_heads()` references `all_if_any`. Verify with
+   `jj log -r 'immutable_heads()'`.
+
+   **This step is the actual protection** — without it, any feature workspace can
+   rewrite shared trunk history, or another feature's working copy, with plain jj
+   commands. `all_if_any(default@ ~ @)` is the gate that keeps the coordinator
+   open: that revset is empty only when `@` *is* `default@`.
+
+   **Upgrading an existing repo:** the aliases are repo state, so updating the
+   plugin never touches them. If `immutable_heads()` reads anything else, re-run
+   both commands — overwriting is safe and takes effect immediately.
 
 3. If the repo has no `jjworkflow.toml` and the user wants non-default behavior
    (workspace location, provision hook, ticket tool), copy

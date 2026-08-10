@@ -14,8 +14,9 @@ set -l ws $coord/.workspaces
 mkdir -p $coord; or exit 1
 cd $coord; or exit 1
 jj git init >/dev/null 2>&1; or begin; echo >&2 "smoke-status: jj init failed"; exit 1; end
+jj config set --repo 'revset-aliases."all_if_any(rev)"' 'descendants(ancestors(rev))' >/dev/null
 jj config set --repo 'revset-aliases."immutable_heads()"' \
-    'builtin_immutable_heads() | (default@ ~ @)' >/dev/null
+    'builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))' >/dev/null
 echo A >f.txt
 jj commit -m "base" >/dev/null 2>&1
 or begin; echo >&2 "smoke-status: commit failed"; exit 1; end

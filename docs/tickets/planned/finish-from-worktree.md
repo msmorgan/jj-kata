@@ -172,12 +172,14 @@ self → refuse.*
 ## Immutability interaction (why it's safe)
 
 ```
-immutable_heads() = builtin_immutable_heads() | (default@ ~ @)
+all_if_any(rev)   = descendants(ancestors(rev))   # all() if rev has any changes
+immutable_heads() = builtin_immutable_heads() | ((working_copies() ~ @) & all_if_any(default@ ~ @))
 ```
 
 is evaluated relative to the invoking workspace's `@`. From a feature ws,
-`default@ ~ @` = `default@` → the whole default line is immutable there; from
-`default`'s context it's empty → mutable. So `integrate`'s `-R <default-root>` is
+`default@ ~ @` = `default@` → the whole default line is immutable there, and the
+gated term adds every sibling feature's working copy; from `default`'s context it
+is empty → the gate collapses and all of it is mutable. So `integrate`'s `-R <default-root>` is
 the *only* context where the default line is writable — get the `-R` wrong and jj
 **refuses** rather than corrupting. Divergence safety is already handled by
 `__snapshot_workspaces` (`:136`, called at `:889`), which must keep running before
