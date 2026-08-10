@@ -38,7 +38,7 @@ isolated workspace.
 ```
 
 This ships the usage skill and registers the PreToolUse guard and the
-PostToolBatch [status line](#the-status-line) automatically (both activate only
+PostToolUse [status line](#the-status-line) automatically (both activate only
 inside jj repos).
 
 The executables live in `skills/jj-workflow/scripts/`, beside the skill that
@@ -67,6 +67,8 @@ codex plugin add jj-workflow@jj-workflow
 Start a new Codex thread after installation so its skills, hooks, and command
 aliases are loaded. The plugin provides the `$jj-workflow:jj-workflow` and
 `$jj-workflow:setup` skills and bundles the repo-aware `PreToolUse(Bash)` guard.
+It also reports the status line at `SessionStart` and after each `Write`, `Edit`,
+or `Bash` tool, using Codex's `Write`/`Edit` aliases for `apply_patch`.
 
 The two executables are run out of the skill's own directory
 (`skills/jj-workflow/scripts/`), exactly as on Claude Code — nothing depends on
@@ -74,10 +76,11 @@ Codex exposing a `bin/` field or on a hook firing, so the tools are reachable
 the moment the skill loads. Feature workspaces go in the repo's `.workspaces/`,
 which is inside Codex's writable sandbox, so nothing needs configuring.
 
-The guard hook is a separate matter: open `/hooks` once to review and trust it.
+The executable hooks are a separate matter: open `/hooks` once to review and
+trust them.
 Codex intentionally does not trust executable plugin hooks merely because the
-plugin was installed, and until it is trusted the git/bypass-flag ban is not
-enforced there.
+plugin was installed, and until they are trusted neither the git/bypass-flag ban
+nor automatic status snapshotting runs there.
 
 Then invoke `$jj-workflow:setup` once per jj repo. It sets the repo-config
 `immutable_heads()` alias, which is the actual protection — trunk, and features
@@ -93,6 +96,19 @@ set = { JJ_EDITOR = "false" }
 Codex does not provide Claude Code's `EnterWorktree`/`WorktreeRemove` hook
 events. Use `workflow claim NAME` or `workflow start NAME` to create isolated
 jj workspaces instead.
+
+### As a Google Antigravity plugin
+
+Place this repository as a custom `jj-workflow` plugin under either the
+workspace's `.agents/plugins/` directory or the global
+`~/.gemini/config/plugins/` directory. The root `plugin.json` and `hooks.json`
+are Antigravity's native plugin entry points; the same `skills/` and hook scripts
+serve all three harnesses.
+
+Antigravity snapshots after `write_to_file`, both replace-file tools, and
+`run_command`. Its `PostToolUse` event cannot inject model context directly, so
+the hook stores a changed line there and delivers it as an ephemeral message at
+the next `PreInvocation`. Invocation zero supplies the session-orientation line.
 
 ---
 
@@ -241,42 +257,36 @@ state.
 ### As a hook
 
 `hooks/jj_status.fish` reports that line to an agent
-at session start and after each batch of tool calls. **The plugin registers it
-for you** on both events — there is nothing to add to a settings file.
+at session orientation and after each write, update, or shell tool. **The plugin
+registers it for you** — there is nothing to add to a settings file.
 
-The two events cover opposite ends of the same problem. **`SessionStart`** is the
-one moment an agent knows nothing at all about where it is, so the line reports
-there unconditionally — including on `resume`, `clear`, `compact`, and `fork`,
-which reuse the session id and are precisely the events that discarded the
-context holding the previous line. (Session start is also when the hook sweeps
-suppression caches left by sessions over a week old.)
+The two moments cover opposite ends of the same problem. **Session orientation**
+is when an agent knows nothing about where it is, so the line reports there
+unconditionally. Claude Code and Codex provide `SessionStart`; Antigravity uses
+invocation zero because its hook API has no equivalent event. This is also when
+the hook sweeps suppression caches left by sessions over a week old.
 
-**`PostToolBatch`** fires once after every tool call in a batch resolves, immediately
-before the next model request — so the line is freshest exactly where mistakes
-happen, deep in a long turn, rather than at the top of one where nothing has
-happened yet. `PostToolUse` is the wrong event for this despite being the obvious
-one: it fires per-tool and may run *concurrently* for parallel tool calls, so five
-parallel edits would race five hooks for one working-copy lock and write five
-snapshot operations into a shared op log. (It is still accepted as a payload
-shape, for anyone who wants it there anyway.)
+**`PostToolUse`** fires immediately after each relevant tool completes. Claude
+Code uses `Write`, `Edit`, and `Bash`; Codex maps `apply_patch` to the
+`Write`/`Edit` aliases and unified exec to `Bash`; Antigravity uses
+`write_to_file`, `replace_file_content`, `multi_replace_file_content`, and
+`run_command`. The status command takes the workflow lock, so hooks completing
+from parallel tools serialize their snapshots instead of racing jj's shared
+operation log.
 
-Two rules keep the per-batch half cheap enough to run that often (neither applies
-at session start, which always reports):
+The hook deliberately separates checking from speaking:
 
-- **Batches that cannot have changed anything are skipped without invoking jj** —
-  no lock, no working-copy scan, no operation. Recognised read-only tools only
-  (`Read`, `Grep`, `Glob`, …); everything else, including every `Bash` call,
-  counts as mutating.
-- **It speaks only when something structural moves** — a different workspace,
-  change id, description, un-integrated count, conflict count, stale flag, or
-  bookmark on `@`. Edit *volume* alone is not a change, so twenty edits into one
-  change produce one line and then silence. Silence means "still there".
+- **Every registered tool runs the status probe.** This eagerly snapshots file
+  writes and updates instead of leaving them only on disk until a later jj
+  command. Shell calls stay broad because arbitrary commands can change files.
+- **It speaks only when the rendered line changed.** Edit statistics are part of
+  that line, so changed volume re-arms the report; a byte-for-byte repeat remains
+  silent even though the snapshot check still ran.
 
-Note that this makes the hook eager: `jj` snapshots lazily, so after an `Edit`
-nothing has reached the repo until some jj command runs, and this one runs it.
-That is the point — the stats would otherwise describe a state that no longer
-exists on disk — but it does mean one `snapshot working copy` operation per
-mutating batch in the shared op log.
+Antigravity's `PostToolUse` output contract accepts only `{}`, so that event
+stores a changed line in `.jj/`; the following `PreInvocation` injects it as an
+ephemeral message. Claude Code and Codex accept the changed line directly as
+`PostToolUse` additional context.
 
 ---
 

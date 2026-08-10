@@ -1,9 +1,9 @@
 #!/usr/bin/env fish
-# Smoke: `workflow status` and the PostToolBatch hook adapter that reports it.
+# Smoke: `workflow status` and the cross-harness PostToolUse hook adapter.
 # Covers the line's content in each state that changes what an agent may do
 # (coordinator vs feature workspace, empty vs dirty @, un-integrated depth,
-# conflicts), and the hook's two jobs: skip batches that cannot have changed
-# anything, and stay quiet until something STRUCTURAL moves.
+# conflicts), and the hook's two jobs: snapshot every write/update/shell tool
+# immediately, and stay quiet only when the rendered line is unchanged.
 
 set -l tk (path resolve (status dirname)/..)
 set -g wf $tk/skills/jj-workflow/scripts/workflow
@@ -48,21 +48,26 @@ set line (fish $wf status)
 string match -q '*"add new.txt"*' -- $line
 or begin; echo >&2 "smoke-status: description not shown: $line"; exit 1; end
 
-# --- Structural key vs edit volume -------------------------------------------
-# The KEY is what the hook diffs. More edits to the SAME change must not move it,
-# or the suppression it exists for would never suppress anything.
+# --- Rendered-line key -------------------------------------------------------
+# The KEY is what the hook diffs. Edit volume is visible in the line, so another
+# edit in the SAME change must move the key and re-arm context injection.
 set -l key1 (string split -m1 \t -- (fish $wf status --porcelain))[1]
 printf 'l4\nl5\n' >>new.txt
 set -l porc2 (string split -m1 \t -- (fish $wf status --porcelain))
-test "$porc2[1]" = "$key1"
-or begin; echo >&2 "smoke-status: key moved on edit volume alone: '$key1' -> '$porc2[1]'"; exit 1; end
-# …but the LINE it carries did update, so a report that does fire is accurate.
+test "$porc2[1]" != "$key1"
+or begin; echo >&2 "smoke-status: key ignored changed edit volume: '$key1' -> '$porc2[1]'"; exit 1; end
 string match -q '*+5/-0*' -- $porc2[2]
 or begin; echo >&2 "smoke-status: porcelain line did not track the new edits: $porc2[2]"; exit 1; end
-# A real structural move (new change id) does move the key.
+# A content replacement with identical rendered stats stays suppressed, even
+# though the status probe still snapshots it.
+printf 'a\nb\nc\nd\ne\n' >new.txt
+set -l key_same (string split -m1 \t -- (fish $wf status --porcelain))[1]
+test "$key_same" = "$porc2[1]"
+or begin; echo >&2 "smoke-status: key differs while rendered line is identical"; exit 1; end
+# A new change id also moves the key.
 jj commit -m "close it" >/dev/null 2>&1
 set -l key3 (string split -m1 \t -- (fish $wf status --porcelain))[1]
-test "$key3" != "$key1"
+test "$key3" != "$key_same"
 or begin; echo >&2 "smoke-status: key did not move across a commit"; exit 1; end
 
 # --- Feature workspace -------------------------------------------------------
@@ -103,38 +108,56 @@ or begin; echo >&2 "smoke-status: conflict not reported: $line"; exit 1; end
 # --- The hook ----------------------------------------------------------------
 
 cd $coord; or exit 1
-set -l mk_payload "jq -n --arg cwd $coord"
-
-# A batch of nothing but read-only tools is skipped outright — no jj, no lock, no
-# snapshot operation in the shared op log.
+# A file write has not reached jj yet. PostToolUse must snapshot it immediately
+# and inject the newly dirty line using the Claude/Codex output contract.
 set -l ops_before (jj op log --no-graph -T '"x\n"' --ignore-working-copy | count)
 echo untracked >scratch.txt
-set -l ro (jq -n --arg cwd $coord '{hook_event_name:"PostToolBatch",cwd:$cwd,
-    session_id:"s1",tool_calls:[{tool_name:"Read"},{tool_name:"Grep"}]}' | fish $hook)
-or begin; echo >&2 "smoke-status: hook exited nonzero on read-only batch"; exit 1; end
-test -z "$ro"; or begin; echo >&2 "smoke-status: read-only batch produced output: $ro"; exit 1; end
-test (jj op log --no-graph -T '"x\n"' --ignore-working-copy | count) -eq $ops_before
-or begin; echo >&2 "smoke-status: read-only batch still snapshotted the working copy"; exit 1; end
-
-# A batch containing anything else reports, as additionalContext the harness
-# delivers to the model.
-set -l edit_payload (jq -n --arg cwd $coord '{hook_event_name:"PostToolBatch",cwd:$cwd,
-    session_id:"s1",tool_calls:[{tool_name:"Edit",tool_input:{},tool_response:"ok"}]}')
-set -l out (printf '%s' $edit_payload | fish $hook)
-or begin; echo >&2 "smoke-status: hook exited nonzero on mutating batch"; exit 1; end
+set -l write_payload (jq -n --arg cwd $coord '{hook_event_name:"PostToolUse",cwd:$cwd,
+    session_id:"s1",tool_name:"Write",tool_input:{},tool_response:{}}')
+set -l out (printf '%s' $write_payload | fish $hook)
+or begin; echo >&2 "smoke-status: hook exited nonzero after Write"; exit 1; end
 set -l ctx (printf '%s' $out | jq -r '.hookSpecificOutput.additionalContext // ""')
-string match -q 'jj: default |*' -- $ctx
+string match -q 'jj: default |*(no desc) +1/-0*' -- $ctx
 or begin; echo >&2 "smoke-status: hook additionalContext wrong: '$ctx'"; exit 1; end
+test (jj op log --no-graph -T '"x\n"' --ignore-working-copy | count) -gt $ops_before
+or begin; echo >&2 "smoke-status: Write hook did not snapshot the working copy"; exit 1; end
 
-# Same structural state, another batch: silence. This is what makes a per-batch
-# hook affordable — an unchanged state costs nothing to report.
-set -l again (printf '%s' $edit_payload | fish $hook)
+# Same rendered state, another call: silence. The probe still ran; only duplicate
+# context is suppressed.
+set -l again (printf '%s' $write_payload | fish $hook)
 test -z "$again"
 or begin; echo >&2 "smoke-status: hook repeated an unchanged state: $again"; exit 1; end
 
+# Edit volume changes the rendered line and therefore re-arms the hook.
+echo second >>scratch.txt
+set -l edit_payload (jq -n --arg cwd $coord '{hook_event_name:"PostToolUse",cwd:$cwd,
+    session_id:"s1",tool_name:"Edit",tool_input:{},tool_response:{}}')
+set out (printf '%s' $edit_payload | fish $hook)
+set ctx (printf '%s' $out | jq -r '.hookSpecificOutput.additionalContext // ""')
+string match -q '*+2/-0*' -- $ctx
+or begin; echo >&2 "smoke-status: Edit did not report changed volume: '$ctx'"; exit 1; end
+
+# Codex reports apply_patch canonically even though the matcher aliases it to
+# Write/Edit; unified exec is canonical Bash. Both must use PostToolUse context.
+echo third >>scratch.txt
+set -l patch_payload (jq -n --arg cwd $coord '{hook_event_name:"PostToolUse",cwd:$cwd,
+    session_id:"s1",tool_name:"apply_patch",tool_input:{command:"*** patch"},tool_response:{}}')
+set out (printf '%s' $patch_payload | fish $hook)
+set ctx (printf '%s' $out | jq -r '.hookSpecificOutput.additionalContext // ""')
+string match -q '*+3/-0*' -- $ctx
+or begin; echo >&2 "smoke-status: Codex apply_patch shape failed: '$ctx'"; exit 1; end
+
+echo fourth >>scratch.txt
+set -l bash_payload (jq -n --arg cwd $coord '{hook_event_name:"PostToolUse",cwd:$cwd,
+    session_id:"s1",tool_name:"Bash",tool_input:{command:"printf"},tool_response:{}}')
+set out (printf '%s' $bash_payload | fish $hook)
+set ctx (printf '%s' $out | jq -r '.hookSpecificOutput.additionalContext // ""')
+string match -q '*+4/-0*' -- $ctx
+or begin; echo >&2 "smoke-status: Bash shape failed: '$ctx'"; exit 1; end
+
 # Sessions do not swallow each other's first line.
-set -l other (jq -n --arg cwd $coord '{hook_event_name:"PostToolBatch",cwd:$cwd,
-    session_id:"s2",tool_calls:[{tool_name:"Edit"}]}' | fish $hook)
+set -l other (jq -n --arg cwd $coord '{hook_event_name:"PostToolUse",cwd:$cwd,
+    session_id:"s2",tool_name:"Edit"}' | fish $hook)
 test -n "$other"
 or begin; echo >&2 "smoke-status: second session got no first line"; exit 1; end
 
@@ -143,17 +166,53 @@ or begin; echo >&2 "smoke-status: second session got no first line"; exit 1; end
 jj status | string match -q '*workflow-status*'
 and begin; echo >&2 "smoke-status: status cache leaked into the working copy"; exit 1; end
 
-# A structural move re-arms it.
+# A structural move re-arms it too.
 jj describe -m "now described" >/dev/null 2>&1
-set -l after (printf '%s' $edit_payload | fish $hook)
+set -l after (printf '%s' $bash_payload | fish $hook)
 test -n "$after"
 or begin; echo >&2 "smoke-status: hook stayed silent across a structural change"; exit 1; end
+
+# Antigravity's PostToolUse contract accepts only `{}`. The hook snapshots there,
+# stores changed context, and delivers it at the next PreInvocation as an
+# ephemeral message. Exercise every Antigravity mutation tool family.
+for tool in write_to_file replace_file_content multi_replace_file_content
+    echo $tool >>scratch.txt
+    set -l ag_post (jq -n --arg cwd $coord --arg tool $tool --arg target "$coord/scratch.txt" \
+        '{conversationId:"g1",workspacePaths:[$cwd],toolCall:{name:$tool,args:{TargetFile:$target}}}')
+    set -l ag_ack (printf '%s' $ag_post | fish $hook)
+    printf '%s' $ag_ack | jq -e 'type == "object" and length == 0' >/dev/null
+    or begin; echo >&2 "smoke-status: Antigravity $tool did not return {}: $ag_ack"; exit 1; end
+    set -l ag_pre (jq -n --arg cwd $coord '{conversationId:"g1",workspacePaths:[$cwd],
+        invocationNum:1,initialNumSteps:1}')
+    set -l ag_ctx (printf '%s' $ag_pre | fish $hook | jq -r '.injectSteps[0].ephemeralMessage // ""')
+    string match -q 'jj: default |*' -- $ag_ctx
+    or begin; echo >&2 "smoke-status: Antigravity $tool context missing: '$ag_ctx'"; exit 1; end
+end
+
+echo run_command >>scratch.txt
+set -l ag_run (jq -n --arg cwd $coord '{conversationId:"g1",workspacePaths:[$cwd],
+    toolCall:{name:"run_command",args:{Cwd:$cwd,CommandLine:"printf"}}}')
+set -l ag_ack (printf '%s' $ag_run | fish $hook)
+printf '%s' $ag_ack | jq -e 'type == "object" and length == 0' >/dev/null
+or begin; echo >&2 "smoke-status: Antigravity run_command did not return {}: $ag_ack"; exit 1; end
+set -l ag_pre (jq -n --arg cwd $coord '{conversationId:"g1",workspacePaths:[$cwd],
+    invocationNum:2,initialNumSteps:2}')
+set -l ag_ctx (printf '%s' $ag_pre | fish $hook | jq -r '.injectSteps[0].ephemeralMessage // ""')
+string match -q 'jj: default |*' -- $ag_ctx
+or begin; echo >&2 "smoke-status: Antigravity run_command context missing: '$ag_ctx'"; exit 1; end
+
+# Antigravity has no SessionStart event; invocation zero supplies orientation.
+set -l ag_boot (jq -n --arg cwd $coord '{conversationId:"gboot",workspacePaths:[$cwd],
+    invocationNum:0,initialNumSteps:0}' | fish $hook)
+set -l ag_boot_ctx (printf '%s' $ag_boot | jq -r '.injectSteps[0].ephemeralMessage // ""')
+string match -q 'jj: default |*' -- $ag_boot_ctx
+or begin; echo >&2 "smoke-status: Antigravity initial context missing: '$ag_boot_ctx'"; exit 1; end
 
 # --- SessionStart ------------------------------------------------------------
 # The other end of the same problem: a session that has just started, resumed, or
 # been compacted knows nothing about where it is.
 
-# It reports a BARE line, not the PostToolBatch JSON envelope — on SessionStart
+# It reports a BARE line, not the PostToolUse JSON envelope — on SessionStart
 # it is exit-0 stdout that reaches the model, so JSON would show it the wrapper.
 set -l ss (jq -n --arg cwd $coord '{hook_event_name:"SessionStart",cwd:$cwd,
     session_id:"boot",source:"startup"}' | fish $hook)
@@ -170,25 +229,28 @@ set -l resumed (jq -n --arg cwd $coord '{hook_event_name:"SessionStart",cwd:$cwd
     session_id:"boot",source:"resume"}' | fish $hook)
 test -n "$resumed"
 or begin; echo >&2 "smoke-status: SessionStart was suppressed by its own cache"; exit 1; end
-# …while a tool batch in the same session, same state, still stays quiet.
-set -l quiet (jq -n --arg cwd $coord '{hook_event_name:"PostToolBatch",cwd:$cwd,
-    session_id:"boot",tool_calls:[{tool_name:"Edit"}]}' | fish $hook)
+# …while a tool call in the same session, same state, still stays quiet.
+set -l quiet (jq -n --arg cwd $coord '{hook_event_name:"PostToolUse",cwd:$cwd,
+    session_id:"boot",tool_name:"Edit"}' | fish $hook)
 test -z "$quiet"
-or begin; echo >&2 "smoke-status: SessionStart broke batch suppression: $quiet"; exit 1; end
+or begin; echo >&2 "smoke-status: SessionStart broke tool suppression: $quiet"; exit 1; end
 
 # Session start sweeps caches left by sessions that are long gone.
 touch -d '30 days ago' $coord/.jj/workflow-status.ancient
+touch -d '30 days ago' $coord/.jj/workflow-status-pending.ancient
 jq -n --arg cwd $coord '{hook_event_name:"SessionStart",cwd:$cwd,
     session_id:"boot",source:"startup"}' | fish $hook >/dev/null
 not test -e $coord/.jj/workflow-status.ancient
 or begin; echo >&2 "smoke-status: stale status cache was not swept"; exit 1; end
+not test -e $coord/.jj/workflow-status-pending.ancient
+or begin; echo >&2 "smoke-status: stale pending status was not swept"; exit 1; end
 test -e $coord/.jj/workflow-status.boot
 or begin; echo >&2 "smoke-status: sweep took the live session's cache too"; exit 1; end
 
 # Registered globally, the hook fires in non-jj projects too: silent, exit 0.
 set -l outside (mktemp -d)
-set -l nonjj (jq -n --arg cwd $outside '{hook_event_name:"PostToolBatch",cwd:$cwd,
-    session_id:"s1",tool_calls:[{tool_name:"Edit"}]}' | fish $hook)
+set -l nonjj (jq -n --arg cwd $outside '{hook_event_name:"PostToolUse",cwd:$cwd,
+    session_id:"s1",tool_name:"Edit"}' | fish $hook)
 or begin; echo >&2 "smoke-status: hook exited nonzero outside a jj repo"; exit 1; end
 test -z "$nonjj"; or begin; echo >&2 "smoke-status: hook spoke outside a jj repo: $nonjj"; exit 1; end
 set -l nonjj_boot (jq -n --arg cwd $outside '{hook_event_name:"SessionStart",cwd:$cwd,
@@ -196,6 +258,13 @@ set -l nonjj_boot (jq -n --arg cwd $outside '{hook_event_name:"SessionStart",cwd
 or begin; echo >&2 "smoke-status: SessionStart exited nonzero outside a jj repo"; exit 1; end
 test -z "$nonjj_boot"
 or begin; echo >&2 "smoke-status: SessionStart spoke outside a jj repo: $nonjj_boot"; exit 1; end
+
+# Antigravity requires a valid empty JSON object even when the hook is outside a
+# jj repo and has no context to inject.
+set -l nonjj_ag (jq -n --arg cwd $outside '{conversationId:"g-out",workspacePaths:[$cwd],
+    toolCall:{name:"run_command",args:{Cwd:$cwd,CommandLine:"true"}}}' | fish $hook)
+printf '%s' $nonjj_ag | jq -e 'type == "object" and length == 0' >/dev/null
+or begin; echo >&2 "smoke-status: Antigravity non-jj response invalid: $nonjj_ag"; exit 1; end
 
 # The per-tool PostToolUse shape still works, for anyone who registers it there.
 set -l ptu (jq -n --arg cwd $coord '{hook_event_name:"PostToolUse",cwd:$cwd,

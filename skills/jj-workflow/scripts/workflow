@@ -114,9 +114,8 @@ Usage: $_jjw_prog <command> [<args>]
                          how many changes are un-integrated, and any conflict / stale /
                          bookmark-on-@ / handoff flag. Snapshots the working copy, then
                          reads. Runs from anywhere. `status --porcelain` prints
-                         `KEY<TAB>LINE`, where KEY changes only on a STRUCTURAL change
-                         (not on edit volume) — what the PostToolBatch hook diffs to stay
-                         quiet until something worth reporting moves.
+                         `KEY<TAB>LINE`, where KEY is the rendered line — what the
+                         PostToolUse hook compares to avoid repeating identical context.
     handoffs             List every workspace holding a HANDOFF.md — work someone paused
                          mid-flight and left a resume doc for. Read-only, runs from
                          anywhere. Prints `NAME<TAB>PATH` per hit; grep-style status:
@@ -744,7 +743,7 @@ function __workflow_handoffs
 end
 
 # One line describing where this workspace stands — the shell-prompt equivalent
-# for an agent, meant to be re-read after each batch of tool calls (see
+# for an agent, meant to be re-read after each mutating tool call (see
 # hooks/jj_status.fish). Runs from anywhere.
 #
 # Field order is decision order: WHICH workspace you're in decides which commands
@@ -854,7 +853,6 @@ function __workflow_status
     end
 
     set -l line "jj: $ws | @ $cid $state"
-    set -l key "$ws$US$cid$US$is_empty$US$desc$US$unintegrated$US$conflicted"
 
     test "$ws" != default; and set line "$line | $unintegrated unintegrated"
     test $conflicted -gt 0; and set line "$line | ⚠ $conflicted conflicted"
@@ -862,22 +860,23 @@ function __workflow_status
         # A bookmark on @ means editing here moves shared state. Bookmarks are the
         # operator's to move, so this is a warning, never an instruction.
         set line "$line | ⚠ bookmark '$at_bookmarks' on @"
-        set key "$key$US$at_bookmarks"
     end
     if test -f "$project_dir/HANDOFF.md"
         set line "$line | HANDOFF.md — paused work here"
-        set key "$key$US"'handoff'
     end
 
+    # The hook suppresses only a byte-for-byte repeat of what the agent would
+    # see. Edit volume is part of the line, so a write that changes the stats
+    # re-arms the report even when it stays in the same working-copy change.
+    set -l key "$line"
     __status_emit "$_flag_porcelain" "$key" "$line"
     return 0
 end
 
 # Shared exit for __workflow_status. Plain mode prints the human line; --porcelain
 # prints `KEY<TAB>LINE` so a caller can decide whether the line is worth showing
-# without paying for a second snapshot. The KEY deliberately omits diff stats: a
-# burst of edits into one change should not read as a state change, or the
-# suppression it exists for would never suppress anything.
+# without paying for a second snapshot. KEY is the complete rendered line: the
+# hook stays quiet only when it would inject exactly the same context again.
 function __status_emit --argument-names porcelain key line
     if test -n "$porcelain"
         printf '%s\t%s\n' "$key" "$line"
@@ -1806,10 +1805,11 @@ if not set -q _WORKFLOW_LOCKED; and contains -- "$argv[1]" claim start drop refr
     # why 75 is PROPAGATED, not folded into 1. Callers branch on the exit code.
     #
     # status takes the lock too — reading mid-rewrite would report a state that is
-    # true for an instant and misleading for the rest of the batch — but with a
-    # SHORT wait: it runs after every tool batch, so a 10-minute stall would hang
-    # the caller behind someone else's integrate. On timeout it says so and exits
-    # 0; a missing status line is a non-event, a frozen session is not.
+    # true for an instant and misleading at the next model call — but with a
+    # SHORT wait: it runs after every write/update/shell tool, so a 10-minute
+    # stall would hang the caller behind someone else's integrate. On timeout it
+    # says so and exits 0; a missing status line is a non-event, a frozen session
+    # is not.
     set -l lock_wait 600
     test "$argv[1]" = status; and set lock_wait 5
     flock -w $lock_wait -E 75 "$project_dir/.jj/workflow.lock" "$scripts_dir/workflow" $argv

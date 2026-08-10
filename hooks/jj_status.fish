@@ -1,139 +1,148 @@
 #!/usr/bin/env fish
 # hooks/jj_status.fish — status line for a jj-workflow repo.
-# Registered on SessionStart (orientation) and PostToolBatch (keeping current).
 #
-# Gives an agent the thing a human gets for free from a shell prompt: where the
-# working copy stands, read at the start and re-read at every point the agent
-# stops to think.
+# Claude Code and Codex register this on SessionStart (orientation) and on
+# PostToolUse for their write, edit, and shell tools. Google Antigravity runs it
+# after write/update/command tools too, then calls it again at PreInvocation to
+# inject the pending line using that harness's output contract.
 #
-# WHY PostToolBatch and not PostToolUse or UserPromptSubmit.
-# A status line injected at UserPromptSubmit is freshest at the top of a turn —
-# the moment it is needed least, since nothing has happened yet — and oldest
-# thirty tool calls in, where the mistakes actually happen. PostToolBatch fires
-# once after every tool call in a batch resolves, immediately BEFORE the next
-# model request, so the line is never stale at the moment it is read.
-# PostToolUse would work too, but it fires per-tool and may run CONCURRENTLY for
-# parallel tool calls: five parallel edits would race five hooks for one jj
-# working-copy lock and write five snapshot operations into a shared op log.
-# One batch, one snapshot, one op.
+# PostToolUse is intentional. It snapshots every agent-authored change as soon
+# as the tool finishes, shrinking the window in which another workspace rewrite
+# can leave divergent successors. The hook still emits context only when the
+# rendered status line changed, so a no-op shell command stays silent.
 #
-# AND SessionStart, for the opposite reason: a fresh, resumed, cleared, forked, or
-# just-compacted session is the one moment an agent knows NOTHING about where it
-# is, so that is where the line is worth the most. It reports unconditionally
-# there — see the suppression note below for why it must ignore its own cache.
+# Claude/Codex payloads use hook_event_name, session_id, cwd, and tool_name.
+# Antigravity payloads use toolCall, conversationId, workspacePaths, and camelCase
+# arguments. Never log the raw payload: tool inputs and responses may be large or
+# sensitive.
 #
-# stdin: {"hook_event_name": "PostToolBatch", "cwd": …, "session_id": …,
-#         "tool_calls": [{"tool_name": …, "tool_input": …, "tool_response": …}]}
-#         or {"hook_event_name": "SessionStart", "cwd": …, "session_id": …,
-#         "source": "startup"|"resume"|"clear"|"compact"|"fork"} — no tool_calls.
-#         The per-tool PostToolUse shape (top-level .tool_name) is accepted too,
-#         so the hook still works if registered on that event instead.
-# stdout: PostToolBatch — JSON carrying the line as additionalContext.
-#         SessionStart — the bare line; there, exit 0 stdout is what reaches the
-#         model, so emitting JSON would show the model its own envelope.
-#         Either way: nothing at all when there is nothing to say.
-# exit:   always 0. These events can halt a turn or a session start; a status
-#         probe must never be the reason either one stops.
-#
-# NOTE: tool_response for every tool in the batch arrives on stdin, so a batch
-# containing a large Read puts that whole file here. The hook only ever looks at
-# tool_name — do not add logging of the raw payload.
+# Exit is always 0. A status probe must never stop a turn or session start.
 
 set -l payload (cat | string collect)
 test -n "$payload"; or exit 0
 
-set -l event (printf '%s' $payload | jq -r '.hook_event_name // ""' 2>/dev/null)
-set -l at_start 0
-test "$event" = SessionStart; and set at_start 1
+set -l is_antigravity (printf '%s' $payload | jq -r \
+    'if (.conversationId and (.toolCall or has("invocationNum"))) then "true" else "false" end' 2>/dev/null)
+set -l event (printf '%s' $payload | jq -r '
+    .hook_event_name //
+    (if .toolCall then "PostToolUse"
+     elif has("invocationNum") then "PreInvocation"
+     else "" end)' 2>/dev/null)
 
-# Tools that cannot possibly have changed the repo. A batch made only of these
-# is skipped WITHOUT invoking jj at all — no lock, no working-copy scan. Most
-# batches during exploration are exactly this, so the common case costs nothing.
-# The list is a strict allowlist: anything unrecognised (including every Bash
-# call, which could run anything) counts as mutating. Being wrong in that
-# direction costs one no-op snapshot; being wrong the other way means silently
-# reporting a state that has already moved.
-set -l readonly_tools Read Grep Glob LS NotebookRead WebFetch WebSearch \
-    TodoWrite Task TaskCreate TaskUpdate TaskGet TaskList TaskOutput \
-    BashOutput ToolSearch Skill AskUserQuestion
+switch "$event"
+    case SessionStart PostToolUse PreInvocation
+    case '*'
+        exit 0
+end
 
-# SessionStart carries no tool_calls and has nothing to skip — it always reports.
-if test $at_start -eq 0
-    set -l tools (printf '%s' $payload | jq -r '
-        if .tool_calls then .tool_calls[].tool_name
-        elif .tool_name then .tool_name
-        else empty end' 2>/dev/null)
-    set -q tools[1]; or exit 0
-
-    set -l mutating 0
-    for t in $tools
-        if not contains -- "$t" $readonly_tools
-            set mutating 1
-            break
-        end
+# Resolve the workspace from the harness payload. File tools in Antigravity do
+# not carry Cwd, so their target path is the most precise fallback; the first
+# mounted workspace is the final fallback.
+set -l cwd (printf '%s' $payload | jq -r '.cwd // .toolCall.args.Cwd // ""' 2>/dev/null)
+set -l mounted (printf '%s' $payload | jq -r '.workspacePaths[0] // ""' 2>/dev/null)
+set -l target (printf '%s' $payload | jq -r '.toolCall.args.TargetFile // ""' 2>/dev/null)
+if test -z "$cwd"
+    if test -n "$target"
+        string match -q -- '/*' "$target"; or set target "$mounted/$target"
+        set cwd (path dirname "$target")
+    else
+        set cwd "$mounted"
     end
-    test $mutating -eq 1; or exit 0
+end
+if test -n "$cwd" -a -d "$cwd"
+    cd "$cwd"; or begin
+        test "$is_antigravity" = true; and echo '{}'
+        exit 0
+    end
 end
 
-# A plugin install enables this hook in EVERY project — act only inside a jj
-# repo. Walk up for a .jj dir first (same test jj_guard makes): a filesystem walk
-# costs nothing, where spawning jj in every non-jj project would cost a process
-# per batch forever.
-set -l cwd (printf '%s' $payload | jq -r '.cwd // ""' 2>/dev/null)
-if test -n "$cwd" -a -d "$cwd"
-    cd "$cwd"; or exit 0
-end
+# A plugin install enables this hook globally. Avoid spawning jj outside a jj
+# repo, and return Antigravity's required empty object when there is no work.
 set -l d $PWD
 while not test -d "$d/.jj"
     set -l parent (path dirname $d)
-    test "$parent" = "$d"; and exit 0
+    if test "$parent" = "$d"
+        test "$is_antigravity" = true; and echo '{}'
+        exit 0
+    end
     set d $parent
 end
 set -l root (command jj workspace root --ignore-working-copy 2>/dev/null)
-test -n "$root"; or exit 0
+if test -z "$root"
+    test "$is_antigravity" = true; and echo '{}'
+    exit 0
+end
+
+set -l sid (printf '%s' $payload | jq -r '.session_id // .conversationId // "nosession"' 2>/dev/null)
+set -l cache "$root/.jj/workflow-status.$sid"
+set -l pending "$root/.jj/workflow-status-pending.$sid"
+set -l at_start 0
+test "$event" = SessionStart; and set at_start 1
+
+# Antigravity cannot inject context from PostToolUse. That event snapshots and
+# leaves a pending line; PreInvocation delivers it as an ephemeral message. The
+# first invocation has no SessionStart equivalent, so it reports directly.
+if test "$event" = PreInvocation
+    if test -r "$pending"
+        set -l line (cat "$pending" 2>/dev/null)
+        rm -f "$pending" 2>/dev/null
+        jq -n --arg line "$line" '{injectSteps: [{ephemeralMessage: $line}]}'
+        exit 0
+    end
+    set -l invocation (printf '%s' $payload | jq -r '.invocationNum // -1' 2>/dev/null)
+    if test "$invocation" != 0
+        echo '{}'
+        exit 0
+    end
+    set at_start 1
+end
 
 set -l self (path dirname (path resolve (status filename)))
 set -l out (fish "$self/../skills/jj-workflow/scripts/workflow" status --porcelain 2>/dev/null)
-test -n "$out"; or exit 0
+if test -z "$out"
+    test "$is_antigravity" = true; and echo '{}'
+    exit 0
+end
 set -l parts (string split -m1 \t -- $out)
-test (count $parts) -eq 2; or exit 0
+if test (count $parts) -ne 2
+    test "$is_antigravity" = true; and echo '{}'
+    exit 0
+end
 set -l key $parts[1]
 set -l line $parts[2]
 
-# Say it once. The KEY changes only on a STRUCTURAL move — different workspace,
-# different change id, described/undescribed, un-integrated count, conflicts,
-# stale, bookmark on @ — never on edit volume alone. So twenty edits into one
-# change produce one line, and silence afterwards means "still there", which is
-# the whole reason this is affordable to run after every batch.
-#
-# The cache lives in the workspace's own .jj/ (never snapshotted, so it cannot
-# leak into a commit) and is keyed by session, so two agents sharing a workspace
-# each get their own first line rather than swallowing each other's.
-#
-# SessionStart deliberately IGNORES the cache. On `startup` the session id is new
-# and there is nothing to ignore, but `resume`, `clear`, `compact`, and `fork`
-# reuse it — and those are exactly the events that threw away the context holding
-# the last line. Suppressing there would stay quiet precisely when the agent has
-# just been left with no idea where it is.
-set -l sid (printf '%s' $payload | jq -r '.session_id // "nosession"' 2>/dev/null)
-set -l cache "$root/.jj/workflow-status.$sid"
+# The key is the complete rendered line. The probe always runs (and therefore
+# snapshots) for a registered tool, while context is suppressed only when the
+# agent would see the exact same status again.
 if test $at_start -eq 0; and test -r "$cache"
     set -l prev (cat "$cache" 2>/dev/null)
-    test "$prev" = "$key"; and exit 0
+    if test "$prev" = "$key"
+        test "$is_antigravity" = true; and echo '{}'
+        exit 0
+    end
 end
 printf '%s\n' "$key" >"$cache" 2>/dev/null
 
-# One file per session accumulates, so sweep old ones while we are here — session
-# start is the natural GC point, and a week is long past any session that could
-# still be resumed against them.
-test $at_start -eq 1
-and find "$root/.jj" -maxdepth 1 -name 'workflow-status.*' -mtime +7 -delete 2>/dev/null
-
+# One file per session accumulates. A week is longer than a resumable session is
+# useful; session orientation is the natural place to sweep old cache files.
 if test $at_start -eq 1
+    find "$root/.jj" -maxdepth 1 -name 'workflow-status.*' -mtime +7 -delete 2>/dev/null
+    find "$root/.jj" -maxdepth 1 -name 'workflow-status-pending.*' -mtime +7 -delete 2>/dev/null
+end
+
+if test "$event" = SessionStart
+    # SessionStart consumes bare stdout in both Claude Code and Codex.
     printf '%s\n' "$line"
+else if test "$is_antigravity" = true
+    if test "$event" = PreInvocation
+        jq -n --arg line "$line" '{injectSteps: [{ephemeralMessage: $line}]}'
+    else
+        printf '%s\n' "$line" >"$pending" 2>/dev/null
+        echo '{}'
+    end
 else
     jq -n --arg line "$line" '{hookSpecificOutput: {
-        hookEventName: "PostToolBatch",
+        hookEventName: "PostToolUse",
         additionalContext: $line
     }}'
 end

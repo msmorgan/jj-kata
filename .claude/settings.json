@@ -34,8 +34,9 @@
         ]
       }
     ],
-    "PostToolBatch": [
+    "PostToolUse": [
       {
+        "matcher": "Bash|Edit|Write",
         "hooks": [
           {
             "type": "command",

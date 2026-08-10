@@ -88,9 +88,10 @@ is idempotent; report what was already in place.
    `workflow drop` in the hook is still the real gate (it keeps un-integrated
    work).
 
-   The status line needs no step: it ships registered in the plugin's own
-   `hooks.json` for `SessionStart` and `PostToolBatch`. Codex has neither
-   event; there, run `workflow status` by hand when orientation is needed.
+   The status line needs no step: it ships registered for `SessionStart` and
+   for `PostToolUse` on each write, update, and shell tool. Claude Code and
+   Codex receive the changed line directly; Antigravity snapshots on
+   `PostToolUse` and injects any pending line at `PreInvocation`.
 
 6. Sanity check: run `../jj-workflow/scripts/workflow` — relative to this
    skill's own directory — with no arguments; it prints usage. It is not on
@@ -98,7 +99,6 @@ is idempotent; report what was already in place.
    for it.
 
 7. In Codex, remind the user to open `/hooks` once and trust this plugin's
-   PreToolUse guard. Installing a plugin does not implicitly trust its
-   executable hooks, and until it is trusted the git / bypass-flag ban is not
-   enforced. This does not affect whether the commands run — only whether jj
-   misuse is caught.
+   executable hooks. Installing a plugin does not implicitly trust them; until
+   they are trusted, neither the git / bypass-flag guard nor automatic status
+   snapshotting runs. This does not affect whether toolkit commands run.

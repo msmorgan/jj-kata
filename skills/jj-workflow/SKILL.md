@@ -166,12 +166,12 @@ Key rules:
   `conflicts accept FILE snapshot|diff|base|stack`.
 - **`workflow status` answers "where am I" in one line** — which workspace,
   what `@` holds, how much is un-integrated, plus conflict/stale/handoff flags.
-  Read-only, runs from anywhere. In Claude Code the plugin reports it
-  automatically at session start and after each batch of tool calls — but between
-  batches only when something structural moved, so a line that does NOT appear
-  means nothing changed, not that nothing was checked. Run it by hand after a
-  `cd` between workspaces, or any time you are about to act on an assumption
-  about where you are.
+  Read-only, runs from anywhere. The plugin reports it automatically at session
+  orientation and after every write, update, or shell tool in Claude Code,
+  Codex, and Antigravity. Every such tool is snapshotted immediately; the line
+  is injected only when its rendered value changed, so silence means the same
+  status was checked again. Run it by hand after a `cd` between workspaces, or
+  any time you are about to act on an assumption about where you are.
 - **A `HANDOFF.md` in any workspace means a thread was left open there** — and
   not necessarily code to finish. Every handoff declares a **Kind** saying what
   the next session hands back: `build` (a change), `discuss` (a question worked

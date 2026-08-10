@@ -20,8 +20,9 @@
         ]
       }
     ],
-    "PostToolBatch": [
+    "PostToolUse": [
       {
+        "matcher": "Bash|Edit|Write|run_command|write_to_file|replace_file_content|multi_replace_file_content",
         "hooks": [
           {
             "type": "command",

@@ -11,12 +11,14 @@ TODO_GRAPH = ROOT / "skills/jj-workflow/scripts/lib/todo_graph.pl"
 
 def test_codex_manifest_exposes_plugin_components():
     manifest = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
+    claude_manifest = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
+    antigravity_manifest = json.loads((ROOT / "plugin.json").read_text())
 
     assert manifest["name"] == "jj-workflow"
     assert manifest["skills"] == "./skills/"
-    assert manifest["version"] == json.loads(
-        (ROOT / ".claude-plugin/plugin.json").read_text()
-    )["version"]
+    assert manifest["version"] == claude_manifest["version"]
+    assert manifest["version"] == antigravity_manifest["version"]
+    assert antigravity_manifest["name"] == "jj-workflow"
     assert (ROOT / "skills/jj-workflow/SKILL.md").is_file()
     assert (ROOT / "skills/setup/SKILL.md").is_file()
     assert (ROOT / "skills/handoff/SKILL.md").is_file()
@@ -121,20 +123,32 @@ def test_shared_hook_uses_portable_plugin_root():
     assert all("PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}" in command for command in commands)
 
 
-def test_status_hook_is_registered_unmatched_on_both_events():
+def test_status_hook_is_registered_for_mutations_and_session_start():
     all_hooks = json.loads((ROOT / "hooks/hooks.json").read_text())["hooks"]
     expected = 'fish "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/jj_status.fish"'
 
-    # PostToolBatch keeps the line current; SessionStart is where an agent knows
-    # least. One script serves both and branches on hook_event_name.
-    for event in ("PostToolBatch", "SessionStart"):
-        hooks = all_hooks[event]
-        commands = [hook["command"] for group in hooks for hook in group["hooks"]]
-        assert commands == [expected], event
-        # No matcher on either: PostToolBatch describes a whole batch rather than
-        # one tool, and every SessionStart source (startup/resume/clear/compact/
-        # fork) is a moment the line is worth having.
-        assert all("matcher" not in group for group in hooks), event
+    # PostToolUse snapshots each write/update/shell call immediately. The shared
+    # matcher covers Claude Code, Codex aliases, and Antigravity tool names.
+    hooks = all_hooks["PostToolUse"]
+    commands = [hook["command"] for group in hooks for hook in group["hooks"]]
+    assert commands == [expected]
+    assert hooks[0]["matcher"].split("|") == [
+        "Bash",
+        "Edit",
+        "Write",
+        "run_command",
+        "write_to_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+    ]
+    assert "PostToolBatch" not in all_hooks
+
+    # Every SessionStart source (startup/resume/clear/compact/fork) is a moment
+    # the line is worth having, so this event remains unmatched.
+    hooks = all_hooks["SessionStart"]
+    commands = [hook["command"] for group in hooks for hook in group["hooks"]]
+    assert commands == [expected]
+    assert all("matcher" not in group for group in hooks)
 
     # Hook scripts are plugin content, invoked by the HOST via hooks.json —
     # never by the agent and never named by a skill. They belong beside the
@@ -143,3 +157,23 @@ def test_status_hook_is_registered_unmatched_on_both_events():
                  "worktree_create.fish", "worktree_remove.fish"):
         assert (ROOT / "hooks" / name).is_file(), name
     assert not (ROOT / "skills/jj-workflow/scripts/hooks").exists()
+
+
+def test_antigravity_plugin_snapshots_mutations_then_injects_pre_invocation():
+    hooks = json.loads((ROOT / "hooks.json").read_text())
+    status = hooks["jj-workflow-status"]
+    post = status["PostToolUse"]
+
+    assert post[0]["matcher"].split("|") == [
+        "run_command",
+        "write_to_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+    ]
+    assert len(status["PreInvocation"]) == 1
+    commands = [post[0]["hooks"][0]["command"], status["PreInvocation"][0]["command"]]
+    assert all("hooks/jj_status.fish" in command for command in commands)
+
+    guard = hooks["jj-workflow-guard"]["PreToolUse"]
+    assert guard[0]["matcher"] == "run_command"
+    assert "hooks/jj_guard.fish" in guard[0]["hooks"][0]["command"]
