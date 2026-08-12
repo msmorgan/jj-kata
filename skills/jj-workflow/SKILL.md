@@ -1,6 +1,6 @@
 ---
 name: jj-workflow
-description: Use when working in a jj (Jujutsu) repo that uses the jj-workflow toolkit — feature workspaces with a claim/start → work → integrate lifecycle, a config-based trunk-immutability guard, and conflict tooling. Signs include a `default` coordinator with jj feature workspaces, a `jjworkflow.toml`, or `scripts/workflow`.
+description: Use when working in a jj (Jujutsu) repo that uses the jj-workflow toolkit — feature workspaces with a claim/start → work → integrate lifecycle, a config-based trunk-immutability guard, and conflict tooling. Signs include a `default` coordinator with jj feature workspaces or a `jjworkflow.toml`.
 ---
 
 # jj-workflow
@@ -10,13 +10,16 @@ The toolkit is two executables that ship inside this skill:
 - `scripts/workflow` — the claim → work → integrate feature lifecycle
 - `scripts/conflicts` — conflict inspector and resolver
 
-**Both paths are relative to this skill's own directory** — the directory this
-`SKILL.md` was loaded from, not the project you are working in. That is the only
-place they live. Nothing is on PATH; call them by absolute path:
+**Resolve both paths from this loaded `SKILL.md`, not from the project you are
+working in.** If the loader reports
+`/PLUGIN/skills/jj-workflow/SKILL.md`, call the workflow script as:
 
 ```
-<skill dir>/scripts/workflow status
+/PLUGIN/skills/jj-workflow/scripts/workflow status
 ```
+
+That skill directory is the only place the scripts live. Nothing is on PATH;
+always call them by the resolved absolute path.
 
 Every command targets the jj workspace you run it FROM — its repo, its lock — so
 `cd` into the workspace you mean and invoke the tool by its absolute path; never

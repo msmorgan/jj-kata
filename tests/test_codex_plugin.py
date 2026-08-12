@@ -34,9 +34,21 @@ def test_codex_manifest_exposes_plugin_components():
 def test_skill_routes_commands_by_its_own_directory():
     skill = (ROOT / "skills/jj-workflow/SKILL.md").read_text()
 
-    assert "this skill's own directory" in skill
-    assert "scripts/workflow" in skill
+    assert "/PLUGIN/skills/jj-workflow/SKILL.md" in skill
+    assert "/PLUGIN/skills/jj-workflow/scripts/workflow" in skill
     assert "scripts/conflicts" in skill
+
+
+def test_readme_routes_commands_through_the_loaded_skill_directory():
+    readme = (ROOT / "README.md").read_text()
+
+    assert 'JJW_SKILL_DIR="/PLUGIN/skills/jj-workflow"' in readme
+    assert '"$JJW_SKILL_DIR/scripts/workflow" status' in readme
+    assert '"$JJW_SKILL_DIR/scripts/conflicts" list' in readme
+    assert not re.search(
+        r"(?<![/\w-])scripts/(?:workflow|conflicts)\b",
+        readme,
+    )
 
 
 def test_sibling_skills_reach_the_toolkit_by_a_path_that_resolves():

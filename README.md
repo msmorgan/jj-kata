@@ -42,10 +42,19 @@ PostToolUse [status line](#the-status-line) automatically (both activate only
 inside jj repos).
 
 The executables live in `skills/jj-workflow/scripts/`, beside the skill that
-documents them — the skill tells the agent to run `scripts/workflow` and
-`scripts/conflicts` relative to its own directory, which is how every other
-skill-with-tools works. Nothing is put on PATH, and there is no second copy to go
-stale. Then, once per repo, run `/jj-workflow:setup` — it sets
+documents them. They do **not** live in the repo where you use the plugin, and
+nothing is put on PATH. If the loader reports the skill at
+`/PLUGIN/skills/jj-workflow/SKILL.md`, set `JJW_SKILL_DIR` to its containing
+directory; commands in this README use:
+
+```bash
+JJW_SKILL_DIR="/PLUGIN/skills/jj-workflow"
+"$JJW_SKILL_DIR/scripts/workflow" status
+"$JJW_SKILL_DIR/scripts/conflicts" list
+```
+
+There is no second copy to go stale. Then, once per repo, run
+`/jj-workflow:setup` — it sets
 the `immutable_heads()` repo-config alias (the actual protection for trunk and
 for features against each other, which is per-repo state a plugin can't carry)
 and walks the optional config. Every
@@ -292,7 +301,8 @@ ephemeral message. Claude Code and Codex accept the changed line directly as
 
 ## Feature workflow
 
-`scripts/workflow` manages the full feature lifecycle under a **two-tier** rule
+`"$JJW_SKILL_DIR/scripts/workflow"` manages the full feature lifecycle under a
+**two-tier** rule
 for *where* each command runs:
 
 - **The `default` coordinator** owns creation and cross-feature ops — `start`,
@@ -328,17 +338,17 @@ rather than corrupts.
 
 ```bash
 # Claim a ticket and spin up a new workspace:
-scripts/workflow claim TICKET_NAME
+"$JJW_SKILL_DIR/scripts/workflow" claim TICKET_NAME
 
 # Start an ad-hoc workspace with no ticket:
-scripts/workflow start NAME
+"$JJW_SKILL_DIR/scripts/workflow" start NAME
 
 # Fold extra tickets into an already-running workspace's claim (from default):
-scripts/workflow claim TICKET_A TICKET_B --into NAME
+"$JJW_SKILL_DIR/scripts/workflow" claim TICKET_A TICKET_B --into NAME
 
 # Same fold, run from INSIDE the feature workspace — folds into ITS own claim,
 # no --into and no cd:
-scripts/workflow claim TICKET_A TICKET_B
+"$JJW_SKILL_DIR/scripts/workflow" claim TICKET_A TICKET_B
 ```
 
 `claim TICKET_NAME`:
@@ -368,15 +378,15 @@ immediately.
 
 ```bash
 # From INSIDE the feature workspace — integrates THIS workspace (no NAME):
-scripts/workflow integrate
+"$JJW_SKILL_DIR/scripts/workflow" integrate
 
 # From default — target one workspace by name (unchanged):
-scripts/workflow integrate NAME
+"$JJW_SKILL_DIR/scripts/workflow" integrate NAME
 ```
 
 **Preconditions.** `integrate` refuses (exit 2) unless the feature is already
 refreshed onto the **current** trunk tip (P2) — if newer non-empty trunk work
-sits above it, run `scripts/workflow refresh` inside the workspace first (resolving
+sits above it, run `"$JJW_SKILL_DIR/scripts/workflow" refresh` inside the workspace first (resolving
 any feature-vs-trunk conflict there), then integrate. This is what lets integrate
 assume a clean merge: `refresh` owns feature-vs-trunk conflicts, `integrate` does
 not. It also refuses if `default@` is a merge (P1 — an ambiguous trunk tip);
@@ -437,14 +447,14 @@ stack oldest-first — then re-run `integrate NAME`.
 
 ```bash
 # Run from default:
-scripts/workflow drop NAME
+"$JJW_SKILL_DIR/scripts/workflow" drop NAME
 
 # The claim turned out to be undoable — keep the notes, give the ticket back:
-scripts/workflow drop --amend-ticket NAME
+"$JJW_SKILL_DIR/scripts/workflow" drop --amend-ticket NAME
 
 # Sweep every integrated, empty workspace in one go — the bulk cleanup:
-scripts/workflow drop --integrated
-scripts/workflow drop --integrated --dry-run   # preview; deletes nothing
+"$JJW_SKILL_DIR/scripts/workflow" drop --integrated
+"$JJW_SKILL_DIR/scripts/workflow" drop --integrated --dry-run   # preview; deletes nothing
 ```
 
 Retires the workspace and deletes its directory — the default next step after
@@ -485,13 +495,13 @@ in (those are reported as kept). It takes no NAME and never force-drops. Add
 
 ```bash
 # From the feature workspace — the common "get review-ready" call (no NAME):
-scripts/workflow refresh
+"$JJW_SKILL_DIR/scripts/workflow" refresh
 
 # From default, target one workspace by name:
-scripts/workflow refresh NAME
+"$JJW_SKILL_DIR/scripts/workflow" refresh NAME
 
 # Reorder all non-default workspaces — HUMAN OPERATOR ONLY:
-scripts/workflow refresh --all
+"$JJW_SKILL_DIR/scripts/workflow" refresh --all
 ```
 
 `refresh` has two shapes, by where it runs:
@@ -597,7 +607,7 @@ without doesn't.
 
 ```bash
 # From anywhere — read-only scan of every workspace in the repo:
-scripts/workflow handoffs
+"$JJW_SKILL_DIR/scripts/workflow" handoffs
 # stdout:  feat-login   /path/to/feat-login/HANDOFF.md
 # stderr:  workflow: 2 handoff doc(s): feat-login (build), mirror-api (discuss)
 ```
@@ -682,7 +692,7 @@ Three recovery commands run **from the affected feature workspace**:
 
 ```bash
 cd ../NAME
-scripts/workflow repair
+"$JJW_SKILL_DIR/scripts/workflow" repair
 ```
 
 The single entry point for "my branch shifted under me." In order:
@@ -701,13 +711,14 @@ The single entry point for "my branch shifted under me." In order:
 
 When `repair` stops on a conflict it prints each conflict marker's `file:line`
 location (matching jj's real markers — `<<<<<<< conflict N of M` … `>>>>>>> …
-ends`, seven-or-more brackets), calls `scripts/conflicts show` automatically, and
+ends`, seven-or-more brackets), calls
+`"$JJW_SKILL_DIR/scripts/conflicts" show` automatically, and
 prints the per-file resolution commands. Read the reported lines directly.
 
 ### `converge` — working-copy divergence
 
 ```bash
-scripts/workflow converge
+"$JJW_SKILL_DIR/scripts/workflow" converge
 ```
 
 Heals a working-copy divergence: two or more commits sharing `@`'s change ID, left
@@ -721,7 +732,7 @@ Refuses when two halves hold genuinely different work — that needs a human
 ### `resolve` — conflict walker
 
 ```bash
-scripts/workflow resolve
+"$JJW_SKILL_DIR/scripts/workflow" resolve
 ```
 
 Walks a feature stack's conflicts oldest-first after `refresh`/`integrate` left them.
@@ -741,20 +752,20 @@ forgotten on exit 0.
 
 ## Conflicts tool
 
-`scripts/conflicts` is a fast inspector and resolver for jj's native conflict marker
-format (diff+snapshot style).
+`"$JJW_SKILL_DIR/scripts/conflicts"` is a fast inspector and resolver for jj's
+native conflict marker format (diff+snapshot style).
 
 ```bash
-scripts/conflicts list                         # list all conflicted files
-scripts/conflicts show [FILE ...]              # print conflict hunks with line numbers
-scripts/conflicts show --json [FILE ...]       # structured JSON output per hunk
-scripts/conflicts accept FILE snapshot         # accept +++ (literal snapshot) side
-scripts/conflicts accept FILE diff             # accept %%% (diff-applied) side
-scripts/conflicts accept FILE base             # accept the merge base
-scripts/conflicts accept FILE stack            # stack both adds: diff first, then snapshot
-scripts/conflicts accept FILE stack-snap-first # stack both adds: snapshot first
-scripts/conflicts accept FILE sort             # merge alphabetized-list adds, re-sorted
-scripts/conflicts auto [--dry-run] [FILE ...]  # auto-merge alphabetized-list conflicts
+"$JJW_SKILL_DIR/scripts/conflicts" list                         # list all conflicted files
+"$JJW_SKILL_DIR/scripts/conflicts" show [FILE ...]              # print conflict hunks with line numbers
+"$JJW_SKILL_DIR/scripts/conflicts" show --json [FILE ...]       # structured JSON output per hunk
+"$JJW_SKILL_DIR/scripts/conflicts" accept FILE snapshot         # accept +++ (literal snapshot) side
+"$JJW_SKILL_DIR/scripts/conflicts" accept FILE diff             # accept %%% (diff-applied) side
+"$JJW_SKILL_DIR/scripts/conflicts" accept FILE base             # accept the merge base
+"$JJW_SKILL_DIR/scripts/conflicts" accept FILE stack            # stack both adds: diff first, then snapshot
+"$JJW_SKILL_DIR/scripts/conflicts" accept FILE stack-snap-first # stack both adds: snapshot first
+"$JJW_SKILL_DIR/scripts/conflicts" accept FILE sort             # merge alphabetized-list adds, re-sorted
+"$JJW_SKILL_DIR/scripts/conflicts" auto [--dry-run] [FILE ...]  # auto-merge alphabetized-list conflicts
 ```
 
 `show --json` includes a `stackable: true` field on hunks where both sides are pure
@@ -814,7 +825,7 @@ Here is a generic example that symlinks a shared `data/` directory from the coor
 ```sh
 #!/usr/bin/env bash
 # scripts/provision-workspace
-# Called by scripts/workflow claim/start after jj workspace add.
+# Called by the workflow script's claim/start commands after jj workspace add.
 # $1 = the new workspace directory.
 set -euo pipefail
 ws_dir="$1"
