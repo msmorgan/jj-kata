@@ -2,5 +2,5 @@
   "name": "jj-workflow",
   "displayName": "jj Workflow",
   "description": "Parallel-agent feature workflow for jj repos with guarded trunk integration and conflict tooling.",
-  "version": "0.10.1"
+  "version": "0.10.2"
 }
