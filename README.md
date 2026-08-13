@@ -1,6 +1,6 @@
-# jj-workflow
+# jj-kata
 
-`jj-workflow` is the workflow-specific layer that jj-sensei deliberately does
+`jj-kata` is the workflow-specific layer that jj-sensei deliberately does
 not provide: ticket-backed feature workspaces with a
 `start`/`claim` → `refresh` → `integrate` → `drop` lifecycle, plus a standalone
 Markdown Kanban inspector.
@@ -13,22 +13,22 @@ assumes that foundation and owns the opinionated project workflow on top.
 All executable functionality in this repository is Python. The plugin launchers
 load the `src/jj_workflow` package directly, so a plugin install does not need a
 separate package-install step. A conventional `pyproject.toml` and
-`jj-workflow` console entry point are also provided.
+`jj-kata` console entry point are also provided.
 
 ## Install
 
 ### Claude Code
 
 ```text
-/plugin marketplace add msmorgan/jj-workflow
-/plugin install jj-workflow@jj-workflow
+/plugin marketplace add msmorgan/jj-kata
+/plugin install jj-kata@jj-kata
 ```
 
 ### Codex
 
 ```bash
-codex plugin marketplace add msmorgan/jj-workflow
-codex plugin add jj-workflow@jj-workflow
+codex plugin marketplace add msmorgan/jj-kata
+codex plugin add jj-kata@jj-kata
 ```
 
 ### Antigravity
@@ -38,17 +38,17 @@ manifest.
 
 ## Feature lifecycle
 
-Load the `jj-workflow` skill and invoke its bundled command by absolute path. If
-the installed skill is `/PLUGIN/skills/jj-workflow/SKILL.md`:
+Load the `kata` skill and invoke its bundled command by absolute path. If the
+installed skill is `/PLUGIN/skills/kata/SKILL.md`:
 
 ```bash
-/PLUGIN/skills/jj-workflow/scripts/workflow claim ticket-slug
+/PLUGIN/scripts/jj-kata claim ticket-slug
 cd .workspaces/ticket-slug
 # work, then close the change with jj commit -m ...
-/PLUGIN/skills/jj-workflow/scripts/workflow refresh
-/PLUGIN/skills/jj-workflow/scripts/workflow integrate
+/PLUGIN/scripts/jj-kata refresh
+/PLUGIN/scripts/jj-kata integrate
 cd ../..
-/PLUGIN/skills/jj-workflow/scripts/workflow drop ticket-slug
+/PLUGIN/scripts/jj-kata drop ticket-slug
 ```
 
 `start NAME` creates ad-hoc work. `claim TICKET` moves the matching card from a
@@ -80,14 +80,13 @@ The default columns are `bugs, critical, planned, maybe, wip, done`.
 Load the `kanban` skill and run:
 
 ```bash
-/PLUGIN/skills/kanban/scripts/kanban board
-/PLUGIN/skills/kanban/scripts/kanban ready
-/PLUGIN/skills/kanban/scripts/kanban blocked
-/PLUGIN/skills/kanban/scripts/kanban graph CARD
-/PLUGIN/skills/kanban/scripts/kanban check
+/PLUGIN/scripts/jj-kata kanban board
+/PLUGIN/scripts/jj-kata kanban ready
+/PLUGIN/scripts/jj-kata kanban blocked
+/PLUGIN/scripts/jj-kata kanban graph CARD
+/PLUGIN/scripts/jj-kata kanban check
 ```
 
 The inspector searches upward for `docs/tickets`. `--root PATH` selects a board
 explicitly. `KANBAN_COLUMNS`, `KANBAN_WIP_COLUMN`, and `KANBAN_DONE_COLUMN`
 customize both inspection and lifecycle column names.
-

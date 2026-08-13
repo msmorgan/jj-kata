@@ -4,7 +4,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .errors import WorkflowError
+from .errors import KataError
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class Jj:
             print(process.stderr, end="", file=__import__("sys").stderr)
         if check and process.returncode:
             detail = process.stderr.strip() or process.stdout.strip()
-            raise WorkflowError(detail or f"jj {' '.join(args)} failed")
+            raise KataError(detail or f"jj {' '.join(args)} failed")
         return result
 
     def text(self, *args: str, cwd: Path) -> str:

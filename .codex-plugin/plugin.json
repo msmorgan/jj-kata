@@ -1,24 +1,24 @@
 {
-  "name": "jj-workflow",
-  "version": "0.10.2",
-  "description": "Ticket-backed Jujutsu feature workspaces with start, claim, refresh, integrate, and drop, plus Kanban inspection.",
+  "name": "jj-kata",
+  "version": "0.11.0",
+  "description": "Repeatable Jujutsu feature workspaces with start, claim, refresh, integrate, and drop, plus optional Kanban integration.",
   "author": {
     "name": "Michael Morgan",
     "url": "https://github.com/msmorgan"
   },
-  "homepage": "https://github.com/msmorgan/jj-workflow",
-  "repository": "https://github.com/msmorgan/jj-workflow",
+  "homepage": "https://github.com/msmorgan/jj-kata",
+  "repository": "https://github.com/msmorgan/jj-kata",
   "license": "MIT",
   "keywords": ["jujutsu", "jj", "workspaces", "kanban", "tickets"],
   "skills": "./skills/",
   "interface": {
-    "displayName": "jj Workflow",
-    "shortDescription": "Run ticket-backed jj feature workspaces",
-    "longDescription": "Manage start, claim, refresh, integrate, and drop for ticket-backed Jujutsu feature workspaces, and inspect the linked Kanban board.",
+    "displayName": "jj Kata",
+    "shortDescription": "Practice a repeatable jj workspace lifecycle",
+    "longDescription": "Manage start, claim, refresh, integrate, and drop for Jujutsu feature workspaces, with repository-defined work items and an optional folder Kanban integration.",
     "developerName": "Michael Morgan",
     "category": "Developer Tools",
     "capabilities": [],
-    "websiteURL": "https://github.com/msmorgan/jj-workflow",
+    "websiteURL": "https://github.com/msmorgan/jj-kata",
     "defaultPrompt": [
       "Claim a ticket in a new Jujutsu feature workspace.",
       "Refresh and integrate this feature workspace.",

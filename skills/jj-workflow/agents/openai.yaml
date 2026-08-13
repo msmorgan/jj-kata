@@ -1,5 +1,0 @@
-interface:
-  display_name: "jj Workflow"
-  short_description: "Run the claim-to-integrate workspace lifecycle"
-  default_prompt: "Use $jj-workflow to manage this repository's feature workspace lifecycle."
-

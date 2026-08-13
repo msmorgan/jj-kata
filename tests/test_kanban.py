@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-KANBAN = ROOT / "skills/kanban/scripts/kanban"
+KATA = ROOT / "scripts/jj-kata"
 
 
 def card(board: Path, column: str, slug: str, needs=()) -> None:
@@ -16,7 +16,7 @@ def card(board: Path, column: str, slug: str, needs=()) -> None:
 
 def run(board: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [str(KANBAN), "--root", str(board), *args],
+        [str(KATA), "kanban", "--root", str(board), *args],
         capture_output=True,
         text=True,
         env=os.environ,
@@ -83,7 +83,7 @@ def test_board_root_is_discovered_from_a_descendant(tmp_path):
     cwd.mkdir(parents=True)
 
     result = subprocess.run(
-        [str(KANBAN), "--slugs-only", "board"],
+        [str(KATA), "kanban", "--slugs-only", "board"],
         cwd=cwd,
         capture_output=True,
         text=True,

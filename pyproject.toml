@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jj-workflow"
-version = "0.10.2"
-description = "Ticket-backed feature workspace lifecycle for Jujutsu"
+name = "jj-kata"
+version = "0.11.0"
+description = "Repeatable feature-workspace practice for Jujutsu"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -13,7 +13,7 @@ authors = [{ name = "Michael Morgan" }]
 keywords = ["jujutsu", "jj", "workspaces", "kanban", "tickets"]
 
 [project.scripts]
-jj-workflow = "jj_workflow.cli:main"
+jj-kata = "jj_kata.cli:main"
 
 [project.optional-dependencies]
 dev = [

@@ -121,26 +121,34 @@ def find_cycles(cards: dict[str, Card]) -> list[str]:
     return ["cycle: " + " -> ".join(cycle) for cycle in sorted(cycles)]
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Inspect a Markdown-folder Kanban board."
-    )
+def configure_parser(
+    parser: argparse.ArgumentParser, *, command_dest: str = "command"
+) -> None:
     parser.add_argument("--root", help="ticket directory or project root")
     parser.add_argument(
         "--slugs-only", action="store_true", help="print only slugs where applicable"
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest=command_dest, required=True)
     subparsers.add_parser("board", help="list cards grouped by column")
     subparsers.add_parser("ready", help="list unblocked triage cards")
     subparsers.add_parser("blocked", help="list blocked triage cards")
     for command in ("graph", "needs"):
-        child = subparsers.add_parser(command)
+        child = subparsers.add_parser(command, help=f"show {command} for one card")
         child.add_argument("slug")
     subparsers.add_parser("check", help="validate the dependency graph")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="jj-kata kanban",
+        description="Inspect a Markdown-folder Kanban board.",
+    )
+    configure_parser(parser)
     return parser
 
 
 def run(args: argparse.Namespace) -> int:
+    command = getattr(args, "kanban_command", args.command)
     columns = comma_list(os.environ.get("KANBAN_COLUMNS", ",".join(DEFAULT_COLUMNS)))
     done = os.environ.get("KANBAN_DONE_COLUMN", "done")
     wip = os.environ.get("KANBAN_WIP_COLUMN", "wip")
@@ -150,7 +158,7 @@ def run(args: argparse.Namespace) -> int:
     cards, duplicate_problems = load_cards(root, columns)
     triage = triage_columns(columns, wip, done)
 
-    if args.command == "board":
+    if command == "board":
         by_column: dict[str, list[str]] = defaultdict(list)
         for card in cards.values():
             by_column[card.column].append(card.slug)
@@ -160,7 +168,7 @@ def run(args: argparse.Namespace) -> int:
                 print(slug if args.slugs_only else f"  {slug}")
         return 0
 
-    if args.command in {"ready", "blocked"}:
+    if command in {"ready", "blocked"}:
         ordered = sorted(
             cards.values(), key=lambda item: (columns.index(item.column), item.slug)
         )
@@ -168,7 +176,7 @@ def run(args: argparse.Namespace) -> int:
             if card.column not in triage:
                 continue
             unmet = blocked_needs(card, cards, done)
-            if (args.command == "ready") != (not unmet):
+            if (command == "ready") != (not unmet):
                 continue
             if args.slugs_only:
                 print(card.slug)
@@ -178,11 +186,11 @@ def run(args: argparse.Namespace) -> int:
                 print(f"{card.slug} ({card.column})")
         return 0
 
-    if args.command in {"graph", "needs"}:
+    if command in {"graph", "needs"}:
         if args.slug not in cards:
             print(f"kanban: unknown card: {args.slug}", file=sys.stderr)
             return 2
-        if args.command == "needs":
+        if command == "needs":
             print("\n".join(cards[args.slug].needs))
             return 0
 

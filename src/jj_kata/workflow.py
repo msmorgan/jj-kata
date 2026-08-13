@@ -22,7 +22,7 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def note(message: str) -> None:
-    print(f"workflow: {message}", file=sys.stderr)
+    print(f"jj-kata: {message}", file=sys.stderr)
 
 
 class Workflow:
@@ -357,7 +357,7 @@ class Workflow:
                 "-B",
                 "default@",
                 "-m",
-                f"workflow: start {name}",
+                f"kata: start {name}",
                 cwd=self.default_root,
             )
             claim_id = self._change_id("default@-")
@@ -441,7 +441,7 @@ class Workflow:
                 "--into",
                 self.bookmark_revset(into),
                 "-m",
-                f"workflow: claim {', '.join(slugs)}",
+                f"kata: claim {', '.join(slugs)}",
                 "--",
                 *paths,
                 cwd=self.default_root,
@@ -486,7 +486,7 @@ class Workflow:
                 "-r",
                 self.bookmark_revset(name),
                 "-m",
-                f"workflow: claim {name}",
+                f"kata: claim {name}",
                 cwd=self.default_root,
             )
             self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
@@ -660,7 +660,7 @@ class Workflow:
         behind = self._changes(f"{target}@-..default@- & ~empty()")
         if behind:
             raise WorkflowError(
-                f"{target} is behind trunk; run workflow refresh inside it first", 2
+                f"{target} is behind default; run jj-kata refresh inside it first", 2
             )
         slugs = self.claim_slugs(target)
         self._require_wip_tickets(target, ws_dir, slugs)
@@ -729,7 +729,7 @@ class Workflow:
             self.jj.run(
                 "commit",
                 "-m",
-                f"workflow: complete {' '.join(slugs)}",
+                f"kata: complete {' '.join(slugs)}",
                 "--",
                 *move_paths,
                 cwd=self.default_root,
@@ -741,7 +741,7 @@ class Workflow:
         if self._live(wc_id):
             self.jj.run("rebase", "-r", wc_id, "-d", "@-", cwd=self.default_root)
         self.unstale_workspaces()
-        note(f"integrated {target}; retire it with workflow drop {target}")
+        note(f"integrated {target}; retire it with jj-kata drop {target}")
 
     def _unintegrated_changes(self, name: str) -> list[str]:
         return self._changes(f"(default@..{name}@) ~ empty()")

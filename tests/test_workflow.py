@@ -6,10 +6,10 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKFLOW = ROOT / "skills" / "jj-workflow" / "scripts" / "workflow"
+KATA = ROOT / "scripts" / "jj-kata"
 WORKTREE_CREATE = ROOT / "hooks" / "worktree_create.py"
 WORKTREE_REMOVE = ROOT / "hooks" / "worktree_remove.py"
-TEST_CONFIG_HOME = Path("/tmp") / f"jj-workflow-tests-{os.getpid()}"
+TEST_CONFIG_HOME = Path("/tmp") / f"jj-kata-tests-{os.getpid()}"
 
 
 def run(
@@ -47,7 +47,7 @@ def jj(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess
 def workflow(
     cwd: Path, *args: str, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
-    return run(cwd, str(WORKFLOW), *args, check=check)
+    return run(cwd, str(KATA), *args, check=check)
 
 
 def init_repo(tmp_path: Path) -> Path:
@@ -128,7 +128,7 @@ def test_ticket_claim_refresh_and_integrate(tmp_path: Path) -> None:
 
     behind = workflow(repo, "integrate", "ticket-a", check=False)
     assert behind.returncode == 2
-    assert "behind trunk" in behind.stderr
+    assert "behind default" in behind.stderr
 
     workflow(workspace, "refresh")
     workflow(workspace, "integrate")
@@ -146,8 +146,8 @@ def test_ticket_claim_refresh_and_integrate(tmp_path: Path) -> None:
         "-T",
         'description.first_line() ++ "\\n"',
     ).stdout
-    assert "workflow: claim ticket-a" in descriptions
-    assert "workflow: complete ticket-a" in descriptions
+    assert "kata: claim ticket-a" in descriptions
+    assert "kata: complete ticket-a" in descriptions
 
 
 def test_claim_into_existing_workspace_completes_every_ticket(tmp_path: Path) -> None:
@@ -172,11 +172,11 @@ def test_claim_into_existing_workspace_completes_every_ticket(tmp_path: Path) ->
         "log",
         "--no-graph",
         "-r",
-        'description(glob:"workflow: claim *")',
+        'description(glob:"kata: claim *")',
         "-T",
         "description",
     ).stdout
-    assert description == "workflow: claim ticket-a, ticket-b\n"
+    assert description == "kata: claim ticket-a, ticket-b\n"
 
 
 def test_default_refresh_reorders_feature_before_integrate(tmp_path: Path) -> None:

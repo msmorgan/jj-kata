@@ -1,9 +1,9 @@
 ---
-name: jj-workflow
-description: "Use when working in a jj repository that follows jj-workflow's default-coordinator and feature-workspace lifecycle: start or claim work, refresh a feature from trunk, integrate closed work, retire a workspace, or manage the linked docs/tickets Kanban state. Signs include a default workspace with named feature workspaces, .workspaces/, or jjworkflow.toml."
+name: kata
+description: "Use when working in a jj repository that follows jj-kata's default-coordinator and feature-workspace lifecycle: start or claim work, refresh a feature from the default line, integrate closed work, or retire a workspace. Signs include a default workspace with named feature workspaces, .workspaces/, or jjkata.toml."
 ---
 
-# jj-workflow
+# jj-kata
 
 This skill owns the workflow-specific layer on top of Jujutsu:
 
@@ -20,12 +20,12 @@ workspace recovery.
 
 ## Command location
 
-Resolve `scripts/workflow` from this loaded `SKILL.md`, never from the target
-repository and never from `PATH`. If this file is
-`/PLUGIN/skills/jj-workflow/SKILL.md`, the command is:
+Resolve the plugin-root `scripts/jj-kata` from this loaded `SKILL.md`, never
+from the target repository and never from `PATH`. If this file is
+`/PLUGIN/skills/kata/SKILL.md`, the command is:
 
 ```bash
-/PLUGIN/skills/jj-workflow/scripts/workflow
+/PLUGIN/scripts/jj-kata
 ```
 
 Run it from the workspace it should act from. The command finds the repository
@@ -41,21 +41,21 @@ output only if the exit status is preserved.
 The `default` workspace coordinates creation and cross-feature changes:
 
 ```bash
-workflow start NAME
-workflow claim TICKET
-workflow claim TICKET... --into NAME
-workflow refresh NAME
-workflow refresh --all
-workflow integrate NAME
-workflow drop NAME
+jj-kata start NAME
+jj-kata claim ITEM
+jj-kata claim ITEM... --into NAME
+jj-kata refresh NAME
+jj-kata refresh --all
+jj-kata integrate NAME
+jj-kata drop NAME
 ```
 
 A feature workspace acts only on itself:
 
 ```bash
-workflow claim TICKET...   # add tickets to this feature's claim
-workflow refresh           # detach this feature onto current trunk
-workflow integrate         # integrate this feature
+jj-kata claim ITEM...   # add work items to this feature's claim
+jj-kata refresh         # detach this feature onto current default
+jj-kata integrate       # integrate this feature
 ```
 
 `start NAME` is ad hoc. `claim TICKET` creates a workspace with the ticket's
@@ -95,7 +95,7 @@ When a ticketed attempt is blocked or premature, edit the ticket with what was
 learned and run:
 
 ```bash
-workflow drop NAME --amend-ticket
+jj-kata drop NAME --amend-ticket
 ```
 
 That retires the claim and writes the edited ticket back to its triage column as
@@ -107,7 +107,7 @@ Use `drop --integrated` to sweep only parked, integrated, empty workspaces;
 
 ## Configuration
 
-All settings are optional in repository-root `jjworkflow.toml`:
+All settings are optional in repository-root `jjkata.toml`:
 
 ```toml
 workspace_dir = ".workspaces"

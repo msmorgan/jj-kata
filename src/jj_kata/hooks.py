@@ -46,31 +46,31 @@ def worktree_remove() -> int:
             if name in coordinator.workspace_names():
                 coordinator.drop(name)
     except WorkflowError as error:
-        print(f"workflow: worktree removal kept {name}: {error}", file=sys.stderr)
+        print(f"jj-kata: worktree removal kept {name}: {error}", file=sys.stderr)
     return 0
 
 
 def worktree_create_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="worktree_create.py",
-        description="Create a jj-workflow workspace from a worktree-hook JSON payload.",
+        description="Create a jj-kata workspace from a worktree-hook JSON payload.",
     )
     parser.parse_args(argv)
     try:
         return worktree_create()
     except WorkflowError as error:
-        print(f"workflow: {error}", file=sys.stderr)
+        print(f"jj-kata: {error}", file=sys.stderr)
         return error.code
 
 
 def worktree_remove_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="worktree_remove.py",
-        description="Retire a jj-workflow workspace from a worktree-hook JSON payload.",
+        description="Retire a jj-kata workspace from a worktree-hook JSON payload.",
     )
     parser.parse_args(argv)
     try:
         return worktree_remove()
     except WorkflowError as error:
-        print(f"workflow: worktree removal skipped: {error}", file=sys.stderr)
+        print(f"jj-kata: worktree removal skipped: {error}", file=sys.stderr)
         return 0

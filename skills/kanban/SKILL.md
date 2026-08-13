@@ -5,23 +5,23 @@ description: Use when a repository tracks work as Markdown cards in docs/tickets
 
 # Kanban
 
-Use the bundled `scripts/kanban` command to inspect a repository's file-backed
+Use the bundled `jj-kata kanban` command to inspect a repository's file-backed
 ticket board. The directory containing a card is its status column; a card's
 filename without `.md` is its slug.
 
-Resolve the command from this loaded `SKILL.md`, never from the project being
-inspected. If the loader reports `/PLUGIN/skills/kanban/SKILL.md`, the command
-is `/PLUGIN/skills/kanban/scripts/kanban`.
+Resolve the plugin-root command from this loaded `SKILL.md`, never from the
+project being inspected. If the loader reports
+`/PLUGIN/skills/kanban/SKILL.md`, the command is `/PLUGIN/scripts/jj-kata`.
 
 Run it from somewhere inside the target project:
 
 ```bash
-/PLUGIN/skills/kanban/scripts/kanban board
-/PLUGIN/skills/kanban/scripts/kanban ready
-/PLUGIN/skills/kanban/scripts/kanban blocked
-/PLUGIN/skills/kanban/scripts/kanban graph SLUG
-/PLUGIN/skills/kanban/scripts/kanban needs SLUG
-/PLUGIN/skills/kanban/scripts/kanban check
+/PLUGIN/scripts/jj-kata kanban board
+/PLUGIN/scripts/jj-kata kanban ready
+/PLUGIN/scripts/jj-kata kanban blocked
+/PLUGIN/scripts/jj-kata kanban graph SLUG
+/PLUGIN/scripts/jj-kata kanban needs SLUG
+/PLUGIN/scripts/jj-kata kanban check
 ```
 
 Commands are read-only:

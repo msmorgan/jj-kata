@@ -1,14 +1,14 @@
 {
-  "name": "jj-workflow",
+  "name": "jj-kata",
   "owner": {
     "name": "Michael Morgan"
   },
-  "description": "Marketplace for the jj-workflow lifecycle and Kanban plugin.",
+  "description": "Marketplace for the jj-kata lifecycle and Kanban plugin.",
   "plugins": [
     {
-      "name": "jj-workflow",
+      "name": "jj-kata",
       "source": "./",
-      "description": "Ticket-backed Jujutsu feature workspaces with lifecycle commands and Kanban inspection."
+      "description": "Repeatable Jujutsu feature workspaces with lifecycle commands and optional Kanban integration."
     }
   ]
 }

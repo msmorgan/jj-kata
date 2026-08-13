@@ -3,14 +3,16 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .errors import WorkflowError
+from .errors import KataError
+from .kanban import configure_parser as configure_kanban_parser
+from .kanban import run as run_kanban
 from .workflow import Workflow
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="workflow",
-        description="Manage jj-workflow feature workspaces and ticket claims.",
+        prog="jj-kata",
+        description="Practice a repeatable Jujutsu feature-workspace lifecycle.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -35,10 +37,17 @@ def build_parser() -> argparse.ArgumentParser:
     drop.add_argument("--amend-ticket", action="store_true")
     drop.add_argument("--integrated", action="store_true")
     drop.add_argument("--dry-run", action="store_true")
+
+    kanban = commands.add_parser(
+        "kanban", help="inspect the configured folder Kanban integration"
+    )
+    configure_kanban_parser(kanban, command_dest="kanban_command")
     return parser
 
 
 def dispatch(args: argparse.Namespace) -> int:
+    if args.command == "kanban":
+        return run_kanban(args)
     workflow = Workflow()
     with workflow.lock():
         if args.command == "start":
@@ -65,11 +74,11 @@ def dispatch(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         return dispatch(build_parser().parse_args(argv))
-    except WorkflowError as error:
-        print(f"workflow: {error}", file=sys.stderr)
+    except KataError as error:
+        print(f"jj-kata: {error}", file=sys.stderr)
         return error.code
     except KeyboardInterrupt:
-        print("workflow: interrupted", file=sys.stderr)
+        print("jj-kata: interrupted", file=sys.stderr)
         return 130
 
 

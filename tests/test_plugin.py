@@ -13,7 +13,7 @@ def test_manifests_describe_workflow_and_kanban_plugin() -> None:
     claude = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
     antigravity = json.loads((ROOT / "plugin.json").read_text())
 
-    assert codex["name"] == "jj-workflow"
+    assert codex["name"] == "jj-kata"
     assert codex["skills"] == "./skills/"
     assert codex["version"] == claude["version"] == antigravity["version"]
     assert "start, claim, refresh, integrate, and drop" in codex["description"]
@@ -22,8 +22,7 @@ def test_manifests_describe_workflow_and_kanban_plugin() -> None:
 
 def test_plugin_keeps_both_python_skills_and_worktree_bridges() -> None:
     expected = [
-        ROOT / "skills/kanban/scripts/kanban",
-        ROOT / "skills/jj-workflow/scripts/workflow",
+        ROOT / "scripts/jj-kata",
         ROOT / "hooks/worktree_create.py",
         ROOT / "hooks/worktree_remove.py",
     ]
@@ -32,21 +31,21 @@ def test_plugin_keeps_both_python_skills_and_worktree_bridges() -> None:
         assert command.read_text().startswith("#!/usr/bin/env python3\n")
 
     assert (ROOT / "skills/kanban/SKILL.md").is_file()
-    assert (ROOT / "skills/jj-workflow/SKILL.md").is_file()
+    assert (ROOT / "skills/kata/SKILL.md").is_file()
     assert (ROOT / "pyproject.toml").is_file()
 
 
 def test_every_shipped_executable_has_help() -> None:
     commands = [
-        [ROOT / "skills/kanban/scripts/kanban"],
+        [ROOT / "scripts/jj-kata"],
         *[
-            [ROOT / "skills/kanban/scripts/kanban", command]
-            for command in ("board", "ready", "blocked", "graph", "needs", "check")
-        ],
-        [ROOT / "skills/jj-workflow/scripts/workflow"],
-        *[
-            [ROOT / "skills/jj-workflow/scripts/workflow", command]
+            [ROOT / "scripts/jj-kata", command]
             for command in ("start", "claim", "refresh", "integrate", "drop")
+        ],
+        [ROOT / "scripts/jj-kata", "kanban"],
+        *[
+            [ROOT / "scripts/jj-kata", "kanban", command]
+            for command in ("board", "ready", "blocked", "graph", "needs", "check")
         ],
         [ROOT / "hooks/worktree_create.py"],
         [ROOT / "hooks/worktree_remove.py"],
@@ -76,5 +75,4 @@ def test_readme_draws_the_sensei_boundary() -> None:
 
     assert "general Jujutsu" in readme and "foundation" in readme
     assert "start`/`claim` → `refresh` → `integrate` → `drop`" in readme
-    assert "/PLUGIN/skills/jj-workflow/scripts/workflow" in readme
-    assert "/PLUGIN/skills/kanban/scripts/kanban" in readme
+    assert "/PLUGIN/scripts/jj-kata" in readme

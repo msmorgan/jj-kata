@@ -21,8 +21,8 @@ wheels = [
 ]
 
 [[package]]
-name = "jj-workflow"
-version = "0.10.2"
+name = "jj-kata"
+version = "0.11.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
