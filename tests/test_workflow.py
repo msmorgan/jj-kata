@@ -1134,6 +1134,23 @@ def test_missing_provision_and_kanban_executables_are_concise(tmp_path: Path) ->
     assert "Traceback" not in result.stderr
 
 
+def test_provisioning_only_runs_when_a_hook_is_configured(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    marker = repo / "provisioned.txt"
+    hook = scripts / "provision-workspace"
+    hook.write_text(f'#!/bin/sh\necho "$1" > {marker}\n')
+    hook.chmod(0o755)
+
+    workflow(repo, "start", "unprovisioned")
+    assert not marker.exists()
+
+    (repo / "kata.toml").write_text('provision_hook = "scripts/provision-workspace"\n')
+    workflow(repo, "start", "provisioned")
+    assert marker.read_text().strip() == str(repo / ".workspaces/provisioned")
+
+
 def test_boundary_check_rejects_semantic_lookalikes(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     jj(

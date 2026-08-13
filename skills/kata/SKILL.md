@@ -120,7 +120,7 @@ default root. `[messages]` may override Kata's `start`,
 
 ```toml
 workspace_dir = ".workspaces"
-provision_hook = "scripts/provision-workspace"
+provision_hook = "scripts/provision-workspace" # unset by default
 
 [items]
 driver = "kanban" # or "scripts/items"
@@ -130,9 +130,10 @@ visibility = "feature" # or "shared"; applies only to new claims
 The bundled Kanban driver is optional. It is a convenient ticket framework,
 not a prerequisite or part of the parallel-workspace topology.
 
-The provision hook is optional. Kata calls an executable hook with the created
-workspace path after creation; a hook failure deliberately leaves that
-workspace intact for inspection.
+The provision hook is off unless `provision_hook` names it; Kata never
+discovers one by convention. When set, Kata calls the executable with the
+created workspace path after creation, and a hook failure deliberately leaves
+that workspace intact for inspection.
 
 Use the plugin-root [example configuration](../../kata.example.toml) as the
 complete starting point. A legacy `jjworkflow.toml` is a hard migration refusal.

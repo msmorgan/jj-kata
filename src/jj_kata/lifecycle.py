@@ -383,19 +383,17 @@ class Lifecycle:
             shutil.rmtree(ws_dir)
 
     def _provision_path(self) -> Path | None:
-        configured = "provision_hook" in self.config
-        provision = Path(
-            str(self.config.get("provision_hook", "scripts/provision-workspace"))
-        )
+        setting = self.config.get("provision_hook")
+        if setting is None:
+            return None
+        provision = Path(str(setting))
         if not provision.is_absolute():
             provision = self.default_root / provision
         if not provision.exists():
-            if configured:
-                raise KataError(
-                    f"provision hook does not exist: {provision}",
-                    2,
-                )
-            return None
+            raise KataError(
+                f"provision hook does not exist: {provision}",
+                2,
+            )
         if not provision.is_file() or not os.access(provision, os.X_OK):
             raise KataError(f"provision hook is not executable: {provision}", 2)
         return provision

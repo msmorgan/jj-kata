@@ -4,6 +4,7 @@
 workspace_dir = ".workspaces"
 
 # Executable called after workspace creation with the new workspace path.
+# Unset by default: without this line no provisioning step runs.
 # provision_hook = "scripts/provision-workspace"
 
 # Descriptions for commits Kata creates. Available fields are {workspace} and
