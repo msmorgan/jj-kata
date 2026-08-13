@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
@@ -5,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_manifests_describe_the_kanban_only_plugin():
+def test_manifests_describe_workflow_and_kanban_plugin() -> None:
     codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
     claude = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
     antigravity = json.loads((ROOT / "plugin.json").read_text())
@@ -13,22 +15,42 @@ def test_manifests_describe_the_kanban_only_plugin():
     assert codex["name"] == "jj-workflow"
     assert codex["skills"] == "./skills/"
     assert codex["version"] == claude["version"] == antigravity["version"]
+    assert "start, claim, refresh, integrate, and drop" in codex["description"]
     assert "Kanban" in codex["description"]
+
+
+def test_plugin_keeps_both_python_skills_and_worktree_bridges() -> None:
+    expected = [
+        ROOT / "skills/kanban/scripts/kanban",
+        ROOT / "skills/jj-workflow/scripts/workflow",
+        ROOT / "hooks/worktree_create.py",
+        ROOT / "hooks/worktree_remove.py",
+    ]
+    for command in expected:
+        assert command.is_file() and os.access(command, os.X_OK)
+        assert command.read_text().startswith("#!/usr/bin/env python3\n")
+
     assert (ROOT / "skills/kanban/SKILL.md").is_file()
-    command = ROOT / "skills/kanban/scripts/kanban"
-    assert command.is_file() and os.access(command, os.X_OK)
+    assert (ROOT / "skills/jj-workflow/SKILL.md").is_file()
+    assert (ROOT / "pyproject.toml").is_file()
 
 
-def test_superseded_components_are_absent():
+def test_superseded_generic_components_remain_absent() -> None:
     assert not (ROOT / "hooks.json").exists()
-    assert not (ROOT / "hooks").exists()
-    assert not (ROOT / "skills/jj-workflow").exists()
+    assert not (ROOT / "hooks/hooks.json").exists()
     assert not (ROOT / "skills/setup").exists()
     assert not (ROOT / "skills/handoff").exists()
+    executable_sources = [ROOT / name for name in ("src", "skills", "hooks", "tests")]
+    assert not [
+        path for source in executable_sources for path in source.rglob("*.fish")
+    ]
+    assert not [path for source in executable_sources for path in source.rglob("*.pl")]
 
 
-def test_readme_points_superseded_features_to_jj_sensei():
+def test_readme_draws_the_sensei_boundary() -> None:
     readme = (ROOT / "README.md").read_text()
 
-    assert "moved to [jj-sensei]" in readme
+    assert "general Jujutsu" in readme and "foundation" in readme
+    assert "start`/`claim` → `refresh` → `integrate` → `drop`" in readme
+    assert "/PLUGIN/skills/jj-workflow/scripts/workflow" in readme
     assert "/PLUGIN/skills/kanban/scripts/kanban" in readme

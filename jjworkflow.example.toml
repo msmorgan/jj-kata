@@ -1,0 +1,8 @@
+# Copy to jjworkflow.toml in a repository root. Every setting is optional.
+
+# Feature workspace base. Relative paths resolve from the default workspace.
+workspace_dir = ".workspaces"
+
+# Executable called after workspace creation with the new workspace path.
+provision_hook = "scripts/provision-workspace"
+

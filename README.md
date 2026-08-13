@@ -1,12 +1,19 @@
 # jj-workflow
 
-> The Jujutsu workflow, workspace-safety, status, and repair features that used
-> to live here have moved to [jj-sensei](https://github.com/msmorgan/jj-sensei).
+`jj-workflow` is the workflow-specific layer that jj-sensei deliberately does
+not provide: ticket-backed feature workspaces with a
+`start`/`claim` → `refresh` → `integrate` → `drop` lifecycle, plus a standalone
+Markdown Kanban inspector.
 
-This plugin now contains only a small, file-backed Kanban helper for coding
-agents. Cards are Markdown files under `docs/tickets/<column>/`; their directory
-is their board column. Optional `needs: [slug, ...]` frontmatter records card
-dependencies.
+[jj-sensei](https://github.com/msmorgan/jj-sensei) remains the general Jujutsu
+foundation. Use it for installed-version jj knowledge, repository boundaries,
+status, history-shaping guidance, and conflict/divergence repair. This plugin
+assumes that foundation and owns the opinionated project workflow on top.
+
+All executable functionality in this repository is Python. The plugin launchers
+load the `src/jj_workflow` package directly, so a plugin install does not need a
+separate package-install step. A conventional `pyproject.toml` and
+`jj-workflow` console entry point are also provided.
 
 ## Install
 
@@ -29,31 +36,48 @@ codex plugin add jj-workflow@jj-workflow
 Install this repository as a custom plugin. `plugin.json` is its native
 manifest.
 
-## Board shape
+## Feature lifecycle
 
-The default columns are:
+Load the `jj-workflow` skill and invoke its bundled command by absolute path. If
+the installed skill is `/PLUGIN/skills/jj-workflow/SKILL.md`:
 
-```text
-docs/tickets/
-  bugs/
-  critical/
-  planned/
-  maybe/
-  wip/
-  done/
+```bash
+/PLUGIN/skills/jj-workflow/scripts/workflow claim ticket-slug
+cd .workspaces/ticket-slug
+# work, then close the change with jj commit -m ...
+/PLUGIN/skills/jj-workflow/scripts/workflow refresh
+/PLUGIN/skills/jj-workflow/scripts/workflow integrate
+cd ../..
+/PLUGIN/skills/jj-workflow/scripts/workflow drop ticket-slug
 ```
 
-A card may declare dependencies in YAML-style frontmatter:
+`start NAME` creates ad-hoc work. `claim TICKET` moves the matching card from a
+triage column into `wip`; `integrate` moves it to `done`. Extra tickets can be
+folded into an existing claim with `claim TICKET... --into NAME` from `default`,
+or `claim TICKET...` from inside that feature workspace.
 
-```markdown
----
-needs: [parser-foundation, diagnostics-api]
----
-# Preserve source spans
-```
+The default coordinator owns `start`, cross-feature `claim`, named/all
+`refresh`, named `integrate`, and `drop`. A feature workspace can claim into,
+refresh, or integrate only itself. Integration requires an empty, undescribed
+working-copy change and keeps the workspace parked on the integrated tip until
+`drop` retires it.
 
-Load the `kanban` skill and run its bundled command by absolute path. If the
-skill loader reports `/PLUGIN/skills/kanban/SKILL.md`, use:
+All settings are optional in `jjworkflow.toml`; see
+`jjworkflow.example.toml`. Feature workspaces default to `.workspaces/`, and an
+executable `scripts/provision-workspace` is called after creation when present.
+
+The Python `hooks/worktree_create.py` and `hooks/worktree_remove.py` bridge
+hosts with WorktreeCreate/WorktreeRemove events to this lifecycle. Register
+them per repository only: a WorktreeCreate hook replaces a host's native Git
+worktree creation and must not be enabled globally for unrelated repositories.
+
+## Kanban inspector
+
+Cards are Markdown files under `docs/tickets/<column>/`; their directory is the
+board column. Optional `needs: [slug, ...]` frontmatter records dependencies.
+The default columns are `bugs, critical, planned, maybe, wip, done`.
+
+Load the `kanban` skill and run:
 
 ```bash
 /PLUGIN/skills/kanban/scripts/kanban board
@@ -63,11 +87,7 @@ skill loader reports `/PLUGIN/skills/kanban/SKILL.md`, use:
 /PLUGIN/skills/kanban/scripts/kanban check
 ```
 
-The command searches upward from the current directory for `docs/tickets`.
-Pass `--root PATH` to select a board explicitly. Override the recognized column
-order with `KANBAN_COLUMNS` (a comma-separated list) and the completed column
-with `KANBAN_DONE_COLUMN`.
+The inspector searches upward for `docs/tickets`. `--root PATH` selects a board
+explicitly. `KANBAN_COLUMNS`, `KANBAN_WIP_COLUMN`, and `KANBAN_DONE_COLUMN`
+customize both inspection and lifecycle column names.
 
-The plugin deliberately ships no jj hooks, workspace lifecycle, setup,
-conflict repair, status reporting, or handoff machinery. Install jj-sensei for
-those concerns.

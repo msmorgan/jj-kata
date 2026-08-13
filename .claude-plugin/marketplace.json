@@ -3,12 +3,12 @@
   "owner": {
     "name": "Michael Morgan"
   },
-  "description": "Marketplace for the jj-workflow file-backed Kanban plugin.",
+  "description": "Marketplace for the jj-workflow lifecycle and Kanban plugin.",
   "plugins": [
     {
       "name": "jj-workflow",
       "source": "./",
-      "description": "Markdown-folder Kanban boards with dependency-aware ready, blocked, graph, and validation views."
+      "description": "Ticket-backed Jujutsu feature workspaces with lifecycle commands and Kanban inspection."
     }
   ]
 }

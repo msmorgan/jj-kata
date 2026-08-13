@@ -24,7 +24,8 @@ def worktree_create() -> int:
     cwd = Path(str(data.get("cwd") or Path.cwd()))
     if not name:
         raise WorkflowError("worktree hook input has no name", 2)
-    workflow = Workflow(cwd)
+    probe = Workflow(cwd)
+    workflow = Workflow(probe.default_root)
     with workflow.lock():
         path = workflow.claim([name], or_start=True)
     if path:
@@ -35,7 +36,8 @@ def worktree_create() -> int:
 def worktree_remove() -> int:
     data = _payload()
     cwd = Path(str(data.get("cwd") or Path.cwd()))
-    name = str(data.get("name") or data.get("worktree_name") or cwd.name)
+    worktree_path = Path(str(data.get("worktree_path") or cwd))
+    name = str(data.get("name") or data.get("worktree_name") or worktree_path.name)
     try:
         workflow = Workflow(cwd)
         coordinator = Workflow(workflow.default_root)

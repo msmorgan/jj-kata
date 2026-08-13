@@ -1,19 +1,28 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / "skills" / "jj-workflow" / "scripts" / "workflow"
+WORKTREE_CREATE = ROOT / "hooks" / "worktree_create.py"
+WORKTREE_REMOVE = ROOT / "hooks" / "worktree_remove.py"
 TEST_CONFIG_HOME = Path("/tmp") / f"jj-workflow-tests-{os.getpid()}"
 
 
-def run(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run(
+    cwd: Path,
+    *args: str,
+    check: bool = True,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     process = subprocess.run(
         [*args],
         cwd=cwd,
         text=True,
+        input=input_text,
         capture_output=True,
         env={
             **os.environ,
@@ -141,6 +150,51 @@ def test_ticket_claim_refresh_and_integrate(tmp_path: Path) -> None:
     assert "workflow: complete ticket-a" in descriptions
 
 
+def test_claim_into_existing_workspace_completes_every_ticket(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    add_ticket(repo, "ticket-a")
+    add_ticket(repo, "ticket-b")
+    workflow(repo, "claim", "ticket-a")
+
+    workflow(repo, "claim", "ticket-b", "--into", "ticket-a")
+    workspace = repo / ".workspaces" / "ticket-a"
+    assert (workspace / "docs/tickets/wip/ticket-a.md").is_file()
+    assert (workspace / "docs/tickets/wip/ticket-b.md").is_file()
+    (workspace / "feature.txt").write_text("both tickets\n")
+    jj(workspace, "commit", "-m", "feat: both tickets")
+
+    workflow(repo, "integrate", "ticket-a")
+
+    assert (repo / "docs/tickets/done/ticket-a.md").is_file()
+    assert (repo / "docs/tickets/done/ticket-b.md").is_file()
+    description = jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        'description(glob:"workflow: claim *")',
+        "-T",
+        "description",
+    ).stdout
+    assert description == "workflow: claim ticket-a, ticket-b\n"
+
+
+def test_default_refresh_reorders_feature_before_integrate(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    workflow(repo, "start", "feature-a")
+    workspace = repo / ".workspaces" / "feature-a"
+    (repo / "trunk.txt").write_text("new trunk\n")
+    jj(repo, "commit", "-m", "trunk: advance")
+    (workspace / "feature.txt").write_text("feature\n")
+    jj(workspace, "commit", "-m", "feat: work")
+
+    workflow(repo, "refresh", "feature-a")
+    workflow(repo, "integrate", "feature-a")
+
+    assert (repo / "trunk.txt").is_file()
+    assert (repo / "feature.txt").is_file()
+
+
 def test_integrate_requires_closed_working_copy(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     workflow(repo, "start", "feature-a")
@@ -186,3 +240,19 @@ def test_plain_drop_refuses_unintegrated_work(tmp_path: Path) -> None:
     assert "un-integrated work" in result.stderr
     assert workspace.is_dir()
     assert (workspace / "work.txt").is_file()
+
+
+def test_worktree_hooks_create_and_safely_remove_ad_hoc_workspace(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    payload = json.dumps({"cwd": str(repo), "name": "background-task"})
+
+    created = run(repo, str(WORKTREE_CREATE), input_text=payload)
+    workspace = repo / ".workspaces" / "background-task"
+    assert Path(created.stdout.strip()) == workspace
+    assert workspace.is_dir()
+
+    removed = run(repo, str(WORKTREE_REMOVE), input_text=payload)
+    assert removed.returncode == 0
+    assert not workspace.exists()

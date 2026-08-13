@@ -1,7 +1,7 @@
 {
   "name": "jj-workflow",
   "version": "0.10.2",
-  "description": "Markdown-folder Kanban boards with dependency-aware ready, blocked, graph, and validation views.",
+  "description": "Ticket-backed Jujutsu feature workspaces with start, claim, refresh, integrate, and drop, plus Kanban inspection.",
   "author": {
     "name": "Michael Morgan",
     "url": "https://github.com/msmorgan"
@@ -9,20 +9,20 @@
   "homepage": "https://github.com/msmorgan/jj-workflow",
   "repository": "https://github.com/msmorgan/jj-workflow",
   "license": "MIT",
-  "keywords": ["kanban", "tickets", "planning", "dependencies"],
+  "keywords": ["jujutsu", "jj", "workspaces", "kanban", "tickets"],
   "skills": "./skills/",
   "interface": {
-    "displayName": "Kanban Tickets",
-    "shortDescription": "Inspect file-backed Kanban ticket boards",
-    "longDescription": "Inspect Markdown tickets by status column, find ready and blocked cards, trace dependencies, and validate the board graph.",
+    "displayName": "jj Workflow",
+    "shortDescription": "Run ticket-backed jj feature workspaces",
+    "longDescription": "Manage start, claim, refresh, integrate, and drop for ticket-backed Jujutsu feature workspaces, and inspect the linked Kanban board.",
     "developerName": "Michael Morgan",
     "category": "Developer Tools",
-    "capabilities": ["Read"],
+    "capabilities": [],
     "websiteURL": "https://github.com/msmorgan/jj-workflow",
     "defaultPrompt": [
-      "Show me this repository's Kanban board.",
-      "Which tickets are ready or blocked?",
-      "Check the ticket dependency graph."
+      "Claim a ticket in a new Jujutsu feature workspace.",
+      "Refresh and integrate this feature workspace.",
+      "Show which Kanban tickets are ready or blocked."
     ],
     "brandColor": "#5B5BD6"
   }

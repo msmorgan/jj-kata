@@ -1,6 +1,6 @@
 {
   "name": "jj-workflow",
-  "displayName": "Kanban Tickets",
-  "description": "Markdown-folder Kanban boards with dependency-aware ready, blocked, graph, and validation views.",
+  "displayName": "jj Workflow",
+  "description": "Ticket-backed Jujutsu feature workspaces with lifecycle commands and Kanban inspection.",
   "version": "0.10.2"
 }
