@@ -108,8 +108,7 @@ def find_cycles(cards: dict[str, Card]) -> list[str]:
                 start = stack.index(need)
                 cycle = tuple(stack[start:] + [need])
                 rotations = [
-                    cycle[index:-1] + cycle[:index]
-                    for index in range(len(cycle) - 1)
+                    cycle[index:-1] + cycle[:index] for index in range(len(cycle) - 1)
                 ]
                 canonical = min(rotations)
                 cycles.add(canonical + (canonical[0],))
@@ -123,7 +122,9 @@ def find_cycles(cards: dict[str, Card]) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Inspect a Markdown-folder Kanban board.")
+    parser = argparse.ArgumentParser(
+        description="Inspect a Markdown-folder Kanban board."
+    )
     parser.add_argument("--root", help="ticket directory or project root")
     parser.add_argument(
         "--slugs-only", action="store_true", help="print only slugs where applicable"
@@ -205,8 +206,7 @@ def run(args: argparse.Namespace) -> int:
 
         print("needs (upstream): " + (", ".join(map(display, upstream)) or "(none)"))
         print(
-            "blocks (downstream): "
-            + (", ".join(map(display, downstream)) or "(none)")
+            "blocks (downstream): " + (", ".join(map(display, downstream)) or "(none)")
         )
         return 0
 
@@ -230,4 +230,3 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         print(f"kanban: {error}", file=sys.stderr)
         return 2
-

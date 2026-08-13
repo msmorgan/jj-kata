@@ -44,4 +44,3 @@ class Jj:
 
     def lines(self, *args: str, cwd: Path) -> list[str]:
         return [line for line in self.text(*args, cwd=cwd).splitlines() if line]
-
