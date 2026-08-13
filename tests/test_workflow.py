@@ -77,6 +77,20 @@ def init_repo(tmp_path: Path) -> Path:
     return repo
 
 
+def test_lifecycle_requires_sensei_workspace_boundaries(tmp_path: Path) -> None:
+    repo = tmp_path / "unguarded"
+    repo.mkdir()
+    jj(repo, "git", "init", "--colocate")
+    (repo / "base.txt").write_text("base\n")
+    jj(repo, "commit", "-m", "base")
+
+    result = workflow(repo, "start", "unsafe", check=False)
+
+    assert result.returncode == 2
+    assert "jj-sensei workspace boundaries" in result.stderr
+    assert not (repo / ".workspaces/unsafe").exists()
+
+
 def add_ticket(repo: Path, slug: str, column: str = "planned") -> None:
     directory = repo / "docs" / "tickets" / column
     directory.mkdir(parents=True, exist_ok=True)

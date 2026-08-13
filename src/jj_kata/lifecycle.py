@@ -39,6 +39,7 @@ class Lifecycle:
                 "workspace", "root", "--name", "default", cwd=self.current_root
             )
         ).resolve()
+        self._require_workspace_boundaries()
         self.config: dict[str, Any] = load_config(self.default_root)
         lifecycle = section(self.config, "lifecycle")
         self.visibility = str(
@@ -50,6 +51,35 @@ class Lifecycle:
             self.config, self.default_root
         )
         self.unbankable: set[str] = set()
+
+    def _require_workspace_boundaries(self) -> None:
+        configured = self.jj.run(
+            "config",
+            "list",
+            "--repo",
+            cwd=self.default_root,
+            check=False,
+        ).stdout
+        definition = next(
+            (
+                line
+                for line in configured.splitlines()
+                if line.startswith('revset-aliases."immutable_heads()"')
+            ),
+            "",
+        )
+        protects_workspaces = (
+            "working_copies()" in definition or "other_workspaces()" in definition
+        )
+        distinguishes_default = (
+            "default@" in definition or "not_default()" in definition
+        )
+        if not (protects_workspaces and distinguishes_default):
+            raise KataError(
+                "jj-sensei workspace boundaries are not configured for this repository; "
+                "use jj-sensei's boundaries skill before running Kata",
+                2,
+            )
 
     @contextmanager
     def lock(self) -> Iterator[None]:

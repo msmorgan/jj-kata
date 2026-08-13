@@ -9,6 +9,9 @@ foundation. It teaches installed-version jj semantics and installs the
 repository boundaries that keep live workspaces from rewriting one another.
 Kata assumes those boundaries and owns only the
 `start`/`claim` → `refresh` → `integrate` → `drop` lifecycle.
+Mutating lifecycle commands refuse repositories that do not have a
+workspace-aware repository `immutable_heads()` definition; use jj-sensei's
+boundaries skill to install or audit it first.
 
 Everything executable in this plugin is Python. The plugin launcher imports the
 `src/jj_kata` package directly, while `pyproject.toml` also provides a normal

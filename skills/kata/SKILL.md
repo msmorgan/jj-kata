@@ -10,6 +10,10 @@ Use Kata for the repository's `start`/`claim` → `refresh` → `integrate` →
 history shaping outside this lifecycle, and stale/divergent/conflicted workspace
 repair.
 
+Kata refuses lifecycle commands when the repository lacks a workspace-aware
+`immutable_heads()` definition. Use jj-sensei's boundaries skill to install or
+audit it; never bypass the refusal.
+
 ## Command
 
 Resolve the plugin-root `scripts/jj-kata` from this loaded `SKILL.md`, never
