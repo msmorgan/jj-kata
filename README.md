@@ -82,9 +82,10 @@ an integrated empty workspace have no unambiguous visible distinction.
 
 ## Visibility
 
-The default is ordinary feature-local work:
+The default claim mode is ordinary feature-local work:
 
 ```toml
+[items]
 visibility = "feature"
 ```
 
@@ -95,6 +96,7 @@ Features have no Kata bookmark.
 Repositories that want newly started work to see active claims can opt into:
 
 ```toml
+[items]
 visibility = "shared"
 ```
 
@@ -207,9 +209,22 @@ adapter and lifecycle item driver.
 
 ## Configuration and hooks
 
-Copy `jjkata.example.toml` to a repository's default workspace. Relative paths
-resolve from that root. `jjworkflow.toml` is still read as a migration aid, but
-new repositories should use `jjkata.toml`.
+Copy [`jjkata.example.toml`](jjkata.example.toml) to a repository's default
+workspace. Relative paths resolve from that root. `jjkata.toml` is the only
+configuration filename. The clean break intentionally refuses a legacy
+`jjworkflow.toml`; migrate the wanted settings, then remove the legacy file
+before running lifecycle commands.
+
+Kata-authored descriptions are templates with `{workspace}` and `{items}`
+fields. Configure any or all of them under `[messages]`:
+
+```toml
+[messages]
+start = "coordination: open {workspace}"
+claim = "coordination: claim {items} for {workspace}"
+complete = "coordination: complete {items}"
+return = "coordination: return {items}"
+```
 
 The Python `hooks/worktree_create.py` and `hooks/worktree_remove.py` bridges are
 repository opt-in. The create hook replaces native Git-worktree creation, so

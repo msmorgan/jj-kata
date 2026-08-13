@@ -6,25 +6,31 @@ from typing import Any
 
 from .errors import KataError
 
-CONFIG_NAMES = ("jjkata.toml", "jjworkflow.toml")
+CONFIG_NAME = "jjkata.toml"
+LEGACY_CONFIG_NAME = "jjworkflow.toml"
 
 
 def load_config(root: Path) -> dict[str, Any]:
-    for name in CONFIG_NAMES:
-        path = root / name
-        if not path.is_file():
-            continue
-        try:
-            with path.open("rb") as config_file:
-                return tomllib.load(config_file)
-        except tomllib.TOMLDecodeError as error:
-            raise KataError(f"invalid {path}: {error}", 2) from error
-    return {}
+    legacy = root / LEGACY_CONFIG_NAME
+    if legacy.exists():
+        raise KataError(
+            f"legacy {LEGACY_CONFIG_NAME} state is not accepted by jj-kata 0.11; "
+            f"remove or migrate it to {CONFIG_NAME} before using Kata",
+            2,
+        )
+    path = root / CONFIG_NAME
+    if not path.is_file():
+        return {}
+    try:
+        with path.open("rb") as config_file:
+            return tomllib.load(config_file)
+    except tomllib.TOMLDecodeError as error:
+        raise KataError(f"invalid {path}: {error}", 2) from error
 
 
 def find_config(start: Path) -> tuple[Path | None, dict[str, Any]]:
     for directory in (start.resolve(), *start.resolve().parents):
-        if any((directory / name).is_file() for name in CONFIG_NAMES):
+        if (directory / CONFIG_NAME).is_file():
             return directory, load_config(directory)
     return None, {}
 

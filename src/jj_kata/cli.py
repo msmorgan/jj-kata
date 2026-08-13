@@ -44,17 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     drop.add_argument(
         "--return-items",
         action="store_true",
-        dest="amend_ticket",
         help="return owned items through the configured driver before dropping",
     )
-    drop.add_argument(
-        "--amend-ticket",
-        action="store_true",
-        dest="amend_ticket",
-        help=argparse.SUPPRESS,
-    )
-    drop.add_argument("--integrated", action="store_true")
-    drop.add_argument("--dry-run", action="store_true")
 
     kanban = commands.add_parser(
         "kanban", help="inspect the configured folder Kanban integration"
@@ -98,9 +89,7 @@ def dispatch(args: argparse.Namespace) -> int:
             lifecycle.drop(
                 args.name,
                 force=args.force,
-                amend_ticket=args.amend_ticket,
-                integrated=args.integrated,
-                dry_run=args.dry_run,
+                return_items=args.return_items,
             )
     return 0
 

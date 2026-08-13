@@ -20,6 +20,13 @@ from .jj import Jj
 EXPECTED_STOP = 69
 LOCK_TIMEOUT = 75
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+DEFAULT_MESSAGES = {
+    "start": "kata: start {workspace}",
+    "claim": "kata: claim {items}",
+    "complete": "kata: complete {items}",
+    "return": "items: return {items}",
+}
+MINIMUM_JJ = (0, 43, 0)
 
 
 def note(message: str) -> None:
@@ -41,16 +48,48 @@ class Lifecycle:
         self._require_jj_version()
         self._require_workspace_boundaries()
         self.config: dict[str, Any] = load_config(self.default_root)
-        lifecycle = section(self.config, "lifecycle")
-        self.visibility = str(
-            lifecycle.get("visibility", self.config.get("visibility", "feature"))
-        )
-        if self.visibility not in {"feature", "shared"}:
-            raise KataError("visibility must be 'feature' or 'shared'", 2)
+        items = section(self.config, "items")
+        self.claim_visibility = str(items.get("visibility", "feature"))
+        if self.claim_visibility not in {"feature", "shared"}:
+            raise KataError("[items].visibility must be 'feature' or 'shared'", 2)
         self.item_driver: ItemDriver | None = load_driver(
             self.config, self.default_root
         )
+        self.messages = section(self.config, "messages")
+        unknown_messages = set(self.messages) - set(DEFAULT_MESSAGES)
+        if unknown_messages:
+            raise KataError(
+                "unknown [messages] key(s): " + ", ".join(sorted(unknown_messages)),
+                2,
+            )
+        for action in DEFAULT_MESSAGES:
+            self.message(action, "workspace", ("item",))
         self.unbankable: set[str] = set()
+
+    def _require_jj_version(self) -> None:
+        output = self.jj.text("--version", cwd=self.default_root)
+        match = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", output)
+        if match is None:
+            raise KataError(f"could not parse jj version from {output!r}", 2)
+        installed = tuple(int(part) for part in match.groups())
+        if installed < MINIMUM_JJ:
+            required = ".".join(map(str, MINIMUM_JJ))
+            raise KataError(
+                f"jj-kata requires jj {required} or newer (found {output})", 2
+            )
+
+    def message(self, action: str, workspace: str, items: tuple[str, ...] = ()) -> str:
+        template = self.messages.get(action, DEFAULT_MESSAGES[action])
+        if not isinstance(template, str) or not template.strip():
+            raise KataError(f"[messages].{action} must be a non-empty string", 2)
+        try:
+            return template.format(workspace=workspace, items=", ".join(items))
+        except (AttributeError, IndexError, KeyError, ValueError) as error:
+            raise KataError(
+                f"invalid [messages].{action} template: {error}; "
+                "available fields are {workspace} and {items}",
+                2,
+            ) from error
 
     def _require_workspace_boundaries(self) -> None:
         aliases = self.jj.run(
@@ -95,12 +134,7 @@ class Lifecycle:
         import fcntl
 
         lock_path = self.default_root / ".jj" / "kata.lock"
-        timeout = float(
-            os.environ.get(
-                "JJ_KATA_LOCK_TIMEOUT",
-                os.environ.get("JJ_WORKFLOW_LOCK_TIMEOUT", "600"),
-            )
-        )
+        timeout = float(os.environ.get("JJ_KATA_LOCK_TIMEOUT", "600"))
         deadline = time.monotonic() + timeout
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         with lock_path.open("a+") as lock_file:
@@ -383,7 +417,7 @@ class Lifecycle:
                 f"provision hook failed; workspace remains at {ws_dir}", EXPECTED_STOP
             )
 
-    def start(self, name: str) -> Path:
+    def _start(self, name: str, *, shared_claim: bool = False) -> Path:
         self.require_default("start")
         self.validate_name(name)
         self.require_linear_default()
@@ -398,7 +432,7 @@ class Lifecycle:
         self._ignore_workspace_base(self.workspace_base())
         anchor_id = ""
         try:
-            if self.visibility == "shared":
+            if shared_claim:
                 self.jj.run(
                     "new",
                     "--no-edit",
@@ -407,7 +441,7 @@ class Lifecycle:
                     "-B",
                     "default@",
                     "-m",
-                    f"kata: start {name}",
+                    self.message("start", name),
                     cwd=self.default_root,
                 )
                 anchor_id = self._change_id("default@-")
@@ -425,6 +459,9 @@ class Lifecycle:
             raise
         self._provision(provision, ws_dir)
         return ws_dir
+
+    def start(self, name: str) -> Path:
+        return self._start(name)
 
     def _driver(self) -> ItemDriver:
         if self.item_driver is None:
@@ -528,9 +565,22 @@ class Lifecycle:
     def owned_items(self, name: str, ws_dir: Path | None = None) -> tuple[str, ...]:
         return self.ownership(name, ws_dir).items
 
-    def _claim_change(self, name: str, ws_dir: Path) -> str | None:
-        changes = self._changes(
-            f'default@..{name}@ & description(glob:"kata: claim *")', cwd=ws_dir
+    def _claim_change(
+        self, name: str, ws_dir: Path, paths: tuple[str, ...]
+    ) -> str | None:
+        if not paths:
+            return None
+        changes = self.jj.lines(
+            "log",
+            "--no-graph",
+            "-r",
+            f"default@..{name}@ ~ empty()",
+            "-T",
+            'change_id ++ "\\n"',
+            "--ignore-working-copy",
+            "--",
+            *self._filesets(paths),
+            cwd=ws_dir,
         )
         return changes[0] if len(changes) == 1 else None
 
@@ -600,11 +650,15 @@ class Lifecycle:
             self.unstale_workspaces()
             return
 
-        existing = self.owned_items(into, ws_dir)
-        claim_change = self._claim_change(into, ws_dir)
+        existing_ownership = self.ownership(into, ws_dir)
+        existing = existing_ownership.items
+        claim_change = self._claim_change(into, ws_dir, existing_ownership.paths)
         transition = self._transition("claim", into, root=ws_dir, requested=requested)
         try:
             claimed = tuple(sorted(set(existing + requested)))
+            description = self.message("claim", into, claimed)
+            if not transition.paths:
+                return
             if claim_change:
                 self.jj.run(
                     "squash",
@@ -613,7 +667,7 @@ class Lifecycle:
                     "--into",
                     claim_change,
                     "-m",
-                    f"kata: claim {', '.join(claimed)}",
+                    description,
                     "--",
                     *self._filesets(transition.paths),
                     cwd=ws_dir,
@@ -622,7 +676,7 @@ class Lifecycle:
                 self.jj.run(
                     "commit",
                     "-m",
-                    f"kata: claim {', '.join(claimed)}",
+                    description,
                     "--",
                     *self._filesets(transition.paths),
                     cwd=ws_dir,
@@ -675,12 +729,12 @@ class Lifecycle:
                 root=self.default_root,
                 workspace=name,
                 requested=tuple(items),
-                visibility=self.visibility,
+                visibility=self.claim_visibility,
             )
             if probe.items != tuple(items):
                 return self.start(name)
 
-        ws_dir = self.start(name)
+        ws_dir = self._start(name, shared_claim=self.claim_visibility == "shared")
         anchor_id = (
             self._change_id(self.bookmark_revset(name))
             if self.bookmark_exists(name)
@@ -769,7 +823,7 @@ class Lifecycle:
             targets = [target for target in targets if target not in self.unbankable]
             try:
                 for target in targets:
-                    if self.visibility == "shared":
+                    if self._workspace_visibility(target) == "shared":
                         self._refresh_reorder(target)
                     else:
                         self._refresh_detach(target)
@@ -791,7 +845,7 @@ class Lifecycle:
                     raise KataError(
                         f"{name!r} could not be snapshotted and was left untouched", 2
                     )
-                if self.visibility == "shared":
+                if self._workspace_visibility(name) == "shared":
                     self._refresh_reorder(name)
                 else:
                     self._refresh_detach(name)
@@ -942,8 +996,6 @@ class Lifecycle:
         target = name or self.current_workspace_name()
         self.validate_name(target)
         self.require_self_or_default(target)
-        if self.visibility == "shared" and not self.bookmark_exists(target):
-            raise KataError(f"{target!r} has no shared claim anchor", 2)
         ws_dir = self.workspace_root(target)
         self.require_linear_default()
         self._require_closed(target, ws_dir)
@@ -1097,7 +1149,7 @@ class Lifecycle:
             self.jj.run(
                 "commit",
                 "-m",
-                f"items: return {', '.join(items)}",
+                self.message("return", name, items),
                 "--",
                 *self._filesets(paths),
                 cwd=self.default_root,
@@ -1110,9 +1162,7 @@ class Lifecycle:
         name: str | None,
         *,
         force: bool = False,
-        amend_ticket: bool = False,
-        integrated: bool = False,
-        dry_run: bool = False,
+        return_items: bool = False,
     ) -> None:
         self.require_default("drop")
         if not name:
@@ -1126,7 +1176,7 @@ class Lifecycle:
         captured: dict[str, bytes | None] | None = None
         returned_items: tuple[str, ...] = ()
         ownership: Transition | None = None
-        if amend_ticket:
+        if return_items:
             if self.item_driver is None:
                 raise KataError("this workspace has no configured item driver", 2)
             ownership = self.ownership(name, ws_dir)
@@ -1151,7 +1201,7 @@ class Lifecycle:
 
         unintegrated = self._unintegrated_changes(name)
         if unintegrated and not force:
-            at_risk = not amend_ticket or bool(
+            at_risk = not return_items or bool(
                 self._unintegrated_paths(name)
                 - set(ownership.paths if ownership else ())
             )
@@ -1160,7 +1210,7 @@ class Lifecycle:
                     f"{name} has un-integrated work; integrate it or use --force", 2
                 )
 
-        if amend_ticket:
+        if return_items:
             transition = self._transition(
                 "return",
                 name,

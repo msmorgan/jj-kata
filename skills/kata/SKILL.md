@@ -75,11 +75,13 @@ surgery.
 
 ## Visibility and state
 
-`visibility = "feature"` is the default. Claims live only on their feature
-line, with no Kata bookmark, until integration.
+`[items] visibility = "feature"` is the default. Claims live only on their
+feature line, with no Kata bookmark, until integration.
 
-`visibility = "shared"` opts into a bookmarked claim anchor linearly inside the
-default tree. Later work based on default sees active claim markers.
+`[items] visibility = "shared"` opts new claims into a bookmarked anchor
+linearly inside the default tree. Later work based on default sees active claim
+markers. Bare `start` never creates an anchor and does not consult item
+visibility.
 
 Kata has no private claim ledger. The item driver derives ownership from the
 base/revision context Kata supplies. A reconstructed graph with the same marker
@@ -95,17 +97,18 @@ When implementing or debugging a repository driver, read
 
 ## Configuration
 
-Read settings from `jjkata.toml` in the default workspace. Legacy
-`jjworkflow.toml` remains a migration fallback. Relative paths resolve from the
-default root.
+Read settings only from `jjkata.toml` in the default workspace. Relative paths
+resolve from the default root. `[messages]` may override Kata's `start`,
+`claim`, `complete`, and `return` commit-description templates using
+`{workspace}` and `{items}` fields.
 
 ```toml
-visibility = "feature"
 workspace_dir = ".workspaces"
 provision_hook = "scripts/provision-workspace"
 
 [items]
 driver = "kanban" # or "scripts/items"
+visibility = "feature" # or "shared"; applies only to new claims
 ```
 
 The bundled Kanban driver is optional. It is a convenient ticket framework,

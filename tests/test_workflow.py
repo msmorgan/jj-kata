@@ -34,7 +34,7 @@ def run(
         env={
             **os.environ,
             "NO_COLOR": "1",
-            "JJ_WORKFLOW_LOCK_TIMEOUT": "5",
+            "JJ_KATA_LOCK_TIMEOUT": "5",
             "XDG_CONFIG_HOME": str(TEST_CONFIG_HOME),
         },
         check=False,
@@ -197,7 +197,9 @@ def test_ticket_claim_refresh_and_integrate(tmp_path: Path) -> None:
 
 def test_shared_visibility_publishes_claim_through_an_anchor(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
-    (repo / "jjkata.toml").write_text('visibility = "shared"\n')
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
     jj(repo, "commit", "-m", "kata: configure shared visibility")
     add_ticket(repo, "ticket-a")
 
@@ -215,6 +217,30 @@ def test_shared_visibility_publishes_claim_through_an_anchor(tmp_path: Path) -> 
         "-T",
         "change_id",
     ).stdout.strip()
+
+
+def test_bare_start_ignores_claim_visibility(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+
+    workflow(repo, "start", "unticketed")
+    workspace = repo / ".workspaces/unticketed"
+    (workspace / "feature.txt").write_text("no ticket system required\n")
+    jj(workspace, "commit", "-m", "feat: unticketed work")
+    workflow(repo, "integrate", "unticketed")
+
+    assert (repo / "feature.txt").is_file()
+    assert not jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        'bookmarks(exact:"unticketed")',
+        "-T",
+        "change_id",
+    ).stdout
 
 
 def test_reconstructed_feature_tree_needs_no_hidden_claim_state(tmp_path: Path) -> None:
@@ -384,6 +410,52 @@ def test_claim_into_existing_workspace_completes_every_ticket(tmp_path: Path) ->
         "description",
     ).stdout
     assert description == "kata: claim ticket-a, ticket-b\n"
+
+
+def test_kata_commit_descriptions_are_configurable(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        """[items]
+driver = "kanban"
+
+[messages]
+claim = "take({workspace}): {items}"
+complete = "finish({workspace}): {items}"
+return = "return({workspace}): {items}"
+"""
+    )
+    add_ticket(repo, "ticket-a")
+    add_ticket(repo, "ticket-b")
+    workflow(repo, "claim", "ticket-a")
+    workflow(repo, "claim", "ticket-b", "--into", "ticket-a")
+    workspace = repo / ".workspaces/ticket-a"
+    (workspace / "feature.txt").write_text("done\n")
+    jj(workspace, "commit", "-m", "feat: finish both tickets")
+
+    workflow(repo, "integrate", "ticket-a")
+
+    descriptions = jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        "::default@",
+        "-T",
+        'description.first_line() ++ "\\n"',
+    ).stdout
+    assert descriptions.count("take(ticket-a): ticket-a, ticket-b") == 1
+    assert "finish(ticket-a): ticket-a, ticket-b" in descriptions
+
+    add_ticket(repo, "ticket-c")
+    workflow(repo, "claim", "ticket-c")
+    ticket_c = repo / ".workspaces/ticket-c/docs/tickets/wip/ticket-c.md"
+    ticket_c.write_text("# ticket-c\n\nreturned notes\n")
+    workflow(repo, "drop", "ticket-c", "--return-items")
+
+    assert (
+        jj(repo, "log", "--no-graph", "-r", "default@-", "-T", "description").stdout
+        == "return(ticket-c): ticket-c\n"
+    )
 
 
 def test_default_refresh_reorders_feature_before_integrate(tmp_path: Path) -> None:
