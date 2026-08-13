@@ -179,3 +179,63 @@ if ticket.read_text().strip() == "github: msmorgan/project#42":
     assert needs.stdout == "foundation\n"
     assert ready.returncode == 0
     assert ready.stdout == "github-42 (planned)\n"
+
+
+def test_board_does_not_invoke_the_dependency_adapter(tmp_path):
+    board = tmp_path / "tickets"
+    card(board, "planned", "opaque")
+    command = tmp_path / "must_not_run.py"
+    command.write_text(
+        "#!/usr/bin/env python3\nraise SystemExit('dependency adapter was invoked')\n"
+    )
+    command.chmod(0o755)
+    (tmp_path / "jjkata.toml").write_text(
+        '[kanban]\nroot = "tickets"\nneeds_command = "./must_not_run.py"\n'
+    )
+
+    result = subprocess.run(
+        [str(KATA), "kanban", "--slugs-only", "board"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == ["planned:", "opaque"]
+
+
+def test_order_topologically_sorts_unfinished_cards_with_stable_ties(tmp_path):
+    board = tmp_path / "tickets"
+    card(board, "done", "landed")
+    card(board, "critical", "independent")
+    card(board, "planned", "foundation", ["landed"])
+    card(board, "wip", "middle", ["foundation"])
+    card(board, "planned", "finish", ["middle", "independent"])
+
+    result = run(board, "order")
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [
+        "independent (critical)",
+        "foundation (planned)",
+        "middle (wip)",
+        "finish (planned)",
+    ]
+    assert "landed" not in result.stdout
+
+
+def test_order_refuses_dangling_and_cyclic_graphs(tmp_path):
+    dangling = tmp_path / "dangling"
+    card(dangling, "planned", "broken", ["missing"])
+    dangling_result = run(dangling, "order")
+
+    cyclic = tmp_path / "cyclic"
+    card(cyclic, "planned", "a", ["b"])
+    card(cyclic, "planned", "b", ["a"])
+    cyclic_result = run(cyclic, "order")
+
+    assert dangling_result.returncode == 2
+    assert "dangling needs" in dangling_result.stderr
+    assert cyclic_result.returncode == 2
+    assert "cyclic graph" in cyclic_result.stderr

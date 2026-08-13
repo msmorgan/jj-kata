@@ -108,9 +108,9 @@ def dispatch(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         return dispatch(build_parser().parse_args(argv))
-    except KataError as error:
+    except (KataError, ValueError) as error:
         print(f"jj-kata: {error}", file=sys.stderr)
-        return error.code
+        return error.code if isinstance(error, KataError) else 2
     except KeyboardInterrupt:
         print("jj-kata: interrupted", file=sys.stderr)
         return 130

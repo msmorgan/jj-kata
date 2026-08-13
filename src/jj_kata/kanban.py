@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import heapq
 import re
 import shutil
 import subprocess
@@ -436,6 +437,52 @@ def find_cycles(cards: dict[str, Card]) -> list[str]:
     return ["cycle: " + " -> ".join(cycle) for cycle in sorted(cycles)]
 
 
+def topological_order(
+    cards: dict[str, Card], columns: tuple[str, ...], done: str
+) -> tuple[Card, ...]:
+    remaining = {slug: card for slug, card in cards.items() if card.column != done}
+    dangling = sorted(
+        (card.slug, need)
+        for card in remaining.values()
+        for need in card.needs
+        if need not in cards
+    )
+    if dangling:
+        details = ", ".join(f"{slug} needs unknown {need}" for slug, need in dangling)
+        raise ValueError(f"cannot order a graph with dangling needs: {details}")
+
+    cycles = find_cycles(remaining)
+    if cycles:
+        raise ValueError("cannot order a cyclic graph: " + "; ".join(cycles))
+
+    dependents: dict[str, list[str]] = defaultdict(list)
+    indegree: dict[str, int] = {}
+    for slug, card in remaining.items():
+        active_needs = tuple(
+            dict.fromkeys(need for need in card.needs if need in remaining)
+        )
+        indegree[slug] = len(active_needs)
+        for need in active_needs:
+            dependents[need].append(slug)
+
+    rank = {column: index for index, column in enumerate(columns)}
+
+    def key(slug: str) -> tuple[int, str]:
+        return rank[remaining[slug].column], slug
+
+    ready = [key(slug) for slug, degree in indegree.items() if degree == 0]
+    heapq.heapify(ready)
+    ordered: list[Card] = []
+    while ready:
+        _, slug = heapq.heappop(ready)
+        ordered.append(remaining[slug])
+        for dependent in dependents[slug]:
+            indegree[dependent] -= 1
+            if indegree[dependent] == 0:
+                heapq.heappush(ready, key(dependent))
+    return tuple(ordered)
+
+
 def configure_parser(
     parser: argparse.ArgumentParser, *, command_dest: str = "command"
 ) -> None:
@@ -447,6 +494,7 @@ def configure_parser(
     subparsers.add_parser("board", help="list cards grouped by column")
     subparsers.add_parser("ready", help="list unblocked claimable cards")
     subparsers.add_parser("blocked", help="list blocked claimable cards")
+    subparsers.add_parser("order", help="topologically order unfinished cards")
     for command in ("graph", "needs"):
         child = subparsers.add_parser(command, help=f"show {command} for one card")
         child.add_argument("slug")
@@ -492,11 +540,12 @@ def run(args: argparse.Namespace, *, cwd: Path | None = None) -> int:
         columns += tuple(name for name in (wip, done) if name in discovered)
     if not columns:
         raise ValueError("the board has no column directories")
-    needs_for = (
-        CommandNeeds(settings.needs_command, config_root or start)
-        if settings.needs_command is not None
-        else parse_frontmatter_needs
-    )
+    if command == "board":
+        needs_for = lambda path: ()
+    elif settings.needs_command is not None:
+        needs_for = CommandNeeds(settings.needs_command, config_root or start)
+    else:
+        needs_for = parse_frontmatter_needs
     cards, duplicate_problems = load_cards(root, columns, settings.patterns, needs_for)
     claimable = claimable_columns(columns, wip, done)
 
@@ -526,6 +575,15 @@ def run(args: argparse.Namespace, *, cwd: Path | None = None) -> int:
                 print(f"{card.slug} ({card.column}) <- {', '.join(unmet)}")
             else:
                 print(f"{card.slug} ({card.column})")
+        return 0
+
+    if command == "order":
+        if duplicate_problems:
+            raise ValueError(
+                "cannot order a graph with duplicates: " + "; ".join(duplicate_problems)
+            )
+        for card in topological_order(cards, columns, done):
+            print(card.slug if args.slugs_only else f"{card.slug} ({card.column})")
         return 0
 
     if command in {"graph", "needs"}:

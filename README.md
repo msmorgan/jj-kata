@@ -159,6 +159,7 @@ Inspection is grouped under one subcommand:
 /PLUGIN/scripts/jj-kata kanban board
 /PLUGIN/scripts/jj-kata kanban ready
 /PLUGIN/scripts/jj-kata kanban blocked
+/PLUGIN/scripts/jj-kata kanban order
 /PLUGIN/scripts/jj-kata kanban graph ITEM
 /PLUGIN/scripts/jj-kata kanban needs ITEM
 /PLUGIN/scripts/jj-kata kanban check
@@ -169,8 +170,10 @@ understands optional `needs: [item, ...]` frontmatter and otherwise ignores the
 ticket body. A repository can instead configure
 `[kanban] needs_command = "scripts/ticket-needs"`. Kata invokes it once per
 ticket with the absolute file path; it prints direct dependency IDs one per
-line. The ready, blocked, graph, needs, and check commands all consume that
-same interface.
+line. The ready, blocked, order, graph, needs, and check commands all consume
+that same interface. `order` prints every unfinished item in dependency order,
+using column priority and then item ID to break otherwise-equivalent choices;
+it refuses cyclic, dangling, or duplicate graphs.
 
 A repository can replace the entire inspection layer with
 `[kanban] command = "scripts/todo"`; this is independent of both the dependency

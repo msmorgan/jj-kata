@@ -82,4 +82,4 @@ KANBAN_COMMAND COMMAND [ITEM]
 ```
 
 No lifecycle JSON is sent. Use ordinary stdout, stderr, and exit status for
-`board`, `ready`, `blocked`, `graph`, `needs`, and `check`.
+`board`, `ready`, `blocked`, `order`, `graph`, `needs`, and `check`.

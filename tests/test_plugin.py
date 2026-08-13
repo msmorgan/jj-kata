@@ -43,7 +43,15 @@ def test_every_shipped_executable_has_help() -> None:
         [ROOT / "scripts/jj-kata", "kanban"],
         *[
             [ROOT / "scripts/jj-kata", "kanban", command]
-            for command in ("board", "ready", "blocked", "graph", "needs", "check")
+            for command in (
+                "board",
+                "ready",
+                "blocked",
+                "order",
+                "graph",
+                "needs",
+                "check",
+            )
         ],
         [ROOT / "hooks/worktree_create.py"],
         [ROOT / "hooks/worktree_remove.py"],
