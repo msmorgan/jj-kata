@@ -213,8 +213,11 @@ class FolderKanbanDriver:
             return Transition(tuple(sorted(owned)), tuple(sorted(owned_paths)))
 
         if action == "probe":
-            if not self.board_exists(root):
+            board = root / self.board_prefix
+            if not board.exists():
                 return Transition((), ())
+            if not board.is_dir():
+                raise KataError(f"Kanban root is not a directory: {board}", 2)
             cards = self._working_cards(root)
             claimable = self._claimable_columns(cards)
             found: list[str] = []

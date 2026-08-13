@@ -1133,8 +1133,15 @@ class Lifecycle:
             returned_items = ownership.items
             if not returned_items:
                 raise KataError(f"{name!r} owns no work items", 2)
+            if self._conflicts(f"default@..{name}@", ws_dir):
+                self._conflict_stop(
+                    f"{name} has unresolved conflicts and cannot return items",
+                    ws_dir,
+                )
             base, revision = self._item_context(name, visibility)
-            expected_default = revision if visibility == "shared" else base
+            expected_default = self._commit_id(
+                revision if visibility == "shared" else base
+            )
             if self._default_paths_changed(expected_default, ownership.paths):
                 raise KataError(
                     "default changed one or more owned item paths after this claim; "

@@ -675,6 +675,17 @@ def test_or_start_refuses_ambiguous_item_and_broken_driver(tmp_path: Path) -> No
     assert "could not run item driver" in result.stderr
     assert "Traceback" not in result.stderr
 
+    corrupt = init_repo(tmp_path / "corrupt")
+    (corrupt / "jjkata.toml").write_text('[items]\ndriver = "kanban"\n')
+    board_file = corrupt / "docs/tickets"
+    board_file.parent.mkdir()
+    board_file.write_text("not a directory\n")
+    jj(corrupt, "commit", "-m", "kata: add corrupt board path")
+    result = workflow(corrupt, "claim", "anything", "--or-start", check=False)
+    assert result.returncode == 2
+    assert "Kanban root is not a directory" in result.stderr
+    assert not (corrupt / ".workspaces/anything").exists()
+
 
 def test_legacy_config_is_a_hard_clean_break(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
