@@ -3,12 +3,12 @@
   "owner": {
     "name": "Michael Morgan"
   },
-  "description": "Marketplace for the jj-kata lifecycle and Kanban plugin.",
+  "description": "Marketplace for safe Jujutsu workspace coordination and optional file-backed Kanban.",
   "plugins": [
     {
       "name": "jj-kata",
       "source": "./",
-      "description": "Safe parallel Jujutsu feature-workspace coordination with optional work-item and Kanban integrations."
+      "description": "Safe Jujutsu workspace coordination for parallel agents, with optional file-backed Kanban."
     }
   ]
 }

@@ -1,6 +1,6 @@
 ---
 name: kata
-description: "Use when a jj repository follows jj-kata's named feature-workspace lifecycle: start or claim repository-defined work, refresh a feature from the default line, integrate deliberately closed work, return claimed items, or retire a workspace. Signs include a default workspace with named feature workspaces, .workspaces/, jjkata.toml, or jjworkflow.toml."
+description: "Coordinate safe parallel-agent work in a jj repository that follows jj-kata's named feature-workspace lifecycle: start or claim repository-defined work, refresh a feature from the default line, integrate deliberately closed work, return claimed items, or retire a workspace. Signs include a default workspace with named feature workspaces, .workspaces/, or jjkata.toml."
 ---
 
 # jj-kata

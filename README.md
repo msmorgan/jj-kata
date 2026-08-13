@@ -1,5 +1,8 @@
 # jj-kata
 
+Safe Jujutsu workspace coordination for parallel agents, with optional
+file-backed Kanban.
+
 `jj-kata` coordinates parallel Jujutsu feature workspaces: create an isolated
 workspace, refresh it against the shared `default` line, safely fold deliberately
 closed work back into that line, and retire the workspace without endangering

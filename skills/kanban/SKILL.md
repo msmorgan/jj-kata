@@ -1,6 +1,6 @@
 ---
 name: kanban
-description: Use when a jj-kata repository tracks work as files in status folders and the user asks to inspect the board, find ready or blocked work, trace dependencies, validate the graph, or configure the bundled folder Kanban integration.
+description: Inspect an optional file-backed Kanban board in a jj-kata repository. Use when work is tracked as files in status folders and the user asks to inspect the board, find ready or blocked work, trace dependencies, validate the graph, or configure the bundled folder Kanban integration.
 ---
 
 # Kanban

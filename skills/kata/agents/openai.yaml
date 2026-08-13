@@ -1,4 +1,4 @@
 interface:
   display_name: "jj Kata"
-  short_description: "Coordinate safe parallel jj workspaces"
-  default_prompt: "Use $kata to coordinate this repository safely across parallel Jujutsu workspaces."
+  short_description: "Coordinate safe parallel-agent workspaces in Jujutsu"
+  default_prompt: "Use $kata to coordinate parallel agents safely across this repository’s Jujutsu workspaces."
