@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -47,3 +48,29 @@ def worktree_remove() -> int:
     except WorkflowError as error:
         print(f"workflow: worktree removal kept {name}: {error}", file=sys.stderr)
     return 0
+
+
+def worktree_create_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="worktree_create.py",
+        description="Create a jj-workflow workspace from a worktree-hook JSON payload.",
+    )
+    parser.parse_args(argv)
+    try:
+        return worktree_create()
+    except WorkflowError as error:
+        print(f"workflow: {error}", file=sys.stderr)
+        return error.code
+
+
+def worktree_remove_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="worktree_remove.py",
+        description="Retire a jj-workflow workspace from a worktree-hook JSON payload.",
+    )
+    parser.parse_args(argv)
+    try:
+        return worktree_remove()
+    except WorkflowError as error:
+        print(f"workflow: worktree removal skipped: {error}", file=sys.stderr)
+        return 0

@@ -256,3 +256,15 @@ def test_worktree_hooks_create_and_safely_remove_ad_hoc_workspace(
     removed = run(repo, str(WORKTREE_REMOVE), input_text=payload)
     assert removed.returncode == 0
     assert not workspace.exists()
+
+
+def test_worktree_hooks_handle_malformed_input_without_tracebacks() -> None:
+    created = run(ROOT, str(WORKTREE_CREATE), check=False, input_text="not json")
+    removed = run(ROOT, str(WORKTREE_REMOVE), check=False, input_text="not json")
+
+    assert created.returncode == 2
+    assert "invalid worktree hook input" in created.stderr
+    assert "Traceback" not in created.stderr
+    assert removed.returncode == 0
+    assert "invalid worktree hook input" in removed.stderr
+    assert "Traceback" not in removed.stderr

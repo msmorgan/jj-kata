@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -33,6 +34,29 @@ def test_plugin_keeps_both_python_skills_and_worktree_bridges() -> None:
     assert (ROOT / "skills/kanban/SKILL.md").is_file()
     assert (ROOT / "skills/jj-workflow/SKILL.md").is_file()
     assert (ROOT / "pyproject.toml").is_file()
+
+
+def test_every_shipped_executable_has_help() -> None:
+    commands = [
+        [ROOT / "skills/kanban/scripts/kanban"],
+        *[
+            [ROOT / "skills/kanban/scripts/kanban", command]
+            for command in ("board", "ready", "blocked", "graph", "needs", "check")
+        ],
+        [ROOT / "skills/jj-workflow/scripts/workflow"],
+        *[
+            [ROOT / "skills/jj-workflow/scripts/workflow", command]
+            for command in ("start", "claim", "refresh", "integrate", "drop")
+        ],
+        [ROOT / "hooks/worktree_create.py"],
+        [ROOT / "hooks/worktree_remove.py"],
+    ]
+    for command in commands:
+        result = subprocess.run(
+            [*map(str, command), "--help"], capture_output=True, text=True, check=False
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.startswith("usage:")
 
 
 def test_superseded_generic_components_remain_absent() -> None:

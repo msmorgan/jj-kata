@@ -7,11 +7,6 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PLUGIN_ROOT / "src"))
 
-from jj_workflow.errors import WorkflowError
-from jj_workflow.hooks import worktree_create
+from jj_workflow.hooks import worktree_create_main
 
-try:
-    raise SystemExit(worktree_create())
-except WorkflowError as error:
-    print(f"workflow: {error}", file=sys.stderr)
-    raise SystemExit(error.code) from error
+raise SystemExit(worktree_create_main())
