@@ -1,6 +1,7 @@
 # Item-driver protocol
 
-Configure a driver in the default workspace's `jjkata.toml`:
+Configure a driver in the default workspace's `kata.toml` (or compatibility
+`jjkata.toml`):
 
 ```toml
 [items]
@@ -82,7 +83,7 @@ regardless of whether Kata created the changes.
 ## Inspection invocation
 
 When `[kanban] command = "scripts/todo"` is configured,
-`jj-kata kanban COMMAND [ITEM]` delegates directly as:
+`kata kanban COMMAND [ITEM]` delegates directly as:
 
 ```text
 KANBAN_COMMAND COMMAND [ITEM]

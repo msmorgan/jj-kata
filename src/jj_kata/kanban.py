@@ -510,7 +510,7 @@ def configure_parser(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="jj-kata kanban",
+        prog="kata kanban",
         description="Inspect a file-backed folder Kanban board.",
     )
     configure_parser(parser)

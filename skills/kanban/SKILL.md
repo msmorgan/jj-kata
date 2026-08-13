@@ -5,18 +5,18 @@ description: Inspect an optional file-backed Kanban board in a jj-kata repositor
 
 # Kanban
 
-Use the grouped `jj-kata kanban` command. Resolve the plugin-root launcher from
+Use the grouped `kata kanban` command. Resolve the plugin-root launcher from
 this loaded skill; for `/PLUGIN/skills/kanban/SKILL.md`, run
-`/PLUGIN/scripts/jj-kata` from inside the target repository.
+`/PLUGIN/scripts/kata` from inside the target repository.
 
 ```bash
-/PLUGIN/scripts/jj-kata kanban board
-/PLUGIN/scripts/jj-kata kanban ready
-/PLUGIN/scripts/jj-kata kanban blocked
-/PLUGIN/scripts/jj-kata kanban order
-/PLUGIN/scripts/jj-kata kanban graph ITEM
-/PLUGIN/scripts/jj-kata kanban needs ITEM
-/PLUGIN/scripts/jj-kata kanban check
+/PLUGIN/scripts/kata kanban board
+/PLUGIN/scripts/kata kanban ready
+/PLUGIN/scripts/kata kanban blocked
+/PLUGIN/scripts/kata kanban order
+/PLUGIN/scripts/kata kanban graph ITEM
+/PLUGIN/scripts/kata kanban needs ITEM
+/PLUGIN/scripts/kata kanban check
 ```
 
 Commands are read-only:
@@ -35,7 +35,8 @@ Commands are read-only:
 The bundled defaults are `docs/tickets`, `wip`, `done`, and `*.md`. Only WIP
 and done have special roles; every other immediate folder is claimable.
 Kanban is shipped but never implicitly enabled. Configure it as the lifecycle's
-item driver only when wanted, plus names and file patterns in `jjkata.toml`:
+item driver only when wanted, plus names and file patterns in `kata.toml`
+(`jjkata.toml` remains supported):
 
 ```toml
 [items]
@@ -64,4 +65,4 @@ instead. That command need not be the dependency adapter or lifecycle item
 driver.
 
 Do not move items merely because inspection exposes their state. Use
-`jj-kata claim`, `integrate`, or `drop --return-items` for lifecycle moves.
+`kata claim`, `integrate`, or `drop --return-items` for lifecycle moves.

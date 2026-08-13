@@ -18,6 +18,7 @@ classifiers = [
 ]
 
 [project.scripts]
+kata = "jj_kata.cli:main"
 jj-kata = "jj_kata.cli:main"
 
 [project.optional-dependencies]

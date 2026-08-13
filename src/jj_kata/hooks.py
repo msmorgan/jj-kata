@@ -46,31 +46,31 @@ def worktree_remove() -> int:
             if name in coordinator.workspace_names():
                 coordinator.drop(name)
     except KataError as error:
-        print(f"jj-kata: worktree removal kept {name}: {error}", file=sys.stderr)
+        print(f"kata: worktree removal kept {name}: {error}", file=sys.stderr)
     return 0
 
 
 def worktree_create_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="worktree_create.py",
-        description="Create a jj-kata workspace from a worktree-hook JSON payload.",
+        description="Create a Kata workspace from a worktree-hook JSON payload.",
     )
     parser.parse_args(argv)
     try:
         return worktree_create()
     except KataError as error:
-        print(f"jj-kata: {error}", file=sys.stderr)
+        print(f"kata: {error}", file=sys.stderr)
         return error.code
 
 
 def worktree_remove_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="worktree_remove.py",
-        description="Retire a jj-kata workspace from a worktree-hook JSON payload.",
+        description="Retire a Kata workspace from a worktree-hook JSON payload.",
     )
     parser.parse_args(argv)
     try:
         return worktree_remove()
     except KataError as error:
-        print(f"jj-kata: worktree removal skipped: {error}", file=sys.stderr)
+        print(f"kata: worktree removal skipped: {error}", file=sys.stderr)
         return 0

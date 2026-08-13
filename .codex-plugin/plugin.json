@@ -12,7 +12,7 @@
   "keywords": ["jujutsu", "jj", "parallel", "workspaces", "kanban"],
   "skills": "./skills/",
   "interface": {
-    "displayName": "jj Kata",
+    "displayName": "jj-kata",
     "shortDescription": "Coordinate safe parallel-agent workspaces in jj",
     "longDescription": "Coordinate parallel agents in isolated Jujutsu workspaces, safely refresh and integrate their work, and optionally attach repository-defined work items or file-backed Kanban.",
     "developerName": "Michael Morgan",

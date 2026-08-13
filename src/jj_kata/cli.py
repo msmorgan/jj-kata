@@ -14,7 +14,7 @@ from .lifecycle import Lifecycle
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="jj-kata",
+        prog="kata",
         description=(
             "Safe Jujutsu workspace coordination for parallel agents, with optional "
             "file-backed Kanban."
@@ -98,10 +98,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return dispatch(build_parser().parse_args(argv))
     except (KataError, ValueError) as error:
-        print(f"jj-kata: {error}", file=sys.stderr)
+        print(f"kata: {error}", file=sys.stderr)
         return error.code if isinstance(error, KataError) else 2
     except KeyboardInterrupt:
-        print("jj-kata: interrupted", file=sys.stderr)
+        print("kata: interrupted", file=sys.stderr)
         return 130
 
 

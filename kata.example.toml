@@ -1,4 +1,4 @@
-# Compatibility copy for users of jjkata.toml. Every setting is optional.
+# Copy to kata.toml in a repository's default workspace. Every setting is optional.
 
 # Feature workspace base. Relative paths resolve from the default workspace.
 workspace_dir = ".workspaces"

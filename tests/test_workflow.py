@@ -13,7 +13,8 @@ from jj_kata.jj import Result
 from jj_kata.lifecycle import Lifecycle
 
 ROOT = Path(__file__).resolve().parent.parent
-KATA = ROOT / "scripts" / "jj-kata"
+KATA = ROOT / "scripts" / "kata"
+LEGACY_KATA = ROOT / "scripts" / "jj-kata"
 WORKTREE_CREATE = ROOT / "hooks" / "worktree_create.py"
 WORKTREE_REMOVE = ROOT / "hooks" / "worktree_remove.py"
 TEST_CONFIG_HOME = Path("/tmp") / f"jj-kata-tests-{os.getpid()}"
@@ -96,6 +97,23 @@ def test_lifecycle_requires_sensei_workspace_boundaries(tmp_path: Path) -> None:
     assert result.returncode == 2
     assert "install jj-sensei from msmorgan/marketplace" in result.stderr
     assert not (repo / ".workspaces/unsafe").exists()
+
+
+@pytest.mark.parametrize(
+    ("launcher", "config_name"),
+    [(KATA, "kata.toml"), (LEGACY_KATA, "jjkata.toml")],
+)
+def test_command_and_config_names_remain_compatible(
+    tmp_path: Path, launcher: Path, config_name: str
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / config_name).write_text('workspace_dir = ".kata-workspaces"\n')
+
+    result = run(repo, str(launcher), "start", "compatible")
+
+    workspace = repo / ".kata-workspaces/compatible"
+    assert Path(result.stdout.strip()) == workspace
+    assert workspace.is_dir()
 
 
 def enable_kanban(repo: Path) -> None:

@@ -3,7 +3,7 @@
 Safe Jujutsu workspace coordination for parallel agents, with optional
 file-backed Kanban.
 
-`jj-kata` coordinates parallel Jujutsu feature workspaces: create an isolated
+`kata` coordinates parallel Jujutsu feature workspaces: create an isolated
 workspace, refresh it against the shared `default` line, safely fold deliberately
 closed work back into that line, and retire the workspace without endangering
 its siblings. Repositories can optionally attach work-item transitions to that
@@ -18,6 +18,12 @@ adapter.
 Mutating lifecycle commands refuse repositories that do not have a
 workspace-aware repository `immutable_heads()` definition; use jj-sensei's
 boundaries skill to install or audit it first.
+
+`default` is a coordinator, not a development workspace. Start or claim a
+named workspace before making feature, fix, documentation, or other deliverable
+changes, even during single-agent work. Work and close commits inside that
+workspace; use `default` for creation, cross-workspace coordination,
+integration, and retirement.
 
 There is no cross-host plugin dependency mechanism, so install Kata's teacher
 first. For Codex:
@@ -35,7 +41,8 @@ plugin UI before adding Kata.
 
 Everything executable in this plugin is Python. The plugin launcher imports the
 `src/jj_kata` package directly, while `pyproject.toml` also provides a normal
-`jj-kata` console entry point.
+`kata` console entry point. The former `jj-kata` command remains an equivalent
+compatibility alias.
 
 ## Lifecycle
 
@@ -43,23 +50,23 @@ Resolve the launcher from the installed plugin rather than from the target
 repository or `PATH`:
 
 ```bash
-/PLUGIN/scripts/jj-kata start feature-name
+/PLUGIN/scripts/kata start feature-name
 cd .workspaces/feature-name
 # Work, then close the change with jj commit -m ...
-/PLUGIN/scripts/jj-kata refresh
-/PLUGIN/scripts/jj-kata integrate
+/PLUGIN/scripts/kata refresh
+/PLUGIN/scripts/kata integrate
 cd ../..
-/PLUGIN/scripts/jj-kata drop feature-name
+/PLUGIN/scripts/kata drop feature-name
 ```
 
 That core lifecycle has no ticket or Kanban requirement. To start through a
 configured item driver instead:
 
 ```bash
-/PLUGIN/scripts/jj-kata claim ITEM
-/PLUGIN/scripts/jj-kata claim ITEM --name feature-name
-/PLUGIN/scripts/jj-kata claim HOST_NAME --or-start
-/PLUGIN/scripts/jj-kata refresh --all
+/PLUGIN/scripts/kata claim ITEM
+/PLUGIN/scripts/kata claim ITEM --name feature-name
+/PLUGIN/scripts/kata claim HOST_NAME --or-start
+/PLUGIN/scripts/kata refresh --all
 ```
 
 `ITEM` is opaque to Kata. When an item ID is not also a legal jj workspace
@@ -183,13 +190,13 @@ columns are still discovered and shown.
 Inspection is grouped under one subcommand:
 
 ```bash
-/PLUGIN/scripts/jj-kata kanban board
-/PLUGIN/scripts/jj-kata kanban ready
-/PLUGIN/scripts/jj-kata kanban blocked
-/PLUGIN/scripts/jj-kata kanban order
-/PLUGIN/scripts/jj-kata kanban graph ITEM
-/PLUGIN/scripts/jj-kata kanban needs ITEM
-/PLUGIN/scripts/jj-kata kanban check
+/PLUGIN/scripts/kata kanban board
+/PLUGIN/scripts/kata kanban ready
+/PLUGIN/scripts/kata kanban blocked
+/PLUGIN/scripts/kata kanban order
+/PLUGIN/scripts/kata kanban graph ITEM
+/PLUGIN/scripts/kata kanban needs ITEM
+/PLUGIN/scripts/kata kanban check
 ```
 
 Dependency extraction is pluggable. By default, the bundled Markdown reader
@@ -209,9 +216,11 @@ adapter and lifecycle item driver.
 
 ## Configuration and hooks
 
-Copy [`jjkata.example.toml`](jjkata.example.toml) to a repository's default
-workspace. Relative paths resolve from that root. `jjkata.toml` is the only
-configuration filename. The clean break intentionally refuses a legacy
+Copy [`kata.example.toml`](kata.example.toml) to `kata.toml` in a repository's
+default workspace. Relative paths resolve from that root. The 0.11.0 filename
+`jjkata.toml` remains fully supported for compatibility; do not keep both files
+in one repository, because Kata refuses that ambiguity. The clean break still
+intentionally refuses a legacy
 `jjworkflow.toml`; migrate the wanted settings, then remove the legacy file
 before running lifecycle commands.
 

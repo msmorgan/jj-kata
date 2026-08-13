@@ -1,6 +1,6 @@
 ---
 name: kata
-description: "Coordinate safe parallel-agent work in a jj repository that follows jj-kata's named feature-workspace lifecycle: start or claim repository-defined work, refresh a feature from the default line, integrate deliberately closed work, return claimed items, or retire a workspace. Signs include a default workspace with named feature workspaces, .workspaces/, or jjkata.toml."
+description: "Coordinate safe parallel-agent work in a jj repository that follows jj-kata's named feature-workspace lifecycle: start or claim repository-defined work, refresh a feature from the default line, integrate deliberately closed work, return claimed items, or retire a workspace. Signs include a default workspace with named feature workspaces, .workspaces/, kata.toml, or jjkata.toml."
 ---
 
 # jj-kata
@@ -16,11 +16,26 @@ Kata refuses lifecycle commands when the repository lacks a workspace-aware
 `msmorgan/marketplace`, then use its boundaries skill to install or audit the
 guard; never bypass the refusal.
 
+## Workspace invariant
+
+**Do not do feature work in `default`.** `default` is the coordinator line:
+use it to start or claim named workspaces, target cross-workspace operations,
+and retire completed work. Before changing repository content for a feature,
+fix, documentation task, or other deliverable, run `kata start NAME` or
+`kata claim ...` from `default`, then do the work inside that named workspace.
+
+If already inside a non-default workspace, keep working there and act only on
+that workspace; never create feature work on another live feature's ancestry.
+Integrate the deliberately closed work through Kata rather than developing
+directly on the coordinator line. This rule applies even when only one agent is
+currently active—the separate workspace is the unit of coordination and safe
+recovery.
+
 ## Command
 
-Resolve the plugin-root `scripts/jj-kata` from this loaded `SKILL.md`, never
+Resolve the plugin-root `scripts/kata` from this loaded `SKILL.md`, never
 from the target repository or `PATH`. For
-`/PLUGIN/skills/kata/SKILL.md`, run `/PLUGIN/scripts/jj-kata` from the workspace
+`/PLUGIN/skills/kata/SKILL.md`, run `/PLUGIN/scripts/kata` from the workspace
 it should act on.
 
 Do not pipe a Kata command. Preserve its exit status: 0 is success, 2 is a
@@ -34,23 +49,23 @@ Every command and subcommand supports `--help`.
 From `default`:
 
 ```bash
-jj-kata start NAME
-jj-kata claim ITEM
-jj-kata claim ITEM... --name NAME
-jj-kata claim ITEM... --into NAME
-jj-kata claim HOST_NAME --or-start
-jj-kata refresh NAME
-jj-kata refresh --all
-jj-kata integrate NAME
-jj-kata drop NAME
+kata start NAME
+kata claim ITEM
+kata claim ITEM... --name NAME
+kata claim ITEM... --into NAME
+kata claim HOST_NAME --or-start
+kata refresh NAME
+kata refresh --all
+kata integrate NAME
+kata drop NAME
 ```
 
 From a feature workspace, act only on itself:
 
 ```bash
-jj-kata claim ITEM...
-jj-kata refresh
-jj-kata integrate
+kata claim ITEM...
+kata refresh
+kata integrate
 ```
 
 Item IDs are opaque. `claim ITEM` uses the ID as the workspace name only as a
@@ -97,8 +112,9 @@ When implementing or debugging a repository driver, read
 
 ## Configuration
 
-Read settings only from `jjkata.toml` in the default workspace. Relative paths
-resolve from the default root. `[messages]` may override Kata's `start`,
+Read settings from canonical `kata.toml` or compatibility `jjkata.toml` in the
+default workspace; refuse when both exist. Relative paths resolve from the
+default root. `[messages]` may override Kata's `start`,
 `claim`, `complete`, and `return` commit-description templates using
 `{workspace}` and `{items}` fields.
 
@@ -118,7 +134,7 @@ The provision hook is optional. Kata calls an executable hook with the created
 workspace path after creation; a hook failure deliberately leaves that
 workspace intact for inspection.
 
-Use the plugin-root [example configuration](../../jjkata.example.toml) as the
+Use the plugin-root [example configuration](../../kata.example.toml) as the
 complete starting point. A legacy `jjworkflow.toml` is a hard migration refusal.
 
 Lifecycle commands require Python 3.11+, jj 0.43.0+, and a POSIX host. The

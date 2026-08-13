@@ -30,7 +30,7 @@ MINIMUM_JJ = (0, 43, 0)
 
 
 def note(message: str) -> None:
-    print(f"jj-kata: {message}", file=sys.stderr)
+    print(f"kata: {message}", file=sys.stderr)
 
 
 class Lifecycle:
@@ -74,9 +74,7 @@ class Lifecycle:
         installed = tuple(int(part) for part in match.groups())
         if installed < MINIMUM_JJ:
             required = ".".join(map(str, MINIMUM_JJ))
-            raise KataError(
-                f"jj-kata requires jj {required} or newer (found {output})", 2
-            )
+            raise KataError(f"kata requires jj {required} or newer (found {output})", 2)
 
     def message(self, action: str, workspace: str, items: tuple[str, ...] = ()) -> str:
         template = self.messages.get(action, DEFAULT_MESSAGES[action])
@@ -117,7 +115,7 @@ class Lifecycle:
         )
         if not (sensei or legacy_sensei):
             raise KataError(
-                "jj-kata needs its teacher: install jj-sensei from "
+                "kata needs its teacher: install jj-sensei from "
                 "msmorgan/marketplace, then use its boundaries skill to configure "
                 "this repository",
                 2,
@@ -1002,7 +1000,7 @@ class Lifecycle:
         behind = self._changes(f"{target}@-..default@- & ~empty()")
         if behind:
             raise KataError(
-                f"{target} is behind default; run jj-kata refresh inside it first", 2
+                f"{target} is behind default; run kata refresh inside it first", 2
             )
         items = self.owned_items(target, ws_dir) if self.item_driver else ()
         visibility = self._workspace_visibility(target, ws_dir)
@@ -1027,7 +1025,7 @@ class Lifecycle:
             self.unstale_workspaces(strict=False)
             raise
         self.unstale_workspaces()
-        note(f"integrated {target}; retire it with jj-kata drop {target}")
+        note(f"integrated {target}; retire it with kata drop {target}")
 
     def _unintegrated_changes(self, name: str) -> list[str]:
         return self._changes(f"(default@..{name}@) ~ empty()")

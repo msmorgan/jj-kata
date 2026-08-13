@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -15,11 +16,25 @@ def test_manifests_are_consistent() -> None:
 
     assert codex["name"] == "jj-kata"
     assert codex["skills"] == "./skills/"
+    assert codex["interface"]["displayName"] == "jj-kata"
+    assert claude["displayName"] == antigravity["displayName"] == "jj-kata"
     assert codex["version"] == claude["version"] == antigravity["version"]
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    scripts = project["project"]["scripts"]
+    assert scripts["kata"] == scripts["jj-kata"] == "jj_kata.cli:main"
+
+
+def test_example_configs_remain_equivalent() -> None:
+    canonical = (ROOT / "kata.example.toml").read_text().splitlines()
+    compatibility = (ROOT / "jjkata.example.toml").read_text().splitlines()
+
+    assert canonical[1:] == compatibility[1:]
 
 
 def test_plugin_keeps_both_python_skills_and_worktree_bridges() -> None:
     expected = [
+        ROOT / "scripts/kata",
         ROOT / "scripts/jj-kata",
         ROOT / "hooks/worktree_create.py",
         ROOT / "hooks/worktree_remove.py",
@@ -34,15 +49,18 @@ def test_plugin_keeps_both_python_skills_and_worktree_bridges() -> None:
 
 
 def test_every_shipped_executable_has_help() -> None:
+    launchers = [ROOT / "scripts/kata", ROOT / "scripts/jj-kata"]
     commands = [
-        [ROOT / "scripts/jj-kata"],
+        *[[launcher] for launcher in launchers],
         *[
-            [ROOT / "scripts/jj-kata", command]
+            [launcher, command]
+            for launcher in launchers
             for command in ("start", "claim", "refresh", "integrate", "drop")
         ],
-        [ROOT / "scripts/jj-kata", "kanban"],
+        *[[launcher, "kanban"] for launcher in launchers],
         *[
-            [ROOT / "scripts/jj-kata", "kanban", command]
+            [launcher, "kanban", command]
+            for launcher in launchers
             for command in (
                 "board",
                 "ready",
@@ -61,7 +79,16 @@ def test_every_shipped_executable_has_help() -> None:
             [*map(str, command), "--help"], capture_output=True, text=True, check=False
         )
         assert result.returncode == 0, result.stderr
-        assert result.stdout.startswith("usage:")
+        assert result.stdout.startswith("usage: kata") or result.stdout.startswith(
+            "usage: worktree_"
+        )
+
+
+def test_kata_skill_keeps_feature_work_out_of_default() -> None:
+    guidance = " ".join((ROOT / "skills/kata/SKILL.md").read_text().split())
+
+    assert "Do not do feature work in `default`" in guidance
+    assert "even when only one agent is currently active" in guidance
 
 
 def test_superseded_generic_components_remain_absent() -> None:
