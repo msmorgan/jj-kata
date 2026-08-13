@@ -359,7 +359,11 @@ class Lifecycle:
             provision = self.default_root / provision
         if not provision.exists():
             if configured:
-                raise KataError(f"provision hook does not exist: {provision}", 2)
+                raise KataError(
+                    f"provision hook does not exist: {provision}; "
+                    f"workspace remains at {ws_dir}",
+                    2,
+                )
             return
         if not provision.is_file() or not os.access(provision, os.X_OK):
             raise KataError(f"provision hook is not executable: {provision}", 2)
@@ -472,7 +476,7 @@ class Lifecycle:
             cwd=self.default_root,
         )
         if ownership.items and description == self.message(
-            "claim", name, ownership.items
+            "claim", name, tuple(sorted(ownership.items))
         ):
             return "shared"
         raise KataError(

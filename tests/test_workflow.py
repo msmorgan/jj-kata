@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from jj_kata.errors import KataError
+from jj_kata.jj import Result
 from jj_kata.lifecycle import Lifecycle
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -693,3 +694,303 @@ def test_ambiguous_bulk_drop_flags_are_removed(tmp_path: Path) -> None:
 
     assert "--integrated" not in result.stdout
     assert "--dry-run" not in result.stdout
+
+
+def test_empty_driver_paths_never_consume_unrelated_open_work(tmp_path: Path) -> None:
+    driver_source = """#!/usr/bin/env python3
+import json
+import sys
+
+action = sys.argv[1]
+payload = json.load(sys.stdin)
+if action == "owned":
+    items = ["external"] if payload["context"]["visibility"] == "shared" else []
+else:
+    items = payload["requested"]
+print(json.dumps({"items": items, "paths": []}))
+"""
+
+    feature_repo = init_repo(tmp_path / "feature")
+    (feature_repo / "scripts").mkdir()
+    feature_driver = feature_repo / "scripts/items.py"
+    feature_driver.write_text(driver_source)
+    feature_driver.chmod(0o755)
+    (feature_repo / "jjkata.toml").write_text('[items]\ndriver = "scripts/items.py"\n')
+    jj(feature_repo, "commit", "-m", "kata: configure external items")
+    workflow(feature_repo, "start", "feature-empty")
+    feature = feature_repo / ".workspaces/feature-empty"
+    (feature / "unrelated.txt").write_text("still open\n")
+
+    workflow(feature, "claim", "external")
+
+    assert jj(feature, "diff", "--name-only").stdout.splitlines() == ["unrelated.txt"]
+    assert not jj(
+        feature,
+        "log",
+        "--no-graph",
+        "-r",
+        "@-",
+        "-T",
+        "description",
+    ).stdout.startswith("kata: claim")
+
+    shared_repo = init_repo(tmp_path / "shared")
+    (shared_repo / "scripts").mkdir()
+    shared_driver = shared_repo / "scripts/items.py"
+    shared_driver.write_text(driver_source)
+    shared_driver.chmod(0o755)
+    (shared_repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "scripts/items.py"\nvisibility = "shared"\n'
+    )
+    jj(shared_repo, "commit", "-m", "kata: configure external shared items")
+    (shared_repo / "unrelated.txt").write_text("still open\n")
+
+    workflow(shared_repo, "claim", "external")
+
+    assert jj(shared_repo, "diff", "--name-only").stdout.splitlines() == [
+        "unrelated.txt"
+    ]
+    assert (
+        jj(
+            shared_repo,
+            "log",
+            "--no-graph",
+            "-r",
+            'bookmarks(exact:"external")',
+            "-T",
+            "description",
+        ).stdout
+        == "kata: claim external\n"
+    )
+
+
+def test_shared_driver_completion_failure_lands_nothing_and_can_retry(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    sentinel = tmp_path / "fail-complete"
+    sentinel.write_text("fail\n")
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    driver = scripts / "items.py"
+    driver.write_text(
+        f"""#!/usr/bin/env python3
+import json
+import pathlib
+import shutil
+import subprocess
+import sys
+
+action = sys.argv[1]
+root = pathlib.Path.cwd()
+payload = json.load(sys.stdin)
+requested = payload["requested"]
+
+def files(revision):
+    result = subprocess.run(
+        ["jj", "--no-pager", "file", "list", "-r", revision],
+        text=True, capture_output=True, check=True,
+    )
+    return set(result.stdout.splitlines())
+
+paths = []
+if action == "claim":
+    items = requested
+    for item in items:
+        source = root / "queue" / f"{{item}}.item"
+        destination = root / "active" / source.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(source, destination)
+        paths.extend([f"queue/{{source.name}}", f"active/{{source.name}}"])
+elif action == "owned":
+    before = files(payload["context"]["base_revision"])
+    after = files(payload["context"]["revision"])
+    items = sorted(
+        pathlib.PurePosixPath(path).stem
+        for path in after - before if path.startswith("active/")
+    )
+elif action == "complete":
+    if pathlib.Path({str(sentinel)!r}).exists():
+        print("injected completion failure", file=sys.stderr)
+        raise SystemExit(23)
+    items = requested
+    for item in items:
+        source = root / "active" / f"{{item}}.item"
+        destination = root / "finished" / source.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(source, destination)
+        paths.extend([f"active/{{source.name}}", f"finished/{{source.name}}"])
+elif action == "probe":
+    items = requested
+else:
+    raise SystemExit(f"unsupported {{action}}")
+print(json.dumps({{"items": items, "paths": paths}}))
+"""
+    )
+    driver.chmod(0o755)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "scripts/items.py"\nvisibility = "shared"\n'
+    )
+    (repo / "queue").mkdir()
+    (repo / "queue/work.item").write_text("work\n")
+    jj(repo, "commit", "-m", "items: configure failing shared driver")
+    workflow(repo, "claim", "work")
+    workspace = repo / ".workspaces/work"
+    (workspace / "feature.txt").write_text("feature\n")
+    jj(workspace, "commit", "-m", "feat: shared work")
+
+    failed = workflow(repo, "integrate", "work", check=False)
+
+    assert failed.returncode == 23
+    assert "injected completion failure" in failed.stderr
+    assert not (repo / "feature.txt").exists()
+    assert (repo / "active/work.item").is_file()
+    assert workspace.is_dir()
+    sentinel.unlink()
+
+    workflow(repo, "integrate", "work")
+    workflow(repo, "drop", "work")
+
+    assert (repo / "feature.txt").is_file()
+    assert (repo / "finished/work.item").is_file()
+    assert not workspace.exists()
+
+
+def test_refresh_conflict_stops_with_harmony_guidance(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "base.txt").write_text("default edit\n")
+    workflow(repo, "start", "conflicted")
+    workspace = repo / ".workspaces/conflicted"
+    (workspace / "base.txt").write_text("feature edit\n")
+    jj(workspace, "commit", "-m", "feat: conflicting edit")
+    jj(repo, "commit", "-m", "trunk: conflicting edit")
+
+    result = workflow(repo, "refresh", "conflicted", check=False)
+
+    assert result.returncode == 69
+    assert "harmony skill" in result.stderr
+    assert workspace.is_dir()
+
+
+def test_shared_refresh_conflict_stops_with_harmony_guidance(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    add_ticket(repo, "conflicted")
+    workflow(repo, "claim", "conflicted")
+    workspace = repo / ".workspaces/conflicted"
+    (workspace / "base.txt").write_text("feature edit\n")
+    jj(workspace, "commit", "-m", "feat: conflicting edit")
+    (repo / "base.txt").write_text("default edit\n")
+    jj(repo, "commit", "-m", "trunk: conflicting edit")
+
+    result = workflow(repo, "refresh", "conflicted", check=False)
+
+    assert result.returncode == 69
+    assert "harmony skill" in result.stderr
+    assert workspace.is_dir()
+
+
+def test_postflight_reports_divergent_working_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = init_repo(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(TEST_CONFIG_HOME))
+    lifecycle = Lifecycle(cwd=repo)
+    original_changes = lifecycle._changes
+
+    def divergent(revset: str, cwd: Path | None = None) -> list[str]:
+        if revset == "working_copies() & divergent()":
+            return ["divergent-change"]
+        return original_changes(revset, cwd)
+
+    monkeypatch.setattr(lifecycle, "_changes", divergent)
+    with pytest.raises(KataError) as failure:
+        lifecycle.unstale_workspaces()
+
+    assert failure.value.code == 69
+    assert "harmony skill" in str(failure.value)
+
+
+def test_postflight_reports_update_stale_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = init_repo(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(TEST_CONFIG_HOME))
+    lifecycle = Lifecycle(cwd=repo)
+    original_run = lifecycle.jj.run
+
+    def fail_update(*args: str, **kwargs: object) -> Result:
+        if args[:2] == ("workspace", "update-stale"):
+            return Result("", "injected stale failure", 1)
+        return original_run(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(lifecycle.jj, "run", fail_update)
+    with pytest.raises(KataError) as failure:
+        lifecycle.unstale_workspaces()
+
+    assert failure.value.code == 69
+    assert "stale workspace(s): default" in str(failure.value)
+
+
+def test_lock_timeout_has_stable_exit_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if os.name != "posix":
+        pytest.skip("POSIX lifecycle lock")
+    import fcntl
+
+    repo = init_repo(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(TEST_CONFIG_HOME))
+    monkeypatch.setenv("JJ_KATA_LOCK_TIMEOUT", "0")
+    lifecycle = Lifecycle(cwd=repo)
+    lock_path = repo / ".jj/kata.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(KataError) as failure:
+            with lifecycle.lock():
+                pass
+
+    assert failure.value.code == 75
+
+
+def test_missing_provision_and_kanban_executables_are_concise(tmp_path: Path) -> None:
+    provision = init_repo(tmp_path / "provision")
+    (provision / "jjkata.toml").write_text(
+        'provision_hook = "scripts/does-not-exist"\n'
+    )
+    created = workflow(provision, "start", "kept", check=False)
+    assert created.returncode == 2
+    assert "provision hook does not exist" in created.stderr
+    assert "workspace remains" in created.stderr
+    assert "Traceback" not in created.stderr
+    assert (provision / ".workspaces/kept").is_dir()
+
+    inspection = tmp_path / "inspection"
+    inspection.mkdir()
+    (inspection / "jjkata.toml").write_text(
+        '[kanban]\ncommand = "scripts/does-not-exist"\n'
+    )
+    result = workflow(inspection, "kanban", "board", check=False)
+    assert result.returncode == 2
+    assert "could not run Kanban command" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_boundary_check_rejects_semantic_lookalikes(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    jj(
+        repo,
+        "config",
+        "set",
+        "--repo",
+        'revset-aliases."immutable_heads()"',
+        "builtin_immutable_heads() | (working_copies() & default@ & none())",
+    )
+
+    result = workflow(repo, "start", "unsafe", check=False)
+
+    assert result.returncode == 2
+    assert "needs its teacher" in result.stderr
