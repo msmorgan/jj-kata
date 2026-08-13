@@ -24,13 +24,16 @@ class Jj:
         check: bool = True,
         show_stderr: bool = False,
     ) -> Result:
-        process = subprocess.run(
-            ["jj", "--no-pager", *map(str, args)],
-            cwd=cwd,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        try:
+            process = subprocess.run(
+                ["jj", "--no-pager", *map(str, args)],
+                cwd=cwd,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        except OSError as error:
+            raise KataError(f"could not run jj in {cwd}: {error}") from error
         result = Result(process.stdout, process.stderr, process.returncode)
         if show_stderr and process.stderr:
             print(process.stderr, end="", file=__import__("sys").stderr)

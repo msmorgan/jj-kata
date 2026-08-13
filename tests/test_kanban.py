@@ -92,3 +92,48 @@ def test_board_root_is_discovered_from_a_descendant(tmp_path):
 
     assert result.returncode == 0
     assert result.stdout.splitlines()[:2] == ["bugs:", "bug-one"]
+
+
+def test_configured_order_does_not_hide_repository_columns(tmp_path):
+    board = tmp_path / "tickets"
+    card(board, "urgent", "first")
+    card(board, "backlog", "discovered")
+    card(board, "wip", "active")
+    (tmp_path / "jjkata.toml").write_text(
+        '[kanban]\nroot = "tickets"\ncolumns = ["urgent"]\n'
+    )
+
+    result = subprocess.run(
+        [str(KATA), "kanban", "--slugs-only", "board"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [
+        "urgent:",
+        "first",
+        "backlog:",
+        "discovered",
+        "wip:",
+        "active",
+    ]
+
+
+def test_empty_pattern_list_is_rejected(tmp_path):
+    board = tmp_path / "tickets"
+    board.mkdir()
+    (tmp_path / "jjkata.toml").write_text('[kanban]\nroot = "tickets"\npatterns = []\n')
+
+    result = subprocess.run(
+        [str(KATA), "kanban", "board"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "kanban.patterns must be a non-empty string array" in result.stderr

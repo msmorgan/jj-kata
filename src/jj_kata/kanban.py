@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import shutil
 import sys
@@ -14,7 +13,6 @@ from .config import find_config, section
 from .errors import KataError
 from .jj import Jj
 
-DEFAULT_COLUMNS = ("bugs", "critical", "planned", "maybe", "wip", "done")
 NEEDS_RE = re.compile(r"^needs:\s*\[(.*)]\s*$")
 
 
@@ -37,20 +35,41 @@ class BoardSettings:
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> BoardSettings:
         value = section(config, "kanban")
+        root = value.get("root", "docs/tickets")
+        wip = value.get("wip", "wip")
+        done = value.get("done", "done")
         patterns_value = value.get("patterns", ["*.md"])
         columns_value = value.get("columns", [])
-        if not isinstance(patterns_value, list) or not all(
-            isinstance(item, str) and item for item in patterns_value
+        if not isinstance(root, str) or not root:
+            raise KataError("kanban.root must be a non-empty string", 2)
+        for setting, column in (("wip", wip), ("done", done)):
+            if (
+                not isinstance(column, str)
+                or not column
+                or len(PurePosixPath(column).parts) != 1
+                or column in {".", ".."}
+            ):
+                raise KataError(
+                    f"kanban.{setting} must be one non-empty folder name", 2
+                )
+        if wip == done:
+            raise KataError("kanban.wip and kanban.done must be different", 2)
+        if (
+            not isinstance(patterns_value, list)
+            or not patterns_value
+            or not all(isinstance(item, str) and item for item in patterns_value)
         ):
             raise KataError("kanban.patterns must be a non-empty string array", 2)
         if not isinstance(columns_value, list) or not all(
             isinstance(item, str) and item for item in columns_value
         ):
             raise KataError("kanban.columns must be a string array", 2)
+        if len(set(columns_value)) != len(columns_value):
+            raise KataError("kanban.columns may not contain duplicates", 2)
         return cls(
-            root=str(value.get("root", "docs/tickets")),
-            wip=str(value.get("wip", "wip")),
-            done=str(value.get("done", "done")),
+            root=root,
+            wip=wip,
+            done=done,
             patterns=tuple(patterns_value),
             columns=tuple(columns_value),
         )
@@ -395,7 +414,7 @@ def configure_parser(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jj-kata kanban",
-        description="Inspect a Markdown-folder Kanban board.",
+        description="Inspect a file-backed folder Kanban board.",
     )
     configure_parser(parser)
     return parser
@@ -406,22 +425,27 @@ def run(args: argparse.Namespace, *, cwd: Path | None = None) -> int:
     start = (cwd or Path.cwd()).resolve()
     config_root, config = find_config(start)
     settings = BoardSettings.from_config(config)
-    done = os.environ.get("KANBAN_DONE_COLUMN", settings.done)
-    wip = os.environ.get("KANBAN_WIP_COLUMN", settings.wip)
+    done = settings.done
+    wip = settings.wip
     root = find_root(
         args.root,
         cwd=start,
         config_root=config_root,
         configured=settings.root,
     )
-    configured_columns = os.environ.get("KANBAN_COLUMNS")
-    columns = (
-        comma_list(configured_columns)
-        if configured_columns is not None
-        else settings.columns
-    )
-    if not columns:
-        discovered = sorted(path.name for path in root.iterdir() if path.is_dir())
+    discovered = sorted(path.name for path in root.iterdir() if path.is_dir())
+    columns = settings.columns
+    if columns:
+        unlisted = tuple(
+            name
+            for name in discovered
+            if name not in columns and name not in {wip, done}
+        )
+        states = tuple(
+            name for name in (wip, done) if name in discovered and name not in columns
+        )
+        columns += unlisted + states
+    else:
         columns = tuple(name for name in discovered if name not in {wip, done})
         columns += tuple(name for name in (wip, done) if name in discovered)
     if not columns:

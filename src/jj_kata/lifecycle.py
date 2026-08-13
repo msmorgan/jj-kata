@@ -262,9 +262,11 @@ class Lifecycle:
         for name in self.workspace_names():
             try:
                 root = self.workspace_root(name)
+                snapshot = self.jj.run("util", "snapshot", cwd=root, check=False)
             except KataError:
+                self.unbankable.add(name)
                 continue
-            if self.jj.run("util", "snapshot", cwd=root, check=False).returncode:
+            if snapshot.returncode:
                 self.unbankable.add(name)
         if self.unbankable:
             note(
@@ -618,6 +620,7 @@ class Lifecycle:
                 raise KataError("refresh --all takes no workspace name", 2)
             targets = [item for item in self.workspace_names() if item != "default"]
             self.bank_workspaces()
+            targets = [target for target in targets if target not in self.unbankable]
             try:
                 for target in targets:
                     if self.visibility == "shared":
@@ -636,6 +639,10 @@ class Lifecycle:
                 )
             self.bank_workspaces()
             try:
+                if name in self.unbankable:
+                    raise KataError(
+                        f"{name!r} could not be snapshotted and was left untouched", 2
+                    )
                 if self.visibility == "shared":
                     self._refresh_reorder(name)
                 else:

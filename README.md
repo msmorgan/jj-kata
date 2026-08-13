@@ -150,6 +150,9 @@ patterns = ["*.task", "*.md"]
 columns = ["urgent", "backlog", "doing", "finished"] # optional display order
 ```
 
+`columns` orders familiar columns but is not an allowlist: newly added folder
+columns are still discovered and shown.
+
 Inspection is grouped under one subcommand:
 
 ```bash

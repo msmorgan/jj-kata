@@ -15,7 +15,10 @@ from .lifecycle import Lifecycle
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jj-kata",
-        description="Practice a repeatable Jujutsu feature-workspace lifecycle.",
+        description=(
+            "Safe Jujutsu workspace coordination for parallel agents, with optional "
+            "file-backed Kanban."
+        ),
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -66,7 +69,9 @@ def dispatch(args: argparse.Namespace) -> int:
         if config_root is not None:
             command = section(config, "kanban").get("command")
             if command is not None:
-                driver = ExternalDriver(external_command(command), config_root)
+                driver = ExternalDriver(
+                    external_command(command, setting="kanban.command"), config_root
+                )
                 arguments = [args.kanban_command]
                 if hasattr(args, "slug"):
                     arguments.append(args.slug)

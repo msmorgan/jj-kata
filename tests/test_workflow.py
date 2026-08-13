@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -393,6 +394,23 @@ def test_default_refresh_reorders_feature_before_integrate(tmp_path: Path) -> No
 
     assert (repo / "trunk.txt").is_file()
     assert (repo / "feature.txt").is_file()
+
+
+def test_refresh_all_skips_a_missing_workspace_directory(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    workflow(repo, "start", "healthy")
+    workflow(repo, "start", "missing")
+    missing = repo / ".workspaces/missing"
+    shutil.rmtree(missing)
+    (repo / "trunk.txt").write_text("new trunk\n")
+    jj(repo, "commit", "-m", "trunk: advance")
+
+    result = workflow(repo, "refresh", "--all")
+
+    assert result.returncode == 0
+    assert "leaving stale workspace(s) untouched: missing" in result.stderr
+    assert "refreshed 1 workspace(s)" in result.stderr
+    assert not missing.exists()
 
 
 def test_integrate_requires_closed_working_copy(tmp_path: Path) -> None:

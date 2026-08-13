@@ -68,7 +68,7 @@ def _items(values: object) -> tuple[str, ...]:
 class ExternalDriver:
     def __init__(self, command: tuple[str, ...], default_root: Path) -> None:
         if not command:
-            raise KataError("items.driver may not be empty", 2)
+            raise KataError("external command may not be empty", 2)
         executable = Path(command[0]).expanduser()
         if not executable.is_absolute() and "/" in command[0]:
             executable = default_root / executable
@@ -132,12 +132,18 @@ class ExternalDriver:
         ).returncode
 
 
-def external_command(value: object) -> tuple[str, ...]:
+def external_command(
+    value: object, *, setting: str = "items.driver"
+) -> tuple[str, ...]:
     if isinstance(value, str):
-        return tuple(shlex.split(value))
-    if isinstance(value, list) and all(isinstance(item, str) for item in value):
-        return tuple(value)
-    raise KataError("items.driver must be 'kanban', a command string, or an array", 2)
+        command = tuple(shlex.split(value))
+    elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+        command = tuple(value)
+    else:
+        raise KataError(f"{setting} must be a command string or string array", 2)
+    if not command:
+        raise KataError(f"{setting} may not be empty", 2)
+    return command
 
 
 def load_driver(config: dict[str, Any], default_root: Path) -> ItemDriver | None:

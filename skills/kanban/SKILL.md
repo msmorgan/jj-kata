@@ -45,6 +45,9 @@ patterns = ["*.task"]
 columns = ["urgent", "backlog", "doing", "finished"] # optional order
 ```
 
+Configured columns establish display priority; they do not hide additional
+column folders discovered in the repository.
+
 The bundled graph feature reads `needs: [item, ...]` from frontmatter. Set
 `[kanban] command = "scripts/todo"` to delegate only the inspection commands to
 repository logic. That command need not be the lifecycle item driver.
