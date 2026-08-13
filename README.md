@@ -164,10 +164,17 @@ Inspection is grouped under one subcommand:
 /PLUGIN/scripts/jj-kata kanban check
 ```
 
-The bundled inspector understands the optional `needs: [item, ...]`
-frontmatter convention. A repository can replace only the inspection layer
-with `[kanban] command = "scripts/todo"`; this is independent of its lifecycle
-item driver.
+Dependency extraction is pluggable. By default, the bundled Markdown reader
+understands optional `needs: [item, ...]` frontmatter and otherwise ignores the
+ticket body. A repository can instead configure
+`[kanban] needs_command = "scripts/ticket-needs"`. Kata invokes it once per
+ticket with the absolute file path; it prints direct dependency IDs one per
+line. The ready, blocked, graph, needs, and check commands all consume that
+same interface.
+
+A repository can replace the entire inspection layer with
+`[kanban] command = "scripts/todo"`; this is independent of both the dependency
+adapter and lifecycle item driver.
 
 ## Configuration and hooks
 

@@ -137,3 +137,45 @@ def test_empty_pattern_list_is_rejected(tmp_path):
 
     assert result.returncode == 2
     assert "kanban.patterns must be a non-empty string array" in result.stderr
+
+
+def test_repository_command_can_derive_needs_from_opaque_ticket_files(tmp_path):
+    board = tmp_path / "tickets"
+    card(board, "done", "foundation")
+    card(board, "planned", "github-42")
+    (board / "planned/github-42.md").write_text("github: msmorgan/project#42\n")
+    command = tmp_path / "ticket_needs.py"
+    command.write_text(
+        """#!/usr/bin/env python3
+import pathlib
+import sys
+
+ticket = pathlib.Path(sys.argv[1])
+if ticket.read_text().strip() == "github: msmorgan/project#42":
+    print("foundation")
+"""
+    )
+    command.chmod(0o755)
+    (tmp_path / "jjkata.toml").write_text(
+        '[kanban]\nroot = "tickets"\nneeds_command = "./ticket_needs.py"\n'
+    )
+
+    needs = subprocess.run(
+        [str(KATA), "kanban", "needs", "github-42"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    ready = subprocess.run(
+        [str(KATA), "kanban", "ready"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert needs.returncode == 0
+    assert needs.stdout == "foundation\n"
+    assert ready.returncode == 0
+    assert ready.stdout == "github-42 (planned)\n"

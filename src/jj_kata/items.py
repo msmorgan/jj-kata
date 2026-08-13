@@ -65,14 +65,18 @@ def _items(values: object) -> tuple[str, ...]:
     return tuple(values)
 
 
+def resolve_command(command: tuple[str, ...], default_root: Path) -> tuple[str, ...]:
+    if not command:
+        raise KataError("external command may not be empty", 2)
+    executable = Path(command[0]).expanduser()
+    if not executable.is_absolute() and "/" in command[0]:
+        executable = default_root / executable
+    return (str(executable), *command[1:])
+
+
 class ExternalDriver:
     def __init__(self, command: tuple[str, ...], default_root: Path) -> None:
-        if not command:
-            raise KataError("external command may not be empty", 2)
-        executable = Path(command[0]).expanduser()
-        if not executable.is_absolute() and "/" in command[0]:
-            executable = default_root / executable
-        self.command = (str(executable), *command[1:])
+        self.command = resolve_command(command, default_root)
 
     def transition(
         self,

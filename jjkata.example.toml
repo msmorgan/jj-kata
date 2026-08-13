@@ -21,6 +21,11 @@ wip = "wip"
 done = "done"
 patterns = ["*.md"]
 
+# Optional dependency adapter. Kata invokes it once per ticket with the
+# absolute ticket path; print direct dependency IDs one per line. When omitted,
+# the bundled Markdown reader uses optional `needs: [item, ...]` frontmatter.
+# needs_command = "scripts/ticket-needs"
+
 # Optional presentation priority. Without it, columns are discovered and
 # sorted, followed by WIP and done.
 # columns = ["bugs", "critical", "planned", "maybe", "wip", "done"]

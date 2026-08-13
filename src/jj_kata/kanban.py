@@ -3,14 +3,17 @@ from __future__ import annotations
 import argparse
 import re
 import shutil
+import subprocess
 import sys
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .config import find_config, section
 from .errors import KataError
+from .items import external_command, resolve_command
 from .jj import Jj
 
 NEEDS_RE = re.compile(r"^needs:\s*\[(.*)]\s*$")
@@ -31,6 +34,7 @@ class BoardSettings:
     done: str = "done"
     patterns: tuple[str, ...] = ("*.md",)
     columns: tuple[str, ...] = ()
+    needs_command: tuple[str, ...] | None = None
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> BoardSettings:
@@ -40,6 +44,7 @@ class BoardSettings:
         done = value.get("done", "done")
         patterns_value = value.get("patterns", ["*.md"])
         columns_value = value.get("columns", [])
+        needs_value = value.get("needs_command")
         if not isinstance(root, str) or not root:
             raise KataError("kanban.root must be a non-empty string", 2)
         for setting, column in (("wip", wip), ("done", done)):
@@ -72,6 +77,11 @@ class BoardSettings:
             done=done,
             patterns=tuple(patterns_value),
             columns=tuple(columns_value),
+            needs_command=(
+                external_command(needs_value, setting="kanban.needs_command")
+                if needs_value is not None
+                else None
+            ),
         )
 
 
@@ -311,7 +321,7 @@ def find_root(
     raise ValueError(f"no {configured} board found; pass --root PATH")
 
 
-def parse_needs(path: Path) -> tuple[str, ...]:
+def parse_frontmatter_needs(path: Path) -> tuple[str, ...]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except UnicodeDecodeError as error:
@@ -327,8 +337,40 @@ def parse_needs(path: Path) -> tuple[str, ...]:
     return ()
 
 
+class CommandNeeds:
+    def __init__(self, command: tuple[str, ...], command_root: Path) -> None:
+        self.command = resolve_command(command, command_root)
+        self.command_root = command_root
+
+    def __call__(self, path: Path) -> tuple[str, ...]:
+        try:
+            process = subprocess.run(
+                [*self.command, str(path.resolve())],
+                cwd=self.command_root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        except OSError as error:
+            raise ValueError(f"could not query needs for {path}: {error}") from error
+        if process.returncode:
+            detail = process.stderr.strip() or process.stdout.strip()
+            raise ValueError(
+                detail or f"needs command failed for {path}",
+            )
+        needs = tuple(
+            line.strip() for line in process.stdout.splitlines() if line.strip()
+        )
+        if len(set(needs)) != len(needs):
+            raise ValueError(f"needs command returned duplicates for {path}")
+        return needs
+
+
 def load_cards(
-    root: Path, columns: tuple[str, ...], patterns: tuple[str, ...] = ("*.md",)
+    root: Path,
+    columns: tuple[str, ...],
+    patterns: tuple[str, ...] = ("*.md",),
+    needs_for: Callable[[Path], tuple[str, ...]] = parse_frontmatter_needs,
 ) -> tuple[dict[str, Card], list[str]]:
     cards: dict[str, Card] = {}
     problems: list[str] = []
@@ -344,7 +386,7 @@ def load_cards(
         )
         for path in paths:
             slug = path.stem
-            card = Card(slug, column, path, parse_needs(path))
+            card = Card(slug, column, path, needs_for(path))
             if slug in cards:
                 problems.append(
                     f"duplicate: {slug} appears in {cards[slug].column} and {column}"
@@ -450,7 +492,12 @@ def run(args: argparse.Namespace, *, cwd: Path | None = None) -> int:
         columns += tuple(name for name in (wip, done) if name in discovered)
     if not columns:
         raise ValueError("the board has no column directories")
-    cards, duplicate_problems = load_cards(root, columns, settings.patterns)
+    needs_for = (
+        CommandNeeds(settings.needs_command, config_root or start)
+        if settings.needs_command is not None
+        else parse_frontmatter_needs
+    )
+    cards, duplicate_problems = load_cards(root, columns, settings.patterns, needs_for)
     claimable = claimable_columns(columns, wip, done)
 
     if command == "board":

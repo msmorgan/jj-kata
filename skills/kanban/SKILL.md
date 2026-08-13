@@ -48,9 +48,15 @@ columns = ["urgent", "backlog", "doing", "finished"] # optional order
 Configured columns establish display priority; they do not hide additional
 column folders discovered in the repository.
 
-The bundled graph feature reads `needs: [item, ...]` from frontmatter. Set
-`[kanban] command = "scripts/todo"` to delegate only the inspection commands to
-repository logic. That command need not be the lifecycle item driver.
+The default Markdown dependency reader recognizes optional
+`needs: [item, ...]` frontmatter. To derive dependencies from another ticket
+representation, set `[kanban] needs_command = "scripts/ticket-needs"`. Kata
+passes it one absolute ticket path at a time; it must print direct dependency
+IDs one per line. All bundled graph commands use this adapter.
+
+Set `[kanban] command = "scripts/todo"` to delegate the entire inspection layer
+instead. That command need not be the dependency adapter or lifecycle item
+driver.
 
 Do not move items merely because inspection exposes their state. Use
 `jj-kata claim`, `integrate`, or `drop --return-items` for lifecycle moves.
