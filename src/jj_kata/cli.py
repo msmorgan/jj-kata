@@ -4,9 +4,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from .config import find_config
+from .config import find_config, section
 from .errors import KataError
-from .items import ExternalDriver, load_driver
+from .items import ExternalDriver, external_command
 from .kanban import configure_parser as configure_kanban_parser
 from .kanban import run as run_kanban
 from .lifecycle import Lifecycle
@@ -64,8 +64,9 @@ def dispatch(args: argparse.Namespace) -> int:
     if args.command == "kanban":
         config_root, config = find_config(Path.cwd())
         if config_root is not None:
-            driver = load_driver(config, config_root)
-            if isinstance(driver, ExternalDriver):
+            command = section(config, "kanban").get("command")
+            if command is not None:
+                driver = ExternalDriver(external_command(command), config_root)
                 arguments = [args.kanban_command]
                 if hasattr(args, "slug"):
                     arguments.append(args.slug)

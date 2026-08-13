@@ -1,7 +1,7 @@
 {
   "name": "jj-kata",
   "version": "0.11.0",
-  "description": "Repeatable Jujutsu feature workspaces with start, claim, refresh, integrate, and drop, plus optional Kanban integration.",
+  "description": "Safe parallel Jujutsu feature-workspace coordination with optional repository-defined work items and bundled Kanban.",
   "author": {
     "name": "Michael Morgan",
     "url": "https://github.com/msmorgan"
@@ -9,19 +9,19 @@
   "homepage": "https://github.com/msmorgan/jj-kata",
   "repository": "https://github.com/msmorgan/jj-kata",
   "license": "MIT",
-  "keywords": ["jujutsu", "jj", "workspaces", "kanban", "tickets"],
+  "keywords": ["jujutsu", "jj", "parallel", "workspaces", "kanban"],
   "skills": "./skills/",
   "interface": {
     "displayName": "jj Kata",
-    "shortDescription": "Practice a repeatable jj workspace lifecycle",
-    "longDescription": "Manage start, claim, refresh, integrate, and drop for Jujutsu feature workspaces, with repository-defined work items and an optional folder Kanban integration.",
+    "shortDescription": "Coordinate safe parallel jj workspaces",
+    "longDescription": "Safely create, refresh, integrate, and retire parallel Jujutsu feature workspaces. Optionally attach repository-defined work-item transitions or use the bundled Kanban framework.",
     "developerName": "Michael Morgan",
     "category": "Developer Tools",
     "capabilities": [],
     "websiteURL": "https://github.com/msmorgan/jj-kata",
     "defaultPrompt": [
-      "Claim a ticket in a new Jujutsu feature workspace.",
-      "Refresh and integrate this feature workspace.",
+      "Start an isolated Jujutsu feature workspace.",
+      "Refresh and safely integrate this feature workspace.",
       "Show which Kanban tickets are ready or blocked."
     ],
     "brandColor": "#5B5BD6"

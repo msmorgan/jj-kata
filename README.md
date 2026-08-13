@@ -1,17 +1,31 @@
 # jj-kata
 
-`jj-kata` supplies one opinionated practice on top of Jujutsu: create a named
-feature workspace, optionally claim repository-defined work, refresh it, fold
-closed work into `default`, and retire the workspace.
+`jj-kata` coordinates parallel Jujutsu feature workspaces: create an isolated
+workspace, refresh it against the shared `default` line, safely fold deliberately
+closed work back into that line, and retire the workspace without endangering
+its siblings. Repositories can optionally attach work-item transitions to that
+practice through a driver.
 
 [jj-sensei](https://github.com/msmorgan/jj-sensei) is the general Jujutsu
 foundation. It teaches installed-version jj semantics and installs the
 repository boundaries that keep live workspaces from rewriting one another.
 Kata assumes those boundaries and owns only the
-`start`/`claim` → `refresh` → `integrate` → `drop` lifecycle.
+`start` → `refresh` → `integrate` → `drop` lifecycle plus the optional `claim`
+adapter.
 Mutating lifecycle commands refuse repositories that do not have a
 workspace-aware repository `immutable_heads()` definition; use jj-sensei's
 boundaries skill to install or audit it first.
+
+There is no plugin-manifest dependency mechanism, so install Kata's teacher
+first:
+
+```bash
+codex plugin marketplace add msmorgan/marketplace
+codex plugin add jj-sensei@msmorgan
+```
+
+For Claude Code, use `claude plugin marketplace add msmorgan/marketplace` and
+`claude plugin install jj-sensei@msmorgan`.
 
 Everything executable in this plugin is Python. The plugin launcher imports the
 `src/jj_kata` package directly, while `pyproject.toml` also provides a normal
@@ -24,14 +38,20 @@ repository or `PATH`:
 
 ```bash
 /PLUGIN/scripts/jj-kata start feature-name
-/PLUGIN/scripts/jj-kata claim ITEM
-/PLUGIN/scripts/jj-kata claim ITEM --name feature-name
 cd .workspaces/feature-name
 # Work, then close the change with jj commit -m ...
 /PLUGIN/scripts/jj-kata refresh
 /PLUGIN/scripts/jj-kata integrate
 cd ../..
 /PLUGIN/scripts/jj-kata drop feature-name
+```
+
+That core lifecycle has no ticket or Kanban requirement. To start through a
+configured item driver instead:
+
+```bash
+/PLUGIN/scripts/jj-kata claim ITEM
+/PLUGIN/scripts/jj-kata claim ITEM --name feature-name
 ```
 
 `ITEM` is opaque to Kata. When an item ID is not also a legal jj workspace
@@ -71,8 +91,12 @@ private state database.
 
 ## Repository-defined work items
 
-Kata does not know what an item file is, where it lives, which extension it
-uses, or how dependencies work. A driver owns five transitions:
+Work items are optional. With no `[items].driver`, a repository uses the core
+workspace lifecycle and `claim` is unavailable; even a `docs/tickets` tree does
+not implicitly select Kanban.
+
+When configured, Kata does not know whether an item is a file, a GitHub issue
+handle, or something stranger. A driver owns five transitions:
 
 - `probe`: determine whether an item can be claimed by a host hook.
 - `claim`: move requested markers into the repository's active state.
@@ -102,12 +126,17 @@ driver = "scripts/items"
 See [the item-driver protocol](skills/kata/references/item-driver.md) for its
 JSON contract.
 
-## Bundled Kanban
+## Optional bundled Kanban
 
-The out-of-box integration defaults to `docs/tickets`, `wip`, `done`, and
-`*.md`, but only the WIP and done roles are special. Every other immediate
-folder is an ordinary claimable column. Names, root, and filename patterns are
-repository configuration:
+Kanban ships here as a useful ready-made ticket framework, not as part of the
+Kata lifecycle. Opt into its claim transitions with
+`[items] driver = "kanban"`; otherwise the lifecycle never imports or inspects
+Kanban state.
+
+The bundled framework defaults to `docs/tickets`, `wip`, `done`, and `*.md`,
+but only the WIP and done roles are special. Every other immediate folder is an
+ordinary claimable column. Names, root, and filename patterns are repository
+configuration:
 
 ```toml
 [kanban]
@@ -130,9 +159,9 @@ Inspection is grouped under one subcommand:
 ```
 
 The bundled inspector understands the optional `needs: [item, ...]`
-frontmatter convention. When `[items].driver` names an external command, these
-Kanban subcommands are delegated to that repository command instead, allowing
-the repository to own its graph format too.
+frontmatter convention. A repository can replace only the inspection layer
+with `[kanban] command = "scripts/todo"`; this is independent of its lifecycle
+item driver.
 
 ## Configuration and hooks
 
@@ -150,15 +179,15 @@ enabled globally for unrelated repositories.
 Claude Code:
 
 ```text
-/plugin marketplace add msmorgan/jj-kata
-/plugin install jj-kata@jj-kata
+/plugin marketplace add msmorgan/marketplace
+/plugin install jj-kata@msmorgan
 ```
 
 Codex:
 
 ```bash
-codex plugin marketplace add msmorgan/jj-kata
-codex plugin add jj-kata@jj-kata
+codex plugin marketplace add msmorgan/marketplace
+codex plugin add jj-kata@msmorgan
 ```
 
 Antigravity can install this repository as a custom plugin through its native

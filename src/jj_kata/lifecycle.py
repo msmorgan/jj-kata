@@ -76,8 +76,9 @@ class Lifecycle:
         )
         if not (protects_workspaces and distinguishes_default):
             raise KataError(
-                "jj-sensei workspace boundaries are not configured for this repository; "
-                "use jj-sensei's boundaries skill before running Kata",
+                "jj-kata needs its teacher: install jj-sensei from "
+                "msmorgan/marketplace, then use its boundaries skill to configure "
+                "this repository",
                 2,
             )
 
@@ -360,7 +361,9 @@ class Lifecycle:
     def _driver(self) -> ItemDriver:
         if self.item_driver is None:
             raise KataError(
-                "claim needs an item driver; configure [items].driver or [kanban]", 2
+                "claim needs an item driver; configure [items].driver "
+                '(for example, driver = "kanban")',
+                2,
             )
         return self.item_driver
 

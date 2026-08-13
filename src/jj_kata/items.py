@@ -31,8 +31,6 @@ class ItemDriver(Protocol):
         visibility: str = "feature",
     ) -> Transition: ...
 
-    def inspect(self, arguments: list[str], *, cwd: Path) -> int: ...
-
 
 def _safe_paths(root: Path, values: object) -> tuple[str, ...]:
     if not isinstance(values, list) or not all(
@@ -146,10 +144,7 @@ def load_driver(config: dict[str, Any], default_root: Path) -> ItemDriver | None
     items_config = section(config, "items")
     value = items_config.get("driver")
     if value is None:
-        from .kanban import FolderKanbanDriver
-
-        driver = FolderKanbanDriver.from_config(config, default_root)
-        return driver if driver.board_exists(default_root) else None
+        return None
     if value == "kanban":
         from .kanban import FolderKanbanDriver
 

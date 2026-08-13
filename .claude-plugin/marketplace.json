@@ -8,7 +8,7 @@
     {
       "name": "jj-kata",
       "source": "./",
-      "description": "Repeatable Jujutsu feature workspaces with lifecycle commands and optional Kanban integration."
+      "description": "Safe parallel Jujutsu feature-workspace coordination with optional work-item and Kanban integrations."
     }
   ]
 }

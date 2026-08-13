@@ -30,9 +30,13 @@ Commands are read-only:
 
 The bundled defaults are `docs/tickets`, `wip`, `done`, and `*.md`. Only WIP
 and done have special roles; every other immediate folder is claimable.
-Configure names and file patterns in `jjkata.toml`:
+Kanban is shipped but never implicitly enabled. Configure it as the lifecycle's
+item driver only when wanted, plus names and file patterns in `jjkata.toml`:
 
 ```toml
+[items]
+driver = "kanban"
+
 [kanban]
 root = "tasks"
 wip = "doing"
@@ -41,9 +45,9 @@ patterns = ["*.task"]
 columns = ["urgent", "backlog", "doing", "finished"] # optional order
 ```
 
-The bundled graph feature reads `needs: [item, ...]` from frontmatter. If
-`[items].driver` names an external repository command, Kata delegates these
-inspection commands to it instead; let the repository own its graph format.
+The bundled graph feature reads `needs: [item, ...]` from frontmatter. Set
+`[kanban] command = "scripts/todo"` to delegate only the inspection commands to
+repository logic. That command need not be the lifecycle item driver.
 
 Do not move items merely because inspection exposes their state. Use
 `jj-kata claim`, `integrate`, or `drop --return-items` for lifecycle moves.

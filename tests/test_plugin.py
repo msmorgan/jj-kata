@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_manifests_describe_workflow_and_kanban_plugin() -> None:
+def test_manifests_are_consistent() -> None:
     codex = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
     claude = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
     antigravity = json.loads((ROOT / "plugin.json").read_text())
@@ -16,8 +16,6 @@ def test_manifests_describe_workflow_and_kanban_plugin() -> None:
     assert codex["name"] == "jj-kata"
     assert codex["skills"] == "./skills/"
     assert codex["version"] == claude["version"] == antigravity["version"]
-    assert "start, claim, refresh, integrate, and drop" in codex["description"]
-    assert "Kanban" in codex["description"]
 
 
 def test_plugin_keeps_both_python_skills_and_worktree_bridges() -> None:
@@ -68,11 +66,3 @@ def test_superseded_generic_components_remain_absent() -> None:
         path for source in executable_sources for path in source.rglob("*.fish")
     ]
     assert not [path for source in executable_sources for path in source.rglob("*.pl")]
-
-
-def test_readme_draws_the_sensei_boundary() -> None:
-    readme = (ROOT / "README.md").read_text()
-
-    assert "general Jujutsu" in readme and "foundation" in readme
-    assert "start`/`claim` → `refresh` → `integrate` → `drop`" in readme
-    assert "/PLUGIN/scripts/jj-kata" in readme

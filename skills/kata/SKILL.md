@@ -5,14 +5,16 @@ description: "Use when a jj repository follows jj-kata's named feature-workspace
 
 # jj-kata
 
-Use Kata for the repository's `start`/`claim` → `refresh` → `integrate` →
-`drop` practice. Use jj-sensei for general jj knowledge, boundary setup,
-history shaping outside this lifecycle, and stale/divergent/conflicted workspace
-repair.
+Use Kata to coordinate parallel feature workspaces through
+`start` → `refresh` → `integrate` → `drop`. `claim` optionally attaches
+repository-defined work-item transitions. Use jj-sensei for general jj
+knowledge, boundary setup, history shaping outside this lifecycle, and
+stale/divergent/conflicted workspace repair.
 
 Kata refuses lifecycle commands when the repository lacks a workspace-aware
-`immutable_heads()` definition. Use jj-sensei's boundaries skill to install or
-audit it; never bypass the refusal.
+`immutable_heads()` definition. Install `jj-sensei` from
+`msmorgan/marketplace`, then use its boundaries skill to install or audit the
+guard; never bypass the refusal.
 
 ## Command
 
@@ -52,7 +54,8 @@ jj-kata integrate
 
 Item IDs are opaque. `claim ITEM` uses the ID as the workspace name only as a
 convenience; pass `--name NAME` when that is inappropriate or several items
-start together.
+start together. With no `[items].driver`, use `start`; no filesystem layout
+implicitly enables claims.
 
 Refresh before review or integration when `default` has moved. Integration
 requires an empty, undescribed feature `@`; close work with `jj commit -m ...`
@@ -96,6 +99,9 @@ provision_hook = "scripts/provision-workspace"
 [items]
 driver = "kanban" # or "scripts/items"
 ```
+
+The bundled Kanban driver is optional. It is a convenient ticket framework,
+not a prerequisite or part of the parallel-workspace topology.
 
 The provision hook is optional. Kata calls an executable hook with the created
 workspace path after creation; a hook failure deliberately leaves that

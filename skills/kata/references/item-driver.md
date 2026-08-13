@@ -74,11 +74,11 @@ the changes.
 
 ## Inspection invocation
 
-When this external driver is configured, `jj-kata kanban COMMAND [ITEM]`
-delegates directly as:
+When `[kanban] command = "scripts/todo"` is configured,
+`jj-kata kanban COMMAND [ITEM]` delegates directly as:
 
 ```text
-DRIVER COMMAND [ITEM]
+KANBAN_COMMAND COMMAND [ITEM]
 ```
 
 No lifecycle JSON is sent. Use ordinary stdout, stderr, and exit status for

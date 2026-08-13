@@ -87,11 +87,19 @@ def test_lifecycle_requires_sensei_workspace_boundaries(tmp_path: Path) -> None:
     result = workflow(repo, "start", "unsafe", check=False)
 
     assert result.returncode == 2
-    assert "jj-sensei workspace boundaries" in result.stderr
+    assert "install jj-sensei from msmorgan/marketplace" in result.stderr
     assert not (repo / ".workspaces/unsafe").exists()
 
 
+def enable_kanban(repo: Path) -> None:
+    path = repo / "jjkata.toml"
+    contents = path.read_text() if path.is_file() else ""
+    if "[items]" not in contents:
+        path.write_text(contents + '\n[items]\ndriver = "kanban"\n')
+
+
 def add_ticket(repo: Path, slug: str, column: str = "planned") -> None:
+    enable_kanban(repo)
     directory = repo / "docs" / "tickets" / column
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{slug}.md").write_text(f"# {slug}\n")
@@ -125,6 +133,20 @@ def test_ad_hoc_start_integrate_and_drop(tmp_path: Path) -> None:
     workflow(repo, "drop", "feature-a")
     assert not workspace.exists()
     assert "feature-a" not in jj(repo, "workspace", "list").stdout
+
+
+def test_ticket_folders_do_not_implicitly_enable_kanban(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    ticket = repo / "docs/tickets/planned/unconfigured.md"
+    ticket.parent.mkdir(parents=True)
+    ticket.write_text("just a repository file\n")
+    jj(repo, "commit", "-m", "docs: add an unrelated ticket-shaped file")
+
+    result = workflow(repo, "claim", "unconfigured", check=False)
+
+    assert result.returncode == 2
+    assert "configure [items].driver" in result.stderr
+    assert not (repo / ".workspaces/unconfigured").exists()
 
 
 def test_ticket_claim_refresh_and_integrate(tmp_path: Path) -> None:
@@ -220,7 +242,10 @@ def test_kanban_folders_and_extension_are_repository_configuration(
 ) -> None:
     repo = init_repo(tmp_path)
     (repo / "jjkata.toml").write_text(
-        """[kanban]
+        """[items]
+driver = "kanban"
+
+[kanban]
 root = "tasks"
 wip = "doing"
 done = "finished"
@@ -304,7 +329,10 @@ print(json.dumps({"items": items, "paths": paths}))
 """
     )
     driver.chmod(0o755)
-    (repo / "jjkata.toml").write_text('[items]\ndriver = "scripts/items.py"\n')
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "scripts/items.py"\n\n'
+        '[kanban]\ncommand = "scripts/items.py"\n'
+    )
     queue = repo / "queue"
     queue.mkdir()
     (queue / "ticket:42.item").write_text("opaque\n")

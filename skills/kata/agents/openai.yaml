@@ -1,4 +1,4 @@
 interface:
   display_name: "jj Kata"
-  short_description: "Run the feature-workspace lifecycle"
-  default_prompt: "Use $kata to manage the feature-workspace lifecycle in this repository."
+  short_description: "Coordinate safe parallel jj workspaces"
+  default_prompt: "Use $kata to coordinate this repository safely across parallel Jujutsu workspaces."
