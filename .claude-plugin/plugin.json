@@ -1,11 +1,11 @@
 {
   "name": "jj-workflow",
-  "displayName": "jj Workflow",
-  "description": "Parallel-agent feature workflow for jj repos: claim/start feature workspaces, refresh against trunk, integrate back — with a config-based trunk-immutability guard, a git/flag-ban hook, and conflict tooling.",
+  "displayName": "Kanban Tickets",
+  "description": "Markdown-folder Kanban boards with dependency-aware ready, blocked, graph, and validation views.",
   "version": "0.10.2",
   "author": {
     "name": "Michael Morgan"
   },
   "license": "MIT",
-  "keywords": ["jj", "jujutsu", "vcs", "workflow", "workspaces"]
+  "keywords": ["kanban", "tickets", "planning", "dependencies"]
 }

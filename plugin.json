@@ -1,6 +1,6 @@
 {
   "name": "jj-workflow",
-  "displayName": "jj Workflow",
-  "description": "Parallel-agent feature workflow for jj repos with guarded trunk integration and conflict tooling.",
+  "displayName": "Kanban Tickets",
+  "description": "Markdown-folder Kanban boards with dependency-aware ready, blocked, graph, and validation views.",
   "version": "0.10.2"
 }
