@@ -6,6 +6,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from jj_kata.errors import KataError
+from jj_kata.lifecycle import Lifecycle
+
 ROOT = Path(__file__).resolve().parent.parent
 KATA = ROOT / "scripts" / "jj-kata"
 WORKTREE_CREATE = ROOT / "hooks" / "worktree_create.py"
@@ -53,7 +58,7 @@ def workflow(
 
 def init_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "myproj"
-    repo.mkdir()
+    repo.mkdir(parents=True)
     jj(repo, "git", "init", "--colocate")
     jj(
         repo,
@@ -505,3 +510,186 @@ def test_worktree_hooks_handle_malformed_input_without_tracebacks() -> None:
     assert removed.returncode == 0
     assert "invalid worktree hook input" in removed.stderr
     assert "Traceback" not in removed.stderr
+
+
+def test_foreign_same_named_bookmark_is_never_treated_as_shared_anchor(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    workflow(repo, "start", "a")
+    workflow(repo, "start", "b")
+    a = repo / ".workspaces/a"
+    b = repo / ".workspaces/b"
+    (a / "a.txt").write_text("a\n")
+    jj(a, "commit", "-m", "feat: a")
+    (b / "b.txt").write_text("b\n")
+    jj(b, "commit", "-m", "feat: b")
+    jj(repo, "bookmark", "create", "a", "-r", "b@-")
+
+    workflow(repo, "integrate", "a")
+    workflow(repo, "drop", "a")
+
+    assert (repo / "a.txt").is_file()
+    assert not (repo / "b.txt").exists()
+    assert jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        'bookmarks(exact:"a")',
+        "-T",
+        "change_id",
+    ).stdout.strip()
+
+
+def test_complete_shared_lifecycle_refreshes_integrates_and_drops(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    add_ticket(repo, "shared-ticket")
+    workflow(repo, "claim", "shared-ticket")
+    workspace = repo / ".workspaces/shared-ticket"
+    (workspace / "feature.txt").write_text("feature\n")
+    jj(workspace, "commit", "-m", "feat: shared work")
+    (repo / "coordinator.txt").write_text("coordinator\n")
+    jj(repo, "commit", "-m", "trunk: advance")
+
+    workflow(repo, "refresh", "shared-ticket")
+    workflow(repo, "integrate", "shared-ticket")
+    workflow(repo, "drop", "shared-ticket")
+
+    assert (repo / "feature.txt").is_file()
+    assert (repo / "coordinator.txt").is_file()
+    assert (repo / "docs/tickets/done/shared-ticket.md").is_file()
+    assert not workspace.exists()
+    assert not jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        'bookmarks(exact:"shared-ticket")',
+        "-T",
+        "change_id",
+    ).stdout.strip()
+
+
+def test_return_items_refuses_newer_default_ticket_edits(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    add_ticket(repo, "collision")
+    workflow(repo, "claim", "collision")
+    workspace = repo / ".workspaces/collision"
+    wip = workspace / "docs/tickets/wip/collision.md"
+    wip.write_text("feature notes\n")
+    planned = repo / "docs/tickets/planned/collision.md"
+    planned.write_text("new coordinator notes\n")
+    jj(repo, "commit", "-m", "tickets: coordinator edits collision")
+
+    result = workflow(repo, "drop", "collision", "--return-items", check=False)
+
+    assert result.returncode == 2
+    assert "without overwriting coordinator work" in result.stderr
+    assert planned.read_text() == "new coordinator notes\n"
+    assert wip.read_text() == "feature notes\n"
+    assert workspace.is_dir()
+
+
+def test_return_apply_failure_restores_and_preserves_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = init_repo(tmp_path)
+    add_ticket(repo, "recoverable")
+    workflow(repo, "claim", "recoverable")
+    workspace = repo / ".workspaces/recoverable"
+    wip = workspace / "docs/tickets/wip/recoverable.md"
+    wip.write_text("recover me\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(TEST_CONFIG_HOME))
+    lifecycle = Lifecycle(cwd=repo)
+
+    def fail_apply(*args: object, **kwargs: object) -> bool:
+        raise KataError("injected return failure", 2)
+
+    monkeypatch.setattr(lifecycle, "_apply_paths", fail_apply)
+    with pytest.raises(KataError, match="injected return failure"):
+        lifecycle.drop("recoverable", return_items=True)
+
+    assert workspace.is_dir()
+    assert wip.read_text() == "recover me\n"
+    assert (repo / "docs/tickets/planned/recoverable.md").is_file()
+
+
+def test_drop_rechecks_workspace_state_immediately_before_destruction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = init_repo(tmp_path)
+    workflow(repo, "start", "racing")
+    workspace = repo / ".workspaces/racing"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(TEST_CONFIG_HOME))
+    lifecycle = Lifecycle(cwd=repo)
+    original_bank = lifecycle.bank_workspaces
+
+    def race_after_preflight() -> None:
+        original_bank()
+        (workspace / "late.txt").write_text("arrived during drop\n")
+
+    monkeypatch.setattr(lifecycle, "bank_workspaces", race_after_preflight)
+    with pytest.raises(KataError, match="changed after drop preflight"):
+        lifecycle.drop("racing")
+
+    assert workspace.is_dir()
+    assert (workspace / "late.txt").is_file()
+
+
+def test_or_start_falls_back_for_absent_board_and_missing_item(tmp_path: Path) -> None:
+    absent = init_repo(tmp_path / "absent")
+    (absent / "jjkata.toml").write_text('[items]\ndriver = "kanban"\n')
+    jj(absent, "commit", "-m", "kata: configure optional board")
+    workflow(absent, "claim", "background", "--or-start")
+    assert (absent / ".workspaces/background").is_dir()
+
+    missing = init_repo(tmp_path / "missing")
+    add_ticket(missing, "some-other-item")
+    workflow(missing, "claim", "background", "--or-start")
+    assert (missing / ".workspaces/background").is_dir()
+
+
+def test_or_start_refuses_ambiguous_item_and_broken_driver(tmp_path: Path) -> None:
+    ambiguous = init_repo(tmp_path / "ambiguous")
+    add_ticket(ambiguous, "same", "planned")
+    duplicate = ambiguous / "docs/tickets/later/same.md"
+    duplicate.parent.mkdir(parents=True)
+    duplicate.write_text("duplicate\n")
+    jj(ambiguous, "commit", "-m", "tickets: add ambiguous duplicate")
+    result = workflow(ambiguous, "claim", "same", "--or-start", check=False)
+    assert result.returncode == 2
+    assert "ambiguous" in result.stderr
+    assert not (ambiguous / ".workspaces/same").exists()
+
+    broken = init_repo(tmp_path / "broken")
+    (broken / "jjkata.toml").write_text('[items]\ndriver = "scripts/does-not-exist"\n')
+    result = workflow(broken, "claim", "anything", "--or-start", check=False)
+    assert result.returncode == 2
+    assert "could not run item driver" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_legacy_config_is_a_hard_clean_break(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjworkflow.toml").write_text("[workflow]\n")
+
+    result = workflow(repo, "start", "unsafe", check=False)
+
+    assert result.returncode == 2
+    assert "legacy jjworkflow.toml state" in result.stderr
+    assert not (repo / ".workspaces/unsafe").exists()
+
+
+def test_ambiguous_bulk_drop_flags_are_removed(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+
+    result = workflow(repo, "drop", "--help")
+
+    assert "--integrated" not in result.stdout
+    assert "--dry-run" not in result.stdout

@@ -213,14 +213,18 @@ class FolderKanbanDriver:
             return Transition(tuple(sorted(owned)), tuple(sorted(owned_paths)))
 
         if action == "probe":
+            if not self.board_exists(root):
+                return Transition((), ())
             cards = self._working_cards(root)
             claimable = self._claimable_columns(cards)
-            found = tuple(
-                identifier
-                for identifier in requested
-                if sum(identifier in cards[column] for column in claimable) == 1
-            )
-            return Transition(found, ())
+            found: list[str] = []
+            for identifier in requested:
+                count = sum(identifier in cards[column] for column in claimable)
+                if count > 1:
+                    raise KataError(f"Kanban item {identifier!r} is ambiguous", 2)
+                if count == 1:
+                    found.append(identifier)
+            return Transition(tuple(found), ())
 
         cards = self._working_cards(root)
         if len(set(requested)) != len(requested):
@@ -440,10 +444,9 @@ def find_cycles(cards: dict[str, Card]) -> list[str]:
 def topological_order(
     cards: dict[str, Card], columns: tuple[str, ...], done: str
 ) -> tuple[Card, ...]:
-    remaining = {slug: card for slug, card in cards.items() if card.column != done}
     dangling = sorted(
         (card.slug, need)
-        for card in remaining.values()
+        for card in cards.values()
         for need in card.needs
         if need not in cards
     )
@@ -451,10 +454,11 @@ def topological_order(
         details = ", ".join(f"{slug} needs unknown {need}" for slug, need in dangling)
         raise ValueError(f"cannot order a graph with dangling needs: {details}")
 
-    cycles = find_cycles(remaining)
+    cycles = find_cycles(cards)
     if cycles:
         raise ValueError("cannot order a cyclic graph: " + "; ".join(cycles))
 
+    remaining = {slug: card for slug, card in cards.items() if card.column != done}
     dependents: dict[str, list[str]] = defaultdict(list)
     indegree: dict[str, int] = {}
     for slug, card in remaining.items():

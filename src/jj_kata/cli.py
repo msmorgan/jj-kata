@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     integrate.add_argument("name", nargs="?")
 
     drop = commands.add_parser("drop", help="retire a feature workspace")
-    drop.add_argument("name", nargs="?")
+    drop.add_argument("name")
     drop.add_argument("--force", action="store_true")
     drop.add_argument(
         "--return-items",

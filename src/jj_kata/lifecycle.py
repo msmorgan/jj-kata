@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
@@ -39,6 +38,7 @@ class Lifecycle:
                 "workspace", "root", "--name", "default", cwd=self.current_root
             )
         ).resolve()
+        self._require_jj_version()
         self._require_workspace_boundaries()
         self.config: dict[str, Any] = load_config(self.default_root)
         lifecycle = section(self.config, "lifecycle")
@@ -53,28 +53,30 @@ class Lifecycle:
         self.unbankable: set[str] = set()
 
     def _require_workspace_boundaries(self) -> None:
-        configured = self.jj.run(
-            "config",
-            "list",
-            "--repo",
-            cwd=self.default_root,
-            check=False,
+        aliases = self.jj.run(
+            "config", "list", "--repo", cwd=self.default_root, check=False
         ).stdout
-        definition = next(
-            (
-                line
-                for line in configured.splitlines()
-                if line.startswith('revset-aliases."immutable_heads()"')
-            ),
-            "",
+        compact = "".join(aliases.split())
+        sensei = (
+            'revset-aliases."other_workspaces()"="working_copies()~@"' in compact
+            and 'revset-aliases."not_default()"="@~default@"' in compact
+            and (
+                'revset-aliases."only_if(condition,revisions)"='
+                '"revisions&descendants(ancestors(condition))"' in compact
+            )
+            and (
+                'revset-aliases."immutable_heads()"="builtin_immutable_heads()|'
+                'only_if(not_default(),other_workspaces())"' in compact
+            )
         )
-        protects_workspaces = (
-            "working_copies()" in definition or "other_workspaces()" in definition
+        legacy_sensei = (
+            'revset-aliases."all_if_any(rev)"="descendants(ancestors(rev))"' in compact
+            and (
+                'revset-aliases."immutable_heads()"="builtin_immutable_heads()|'
+                '((working_copies()~@)&all_if_any(default@~@))"' in compact
+            )
         )
-        distinguishes_default = (
-            "default@" in definition or "not_default()" in definition
-        )
-        if not (protects_workspaces and distinguishes_default):
+        if not (sensei or legacy_sensei):
             raise KataError(
                 "jj-kata needs its teacher: install jj-sensei from "
                 "msmorgan/marketplace, then use its boundaries skill to configure "
@@ -84,6 +86,14 @@ class Lifecycle:
 
     @contextmanager
     def lock(self) -> Iterator[None]:
+        if os.name != "posix":
+            raise KataError(
+                "workspace lifecycle commands currently require a POSIX host; "
+                "Kanban inspection remains portable",
+                2,
+            )
+        import fcntl
+
         lock_path = self.default_root / ".jj" / "kata.lock"
         timeout = float(
             os.environ.get(
@@ -183,6 +193,18 @@ class Lifecycle:
             cwd=cwd or self.default_root,
         )
 
+    def _commit_id(self, revset: str, cwd: Path | None = None) -> str:
+        return self.jj.text(
+            "log",
+            "--no-graph",
+            "-r",
+            revset,
+            "-T",
+            "commit_id",
+            "--ignore-working-copy",
+            cwd=cwd or self.default_root,
+        )
+
     def _changes(self, revset: str, cwd: Path | None = None) -> list[str]:
         return self.jj.lines(
             "log",
@@ -274,7 +296,8 @@ class Lifecycle:
                 + ", ".join(sorted(self.unbankable))
             )
 
-    def unstale_workspaces(self) -> None:
+    def unstale_workspaces(self, *, strict: bool = True) -> None:
+        failed: list[str] = []
         for name in self.workspace_names():
             if name in self.unbankable:
                 continue
@@ -282,7 +305,23 @@ class Lifecycle:
                 root = self.workspace_root(name)
             except KataError:
                 continue
-            self.jj.run("workspace", "update-stale", cwd=root, check=False)
+            result = self.jj.run("workspace", "update-stale", cwd=root, check=False)
+            if result.returncode:
+                failed.append(name)
+        divergent = self._changes("working_copies() & divergent()")
+        if strict and (failed or divergent):
+            details: list[str] = []
+            if failed:
+                details.append("stale workspace(s): " + ", ".join(sorted(failed)))
+            if divergent:
+                details.append(
+                    "divergent working-copy change(s): " + ", ".join(divergent)
+                )
+            raise KataError(
+                "; ".join(details)
+                + "; repair with jj-sensei's harmony skill before continuing",
+                EXPECTED_STOP,
+            )
 
     def snapshot_one(self, root: Path) -> None:
         self.jj.run("workspace", "update-stale", cwd=root, check=False)
@@ -300,7 +339,11 @@ class Lifecycle:
     def _cleanup_created(self, name: str, anchor_id: str, ws_dir: Path) -> None:
         if name in self.workspace_names():
             self.jj.run("workspace", "forget", name, cwd=self.default_root, check=False)
-        if self.bookmark_exists(name):
+        if (
+            anchor_id
+            and self.bookmark_exists(name)
+            and self._change_id(self.bookmark_revset(name)) == anchor_id
+        ):
             self.jj.run("bookmark", "forget", name, cwd=self.default_root, check=False)
         if anchor_id and self._live(anchor_id):
             self.jj.run("abandon", anchor_id, cwd=self.default_root, check=False)
@@ -308,15 +351,24 @@ class Lifecycle:
             shutil.rmtree(ws_dir)
 
     def _provision(self, ws_dir: Path) -> None:
+        configured = "provision_hook" in self.config
         provision = Path(
             str(self.config.get("provision_hook", "scripts/provision-workspace"))
         )
         if not provision.is_absolute():
             provision = self.default_root / provision
-        if provision.is_file() and os.access(provision, os.X_OK):
+        if not provision.exists():
+            if configured:
+                raise KataError(f"provision hook does not exist: {provision}", 2)
+            return
+        if not provision.is_file() or not os.access(provision, os.X_OK):
+            raise KataError(f"provision hook is not executable: {provision}", 2)
+        try:
             result = subprocess.run([str(provision), str(ws_dir)], check=False)
-            if result.returncode:
-                raise KataError(f"provision hook failed; workspace remains at {ws_dir}")
+        except OSError as error:
+            raise KataError(f"could not run provision hook: {error}", 2) from error
+        if result.returncode:
+            raise KataError(f"provision hook failed; workspace remains at {ws_dir}")
 
     def start(self, name: str) -> Path:
         self.require_default("start")
@@ -376,8 +428,61 @@ class Lifecycle:
     def _feature_base(self, name: str) -> str:
         return f"fork_point(default@ | {name}@)"
 
-    def _item_context(self, name: str) -> tuple[str, str]:
-        if self.visibility == "shared" and self.bookmark_exists(name):
+    def _shared_anchor_context(self, name: str) -> tuple[str, str] | None:
+        if not self.bookmark_exists(name):
+            return None
+        revision = self.bookmark_revset(name)
+        targets = self._changes(revision)
+        if len(targets) != 1:
+            raise KataError(
+                f"bookmark {name!r} is divergent and cannot be a Kata anchor", 2
+            )
+        at_fork = self._changes(f"{revision} & fork_point(default@ | {name}@)")
+        if at_fork != targets:
+            return None
+        return f"({revision})-", revision
+
+    def _workspace_visibility(self, name: str, root: Path | None = None) -> str:
+        context = self._shared_anchor_context(name)
+        if context is None:
+            return "feature"
+        if self.item_driver is None:
+            raise KataError(
+                f"{name!r} has shared-anchor topology but no item driver; "
+                "migrate or remove the legacy/ambiguous bookmark before continuing",
+                2,
+            )
+        base, revision = context
+        ownership = self.item_driver.transition(
+            "owned",
+            root=root or self.workspace_root(name),
+            workspace=name,
+            base_revision=base,
+            revision=revision,
+            visibility="shared",
+        )
+        description = self.jj.text(
+            "log",
+            "--no-graph",
+            "-r",
+            revision,
+            "-T",
+            "description",
+            "--ignore-working-copy",
+            cwd=self.default_root,
+        )
+        if ownership.items and description == self.message(
+            "claim", name, ownership.items
+        ):
+            return "shared"
+        raise KataError(
+            f"bookmark {name!r} occupies Kata's shared-anchor position but lacks "
+            "matching visible claim evidence; rename or remove it before continuing",
+            2,
+        )
+
+    def _item_context(self, name: str, visibility: str) -> tuple[str, str]:
+        if visibility == "shared":
             revision = self.bookmark_revset(name)
             return f"({revision})-", revision
         return self._feature_base(name), f"{name}@"
@@ -389,8 +494,10 @@ class Lifecycle:
         *,
         root: Path,
         requested: tuple[str, ...] = (),
+        visibility: str | None = None,
     ) -> Transition:
-        base, revision = self._item_context(name)
+        selected_visibility = visibility or self._workspace_visibility(name, root)
+        base, revision = self._item_context(name, selected_visibility)
         return self._driver().transition(
             action,
             root=root,
@@ -398,7 +505,7 @@ class Lifecycle:
             requested=requested,
             base_revision=base,
             revision=revision,
-            visibility=self.visibility,
+            visibility=selected_visibility,
         )
 
     def ownership(self, name: str, ws_dir: Path | None = None) -> Transition:
@@ -413,7 +520,9 @@ class Lifecycle:
         )
         return changes[0] if len(changes) == 1 else None
 
-    def adopt(self, into: str, items: list[str]) -> None:
+    def adopt(
+        self, into: str, items: list[str], *, visibility: str | None = None
+    ) -> None:
         if not items:
             raise KataError("claim needs at least one item", 2)
         self.validate_name(into)
@@ -422,37 +531,59 @@ class Lifecycle:
             raise KataError("an item may only be named once", 2)
         requested = tuple(items)
 
-        if self.visibility == "shared":
-            if not self.bookmark_exists(into):
+        selected_visibility = visibility or self._workspace_visibility(into, ws_dir)
+        if selected_visibility == "shared":
+            if self._shared_anchor_context(into) is None:
                 raise KataError(f"no shared claim anchor named {into!r}", 2)
             self.bank_workspaces()
+            existing = self._transition(
+                "owned", into, root=ws_dir, visibility="shared"
+            ).items
             transition = self._transition(
-                "claim", into, root=self.default_root, requested=requested
+                "claim",
+                into,
+                root=self.default_root,
+                requested=requested,
+                visibility="shared",
             )
             try:
-                self.jj.run(
-                    "squash",
-                    "--from",
-                    "@",
-                    "--into",
-                    self.bookmark_revset(into),
-                    "-m",
-                    f"kata: claim {', '.join(sorted(set(self.owned_items(into) + requested)))}",
-                    "--",
-                    *self._filesets(transition.paths),
-                    cwd=self.default_root,
-                )
+                if transition.paths:
+                    self.jj.run(
+                        "squash",
+                        "--from",
+                        "@",
+                        "--into",
+                        self.bookmark_revset(into),
+                        "-m",
+                        self.message(
+                            "claim", into, tuple(sorted(set(existing + requested)))
+                        ),
+                        "--",
+                        *self._filesets(transition.paths),
+                        cwd=self.default_root,
+                    )
+                else:
+                    self.jj.run(
+                        "describe",
+                        self.bookmark_revset(into),
+                        "-m",
+                        self.message(
+                            "claim", into, tuple(sorted(set(existing + requested)))
+                        ),
+                        cwd=self.default_root,
+                    )
             except KataError:
-                self.jj.run(
-                    "restore",
-                    "--",
-                    *self._filesets(transition.paths),
-                    cwd=self.default_root,
-                    check=False,
-                )
+                if transition.paths:
+                    self.jj.run(
+                        "restore",
+                        "--",
+                        *self._filesets(transition.paths),
+                        cwd=self.default_root,
+                        check=False,
+                    )
+                self.unstale_workspaces(strict=False)
                 raise
-            finally:
-                self.unstale_workspaces()
+            self.unstale_workspaces()
             return
 
         existing = self.owned_items(into, ws_dir)
@@ -483,13 +614,14 @@ class Lifecycle:
                     cwd=ws_dir,
                 )
         except KataError:
-            self.jj.run(
-                "restore",
-                "--",
-                *self._filesets(transition.paths),
-                cwd=ws_dir,
-                check=False,
-            )
+            if transition.paths:
+                self.jj.run(
+                    "restore",
+                    "--",
+                    *self._filesets(transition.paths),
+                    cwd=ws_dir,
+                    check=False,
+                )
             raise
 
     def claim(
@@ -541,7 +673,7 @@ class Lifecycle:
             else ""
         )
         try:
-            self.adopt(name, items)
+            self.adopt(name, items, visibility=self.claim_visibility)
         except KataError:
             self._cleanup_created(name, anchor_id, ws_dir)
             raise
@@ -680,19 +812,44 @@ class Lifecycle:
             )
 
     def _complete_feature_items(
-        self, target: str, ws_dir: Path, items: tuple[str, ...]
+        self,
+        target: str,
+        ws_dir: Path,
+        items: tuple[str, ...],
+        *,
+        visibility: str,
     ) -> None:
         if not items:
             return
-        transition = self._transition("complete", target, root=ws_dir, requested=items)
-        self.jj.run(
-            "commit",
-            "-m",
-            f"kata: complete {', '.join(items)}",
-            "--",
-            *self._filesets(transition.paths),
-            cwd=ws_dir,
+        transition = self._transition(
+            "complete",
+            target,
+            root=ws_dir,
+            requested=items,
+            visibility=visibility,
         )
+        if not transition.paths:
+            return
+        try:
+            self.jj.run(
+                "commit",
+                "-m",
+                self.message("complete", target, items),
+                "--",
+                *self._filesets(transition.paths),
+                cwd=ws_dir,
+            )
+        except KataError:
+            self.jj.run(
+                "restore",
+                "--from",
+                f"{target}@",
+                "--",
+                *self._filesets(transition.paths),
+                cwd=ws_dir,
+                check=False,
+            )
+            raise
 
     def _place_feature(self, target: str, ws_dir: Path) -> None:
         wc_id = self._change_id(f"{target}@", cwd=ws_dir)
@@ -778,27 +935,16 @@ class Lifecycle:
                 f"{target} is behind default; run jj-kata refresh inside it first", 2
             )
         items = self.owned_items(target, ws_dir) if self.item_driver else ()
+        visibility = self._workspace_visibility(target, ws_dir)
+        self._complete_feature_items(target, ws_dir, items, visibility=visibility)
 
-        if self.visibility == "feature":
-            self._complete_feature_items(target, ws_dir, items)
+        if visibility == "feature":
             self.bank_workspaces()
             self._refresh_detach(target)
             self._place_feature(target, ws_dir)
         else:
             self.bank_workspaces()
             claim_id, claim_empty, wc_id = self._place_shared(target, ws_dir)
-            if items:
-                transition = self._transition(
-                    "complete", target, root=self.default_root, requested=items
-                )
-                self.jj.run(
-                    "commit",
-                    "-m",
-                    f"kata: complete {', '.join(items)}",
-                    "--",
-                    *self._filesets(transition.paths),
-                    cwd=self.default_root,
-                )
             self.jj.run("bookmark", "forget", target, cwd=self.default_root)
             if claim_empty and self._live(claim_id):
                 self.jj.run("abandon", claim_id, cwd=self.default_root)
@@ -825,11 +971,27 @@ class Lifecycle:
             )
         return paths
 
-    def _drop_one(self, name: str, ws_dir: Path) -> None:
+    def _drop_one(
+        self,
+        name: str,
+        ws_dir: Path,
+        *,
+        expected_wc: str,
+        visibility: str,
+        changed_state: bool = False,
+    ) -> None:
         self.bank_workspaces()
+        self.snapshot_one(ws_dir)
+        observed_wc = self._commit_id(f"{name}@", cwd=ws_dir)
+        if observed_wc != expected_wc:
+            code = EXPECTED_STOP if changed_state else 2
+            raise KataError(
+                f"{name} changed after drop preflight; its workspace was preserved",
+                code,
+            )
         claim_id = (
             self._change_id(self.bookmark_revset(name))
-            if self.bookmark_exists(name)
+            if visibility == "shared" and self.bookmark_exists(name)
             else ""
         )
         stack = self._changes(f"default@..{name}@")
@@ -842,27 +1004,63 @@ class Lifecycle:
         if live:
             self.jj.run("abandon", *dict.fromkeys(live), cwd=self.default_root)
         if ws_dir.exists():
-            shutil.rmtree(ws_dir)
+            try:
+                shutil.rmtree(ws_dir)
+            except OSError as error:
+                raise KataError(
+                    f"workspace history was retired but {ws_dir} could not be removed: "
+                    f"{error}",
+                    EXPECTED_STOP,
+                ) from error
         self.unstale_workspaces()
 
     @staticmethod
     def _capture_paths(root: Path, paths: tuple[str, ...]) -> dict[str, bytes | None]:
         captured: dict[str, bytes | None] = {}
-        for relative in paths:
-            path = root / relative
-            captured[relative] = path.read_bytes() if path.is_file() else None
+        try:
+            for relative in paths:
+                path = root / relative
+                captured[relative] = path.read_bytes() if path.is_file() else None
+        except OSError as error:
+            raise KataError(
+                f"could not capture item paths in {root}: {error}", 2
+            ) from error
         return captured
 
-    def _apply_paths(
-        self, name: str, items: tuple[str, ...], captured: dict[str, bytes | None]
-    ) -> None:
+    @staticmethod
+    def _restore_captured(root: Path, captured: dict[str, bytes | None]) -> None:
         for relative, content in captured.items():
-            path = self.default_root / relative
+            path = root / relative
             if content is None:
                 path.unlink(missing_ok=True)
             else:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)
+
+    def _default_paths_changed(self, revision: str, paths: tuple[str, ...]) -> bool:
+        if not paths:
+            return False
+        return bool(
+            self.jj.lines(
+                "diff",
+                "--name-only",
+                "--from",
+                revision,
+                "--to",
+                "default@",
+                "--ignore-working-copy",
+                "--",
+                *self._filesets(paths),
+                cwd=self.default_root,
+            )
+        )
+
+    def _apply_paths(
+        self, name: str, items: tuple[str, ...], captured: dict[str, bytes | None]
+    ) -> bool:
+        if not captured:
+            return False
+        self._restore_captured(self.default_root, captured)
         paths = tuple(captured)
         changed = self.jj.lines(
             "diff",
@@ -880,9 +1078,8 @@ class Lifecycle:
                 *self._filesets(paths),
                 cwd=self.default_root,
             )
-            note(f"dropped {name} and returned its item edits")
-        else:
-            note(f"dropped {name}; its items were unedited")
+            return True
+        return False
 
     def drop(
         self,
@@ -894,20 +1091,13 @@ class Lifecycle:
         dry_run: bool = False,
     ) -> None:
         self.require_default("drop")
-        if integrated:
-            if name or force or amend_ticket:
-                raise KataError(
-                    "drop --integrated takes no name, --force, or --return-items", 2
-                )
-            self._drop_integrated(dry_run=dry_run)
-            return
-        if dry_run:
-            raise KataError("--dry-run only applies to drop --integrated", 2)
         if not name:
             raise KataError("drop needs a workspace name", 2)
         self.validate_name(name)
         ws_dir = self.workspace_root(name)
         self.snapshot_one(ws_dir)
+        visibility = self._workspace_visibility(name, ws_dir)
+        pretransition_wc = self._commit_id(f"{name}@", cwd=ws_dir)
 
         captured: dict[str, bytes | None] | None = None
         returned_items: tuple[str, ...] = ()
@@ -919,6 +1109,14 @@ class Lifecycle:
             returned_items = ownership.items
             if not returned_items:
                 raise KataError(f"{name!r} owns no work items", 2)
+            base, revision = self._item_context(name, visibility)
+            expected_default = revision if visibility == "shared" else base
+            if self._default_paths_changed(expected_default, ownership.paths):
+                raise KataError(
+                    "default changed one or more owned item paths after this claim; "
+                    "return refused without overwriting coordinator work",
+                    2,
+                )
 
         unintegrated = self._unintegrated_changes(name)
         if unintegrated and not force:
@@ -933,39 +1131,68 @@ class Lifecycle:
 
         if amend_ticket:
             transition = self._transition(
-                "return", name, root=ws_dir, requested=returned_items
+                "return",
+                name,
+                root=ws_dir,
+                requested=returned_items,
+                visibility=visibility,
             )
+            if self._default_paths_changed(expected_default, transition.paths):
+                if transition.paths:
+                    self.jj.run(
+                        "restore",
+                        "--from",
+                        pretransition_wc,
+                        "--",
+                        *self._filesets(transition.paths),
+                        cwd=ws_dir,
+                        check=False,
+                    )
+                raise KataError(
+                    "default changed an item path during return; the workspace was "
+                    "restored and preserved",
+                    2,
+                )
             captured = self._capture_paths(ws_dir, transition.paths)
-        self._drop_one(name, ws_dir)
-        if captured is not None:
-            self._apply_paths(name, returned_items, captured)
-        else:
-            note(f"dropped {name}")
-
-    def _drop_integrated(self, *, dry_run: bool) -> None:
-        candidates: list[str] = []
-        kept: list[str] = []
-        for name in self.workspace_names():
-            if name == "default" or self.bookmark_exists(name):
-                continue
-            ws_dir = self.workspace_root(name)
+            self.snapshot_one(ws_dir)
+            expected_wc = self._commit_id(f"{name}@", cwd=ws_dir)
+            default_before = self._capture_paths(self.default_root, transition.paths)
             try:
-                self.snapshot_one(ws_dir)
-            except KataError:
-                kept.append(name)
-                continue
-            if self._unintegrated_changes(name):
-                kept.append(name)
-                continue
-            candidates.append(name)
-        if not dry_run:
-            for name in candidates:
-                self._drop_one(name, self.workspace_root(name))
-        verb = "would drop" if dry_run else "dropped"
-        note(
-            f"{verb} {len(candidates)} integrated workspace(s): {', '.join(candidates)}"
-        )
-        if kept:
-            note(
-                f"kept workspace(s) with resumed or unreadable work: {', '.join(kept)}"
+                committed = self._apply_paths(name, returned_items, captured)
+            except (KataError, OSError) as error:
+                self._restore_captured(self.default_root, default_before)
+                if transition.paths:
+                    self.jj.run(
+                        "restore",
+                        "--from",
+                        pretransition_wc,
+                        "--",
+                        *self._filesets(transition.paths),
+                        cwd=ws_dir,
+                        check=False,
+                    )
+                if isinstance(error, KataError):
+                    raise
+                raise KataError(
+                    f"could not apply returned item paths: {error}", 2
+                ) from error
+            self._drop_one(
+                name,
+                ws_dir,
+                expected_wc=expected_wc,
+                visibility=visibility,
+                changed_state=committed,
             )
+            if committed:
+                note(f"dropped {name} and returned its item edits")
+            else:
+                note(f"dropped {name}; its items required no repository edit")
+            return
+
+        self._drop_one(
+            name,
+            ws_dir,
+            expected_wc=pretransition_wc,
+            visibility=visibility,
+        )
+        note(f"dropped {name}")

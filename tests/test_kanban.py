@@ -239,3 +239,19 @@ def test_order_refuses_dangling_and_cyclic_graphs(tmp_path):
     assert "dangling needs" in dangling_result.stderr
     assert cyclic_result.returncode == 2
     assert "cyclic graph" in cyclic_result.stderr
+
+
+def test_order_validates_done_only_subgraphs_before_omitting_them(tmp_path):
+    dangling = tmp_path / "done-dangling"
+    card(dangling, "done", "landed", ["missing"])
+    dangling_result = run(dangling, "order")
+
+    cyclic = tmp_path / "done-cycle"
+    card(cyclic, "done", "a", ["b"])
+    card(cyclic, "done", "b", ["a"])
+    cyclic_result = run(cyclic, "order")
+
+    assert dangling_result.returncode == 2
+    assert "dangling needs" in dangling_result.stderr
+    assert cyclic_result.returncode == 2
+    assert "cyclic graph" in cyclic_result.stderr

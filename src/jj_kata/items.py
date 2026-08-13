@@ -100,19 +100,22 @@ class ExternalDriver:
                 "visibility": visibility,
             },
         }
-        process = subprocess.run(
-            [*self.command, action, *requested],
-            cwd=root,
-            input=json.dumps(payload),
-            text=True,
-            capture_output=True,
-            env={
-                **os.environ,
-                "JJ_KATA_ACTION": action,
-                "JJ_KATA_WORKSPACE": workspace,
-            },
-            check=False,
-        )
+        try:
+            process = subprocess.run(
+                [*self.command, action, *requested],
+                cwd=root,
+                input=json.dumps(payload),
+                text=True,
+                capture_output=True,
+                env={
+                    **os.environ,
+                    "JJ_KATA_ACTION": action,
+                    "JJ_KATA_WORKSPACE": workspace,
+                },
+                check=False,
+            )
+        except OSError as error:
+            raise KataError(f"could not run item driver: {error}", 2) from error
         if process.returncode:
             detail = process.stderr.strip() or process.stdout.strip()
             raise KataError(
@@ -131,9 +134,12 @@ class ExternalDriver:
         )
 
     def inspect(self, arguments: list[str], *, cwd: Path) -> int:
-        return subprocess.run(
-            [*self.command, *arguments], cwd=cwd, check=False
-        ).returncode
+        try:
+            return subprocess.run(
+                [*self.command, *arguments], cwd=cwd, check=False
+            ).returncode
+        except OSError as error:
+            raise KataError(f"could not run Kanban command: {error}", 2) from error
 
 
 def external_command(
