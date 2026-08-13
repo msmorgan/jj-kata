@@ -350,7 +350,7 @@ class Lifecycle:
         if ws_dir.exists():
             shutil.rmtree(ws_dir)
 
-    def _provision(self, ws_dir: Path) -> None:
+    def _provision_path(self) -> Path | None:
         configured = "provision_hook" in self.config
         provision = Path(
             str(self.config.get("provision_hook", "scripts/provision-workspace"))
@@ -360,24 +360,34 @@ class Lifecycle:
         if not provision.exists():
             if configured:
                 raise KataError(
-                    f"provision hook does not exist: {provision}; "
-                    f"workspace remains at {ws_dir}",
+                    f"provision hook does not exist: {provision}",
                     2,
                 )
-            return
+            return None
         if not provision.is_file() or not os.access(provision, os.X_OK):
             raise KataError(f"provision hook is not executable: {provision}", 2)
+        return provision
+
+    def _provision(self, provision: Path | None, ws_dir: Path) -> None:
+        if provision is None:
+            return
         try:
             result = subprocess.run([str(provision), str(ws_dir)], check=False)
         except OSError as error:
-            raise KataError(f"could not run provision hook: {error}", 2) from error
+            raise KataError(
+                f"could not run provision hook; workspace remains at {ws_dir}: {error}",
+                EXPECTED_STOP,
+            ) from error
         if result.returncode:
-            raise KataError(f"provision hook failed; workspace remains at {ws_dir}")
+            raise KataError(
+                f"provision hook failed; workspace remains at {ws_dir}", EXPECTED_STOP
+            )
 
     def start(self, name: str) -> Path:
         self.require_default("start")
         self.validate_name(name)
         self.require_linear_default()
+        provision = self._provision_path()
         ws_dir = self.workspace_base() / name
         if ws_dir.exists():
             raise KataError(f"workspace directory already exists: {ws_dir}", 2)
@@ -413,7 +423,7 @@ class Lifecycle:
         except KataError:
             self._cleanup_created(name, anchor_id, ws_dir)
             raise
-        self._provision(ws_dir)
+        self._provision(provision, ws_dir)
         return ws_dir
 
     def _driver(self) -> ItemDriver:
@@ -763,8 +773,10 @@ class Lifecycle:
                         self._refresh_reorder(target)
                     else:
                         self._refresh_detach(target)
-            finally:
-                self.unstale_workspaces()
+            except KataError:
+                self.unstale_workspaces(strict=False)
+                raise
+            self.unstale_workspaces()
             note(f"refreshed {len(targets)} workspace(s)")
             return
 
@@ -783,8 +795,10 @@ class Lifecycle:
                     self._refresh_reorder(name)
                 else:
                     self._refresh_detach(name)
-            finally:
-                self.unstale_workspaces()
+            except KataError:
+                self.unstale_workspaces(strict=False)
+                raise
+            self.unstale_workspaces()
             return
 
         current = self.current_workspace_name()
@@ -940,20 +954,26 @@ class Lifecycle:
             )
         items = self.owned_items(target, ws_dir) if self.item_driver else ()
         visibility = self._workspace_visibility(target, ws_dir)
-        self._complete_feature_items(target, ws_dir, items, visibility=visibility)
+        try:
+            self._complete_feature_items(target, ws_dir, items, visibility=visibility)
 
-        if visibility == "feature":
-            self.bank_workspaces()
-            self._refresh_detach(target)
-            self._place_feature(target, ws_dir)
-        else:
-            self.bank_workspaces()
-            claim_id, claim_empty, wc_id = self._place_shared(target, ws_dir)
-            self.jj.run("bookmark", "forget", target, cwd=self.default_root)
-            if claim_empty and self._live(claim_id):
-                self.jj.run("abandon", claim_id, cwd=self.default_root)
-            if self._live(wc_id):
-                self.jj.run("rebase", "-r", wc_id, "-d", "@-", cwd=self.default_root)
+            if visibility == "feature":
+                self.bank_workspaces()
+                self._refresh_detach(target)
+                self._place_feature(target, ws_dir)
+            else:
+                self.bank_workspaces()
+                claim_id, claim_empty, wc_id = self._place_shared(target, ws_dir)
+                self.jj.run("bookmark", "forget", target, cwd=self.default_root)
+                if claim_empty and self._live(claim_id):
+                    self.jj.run("abandon", claim_id, cwd=self.default_root)
+                if self._live(wc_id):
+                    self.jj.run(
+                        "rebase", "-r", wc_id, "-d", "@-", cwd=self.default_root
+                    )
+        except KataError:
+            self.unstale_workspaces(strict=False)
+            raise
         self.unstale_workspaces()
         note(f"integrated {target}; retire it with jj-kata drop {target}")
 

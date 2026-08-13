@@ -74,3 +74,14 @@ def test_superseded_generic_components_remain_absent() -> None:
         path for source in executable_sources for path in source.rglob("*.fish")
     ]
     assert not [path for source in executable_sources for path in source.rglob("*.pl")]
+
+
+def test_claude_project_hook_example_registers_only_worktree_events() -> None:
+    example = json.loads((ROOT / "hooks/claude-project-hooks.example.json").read_text())
+
+    assert set(example["hooks"]) == {"WorktreeCreate", "WorktreeRemove"}
+    commands = [event[0]["hooks"][0]["command"] for event in example["hooks"].values()]
+    assert commands == [
+        '"/ABSOLUTE/PATH/TO/jj-kata/hooks/worktree_create.py"',
+        '"/ABSOLUTE/PATH/TO/jj-kata/hooks/worktree_remove.py"',
+    ]

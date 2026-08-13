@@ -38,6 +38,7 @@ jj-kata start NAME
 jj-kata claim ITEM
 jj-kata claim ITEM... --name NAME
 jj-kata claim ITEM... --into NAME
+jj-kata claim HOST_NAME --or-start
 jj-kata refresh NAME
 jj-kata refresh --all
 jj-kata integrate NAME
@@ -64,7 +65,9 @@ workspace on the integrated tip. Retire it from `default` with `drop NAME`.
 
 Plain drop refuses unintegrated work. `--force` explicitly discards it.
 `--return-items` runs the configured return transition, preserves the paths it
-reports, and refuses unrelated work unless `--force` is also explicit.
+reports, refuses newer default-side item edits, and preserves the source
+workspace until the return commit succeeds. There is no bulk drop command:
+fresh and integrated empty workspaces are not visibly distinguishable.
 
 If refresh or integration reports conflicts, use jj-sensei's harmony skill in
 the named workspace. Do not retry past a conflict or perform operation-log
@@ -81,6 +84,11 @@ default tree. Later work based on default sees active claim markers.
 Kata has no private claim ledger. The item driver derives ownership from the
 base/revision context Kata supplies. A reconstructed graph with the same marker
 moves must work without any prior Kata invocation.
+
+Shared anchors require positive visible evidence: the bookmark is the
+feature/default common fork, the driver derives owned items there, and its
+description matches the configured claim message. Never treat bookmark
+existence alone as Kata ownership.
 
 When implementing or debugging a repository driver, read
 [the item-driver protocol](references/item-driver.md).
@@ -106,3 +114,11 @@ not a prerequisite or part of the parallel-workspace topology.
 The provision hook is optional. Kata calls an executable hook with the created
 workspace path after creation; a hook failure deliberately leaves that
 workspace intact for inspection.
+
+Use the plugin-root [example configuration](../../jjkata.example.toml) as the
+complete starting point. A legacy `jjworkflow.toml` is a hard migration refusal.
+
+Lifecycle commands require Python 3.11+, jj 0.43.0+, and a POSIX host. The
+read-only Kanban subcommand remains portable. Claude Code hook registration is
+documented in the plugin-root README; Codex and Antigravity do not currently
+offer the equivalent repository-local worktree replacement event.

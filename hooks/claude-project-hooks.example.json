@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/ABSOLUTE/PATH/TO/jj-kata/hooks/worktree_create.py\""
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/ABSOLUTE/PATH/TO/jj-kata/hooks/worktree_remove.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

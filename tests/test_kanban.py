@@ -255,3 +255,23 @@ def test_order_validates_done_only_subgraphs_before_omitting_them(tmp_path):
     assert "dangling needs" in dangling_result.stderr
     assert cyclic_result.returncode == 2
     assert "cyclic graph" in cyclic_result.stderr
+
+
+def test_missing_needs_adapter_is_reported_without_traceback(tmp_path):
+    board = tmp_path / "tickets"
+    card(board, "planned", "opaque")
+    (tmp_path / "jjkata.toml").write_text(
+        '[kanban]\nroot = "tickets"\nneeds_command = "./missing-needs"\n'
+    )
+
+    result = subprocess.run(
+        [str(KATA), "kanban", "order"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "could not query needs" in result.stderr
+    assert "Traceback" not in result.stderr

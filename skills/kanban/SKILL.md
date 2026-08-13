@@ -25,7 +25,8 @@ Commands are read-only:
 - `ready` lists claimable items whose dependencies are done.
 - `blocked` lists claimable items with missing or unfinished dependencies.
 - `order` lists every unfinished item in topological order, breaking ties by
-  configured column priority and item ID. It refuses an invalid graph.
+  configured column priority and item ID. It validates the whole graph first,
+  including completed-only dependencies, and refuses an invalid graph.
 - `graph ITEM` prints recursive upstream needs and direct downstream items.
 - `needs ITEM` prints direct dependency IDs.
 - `check` reports duplicates, dangling needs, and dependency cycles; it exits 1

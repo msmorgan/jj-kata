@@ -118,9 +118,7 @@ class ExternalDriver:
             raise KataError(f"could not run item driver: {error}", 2) from error
         if process.returncode:
             detail = process.stderr.strip() or process.stdout.strip()
-            raise KataError(
-                detail or f"item driver failed during {action}", process.returncode
-            )
+            raise KataError(detail or f"item driver failed during {action}", 2)
         try:
             value = json.loads(process.stdout or "{}")
         except json.JSONDecodeError as error:

@@ -8,7 +8,7 @@ visibility = "feature"
 workspace_dir = ".workspaces"
 
 # Executable called after workspace creation with the new workspace path.
-provision_hook = "scripts/provision-workspace"
+# provision_hook = "scripts/provision-workspace"
 
 # Optional. Omit this table for a pure workspace lifecycle with no item model.
 # A docs/tickets directory never enables Kanban implicitly.

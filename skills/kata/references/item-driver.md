@@ -52,7 +52,14 @@ repository-relative path changed, including both sides of a move. For `owned`,
 it contains every path governed by those items in either contextual tree; Kata
 uses that set to refuse `--return-items` before mutation when unrelated work is
 present. Paths must remain inside the workspace. Kata treats them as literal jj
-filesets. Write diagnostics to stderr and use a nonzero exit status on failure.
+filesets. An empty list means no repository-tree mutation; Kata never emits a
+bare fileset separator or consumes unrelated open work. This supports adapters
+whose authoritative state is external, provided `owned` can reconstruct the
+answer from the supplied context and that external source.
+
+Write diagnostics to stderr and use a nonzero exit status on failure. A
+nonzero driver result must be atomic and leave both repository and external
+state unchanged; Kata presents it as exit 2.
 
 ## Actions
 
@@ -61,16 +68,16 @@ filesets. Write diagnostics to stderr and use a nonzero exit status on failure.
 - `claim`: move requested markers into the active state and report their IDs
   and changed paths.
 - `owned`: derive the feature's owned IDs and governed paths from
-  `base_revision` and `revision`; do not mutate or use an external metadata
-  ledger.
+  `base_revision`, `revision`, and any repository-authoritative external item
+  source; do not mutate or depend on private Kata process state.
 - `complete`: move requested owned markers into the completed state and report
   changed paths.
 - `return`: restore requested markers to the state derived from
   `base_revision`, preserving workspace edits, and report changed paths.
 
-The graph is the source of truth. A driver must give the same `owned` answer
-for an equivalent reconstructed jj tree, regardless of whether Kata created
-the changes.
+Visible state is the source of truth. A driver must give the same `owned`
+answer for an equivalent reconstructed jj tree and external item source,
+regardless of whether Kata created the changes.
 
 ## Inspection invocation
 

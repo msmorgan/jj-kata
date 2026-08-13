@@ -841,7 +841,7 @@ print(json.dumps({{"items": items, "paths": paths}}))
 
     failed = workflow(repo, "integrate", "work", check=False)
 
-    assert failed.returncode == 23
+    assert failed.returncode == 2
     assert "injected completion failure" in failed.stderr
     assert not (repo / "feature.txt").exists()
     assert (repo / "active/work.item").is_file()
@@ -949,9 +949,8 @@ def test_lock_timeout_has_stable_exit_contract(
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+") as held:
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with pytest.raises(KataError) as failure:
-            with lifecycle.lock():
-                pass
+        with pytest.raises(KataError) as failure, lifecycle.lock():
+            pass
 
     assert failure.value.code == 75
 
@@ -964,9 +963,8 @@ def test_missing_provision_and_kanban_executables_are_concise(tmp_path: Path) ->
     created = workflow(provision, "start", "kept", check=False)
     assert created.returncode == 2
     assert "provision hook does not exist" in created.stderr
-    assert "workspace remains" in created.stderr
     assert "Traceback" not in created.stderr
-    assert (provision / ".workspaces/kept").is_dir()
+    assert not (provision / ".workspaces/kept").exists()
 
     inspection = tmp_path / "inspection"
     inspection.mkdir()
@@ -994,3 +992,18 @@ def test_boundary_check_rejects_semantic_lookalikes(tmp_path: Path) -> None:
 
     assert result.returncode == 2
     assert "needs its teacher" in result.stderr
+
+
+def test_lifecycle_rejects_older_jj_before_mutation(tmp_path: Path) -> None:
+    class OldJj:
+        def text(self, *args: str, cwd: Path) -> str:
+            if args[0] == "workspace":
+                return str(tmp_path)
+            if args == ("--version",):
+                return "jj 0.42.0"
+            raise AssertionError(args)
+
+    with pytest.raises(KataError, match="requires jj 0.43.0 or newer") as failure:
+        Lifecycle(cwd=tmp_path, jj=OldJj())  # type: ignore[arg-type]
+
+    assert failure.value.code == 2

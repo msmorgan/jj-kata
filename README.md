@@ -19,8 +19,8 @@ Mutating lifecycle commands refuse repositories that do not have a
 workspace-aware repository `immutable_heads()` definition; use jj-sensei's
 boundaries skill to install or audit it first.
 
-There is no plugin-manifest dependency mechanism, so install Kata's teacher
-first:
+There is no cross-host plugin dependency mechanism, so install Kata's teacher
+first. For Codex:
 
 ```bash
 codex plugin marketplace add msmorgan/marketplace
@@ -29,6 +29,9 @@ codex plugin add jj-sensei@msmorgan
 
 For Claude Code, use `claude plugin marketplace add msmorgan/marketplace` and
 `claude plugin install jj-sensei@msmorgan`.
+
+For Antigravity, install `jj-sensei` from `msmorgan/marketplace` through its
+plugin UI before adding Kata.
 
 Everything executable in this plugin is Python. The plugin launcher imports the
 `src/jj_kata` package directly, while `pyproject.toml` also provides a normal
@@ -55,19 +58,27 @@ configured item driver instead:
 ```bash
 /PLUGIN/scripts/jj-kata claim ITEM
 /PLUGIN/scripts/jj-kata claim ITEM --name feature-name
+/PLUGIN/scripts/jj-kata claim HOST_NAME --or-start
+/PLUGIN/scripts/jj-kata refresh --all
 ```
 
 `ITEM` is opaque to Kata. When an item ID is not also a legal jj workspace
 name, or several items should start together, pass `--name WORKSPACE`.
 Additional items can be folded into a feature with `claim ITEM... --into NAME`
 from `default` or `claim ITEM...` from inside the feature.
+`--or-start` is the host-hook entry path: it claims a uniquely available item,
+but starts an ordinary ad-hoc workspace when the item or optional board is
+absent. Ambiguous items and broken drivers still fail loudly.
 
 Integration accepts only an empty, undescribed feature working copy. It folds
 the feature's deliberately closed changes immediately before `default@`, then
 parks the feature workspace on the integrated tip. `drop` retires it. Plain
 drop refuses unintegrated work; `--force` explicitly discards it, and
 `--return-items` asks the item driver to return claimed markers while preserving
-their edits.
+their edits. Return refuses if `default` changed any governed item path after
+the claim, and it keeps the source workspace until the return is committed.
+There is deliberately no bulk `drop --integrated`: a fresh empty workspace and
+an integrated empty workspace have no unambiguous visible distinction.
 
 ## Visibility
 
@@ -92,6 +103,17 @@ bookmarked claim anchor linearly inside the default tree, and folds the claim
 transition into it. The bookmark and anchor are publication mechanics, not a
 private state database.
 
+A same-named bookmark is not sufficient evidence. Kata recognizes a shared
+anchor only when it is the feature/default common fork, the configured driver
+derives owned items from that context, and the anchor description matches the
+configured claim template. A foreign bookmark is left alone; ambiguous
+anchor-shaped state is refused.
+
+Visibility applies only when starting a workspace through `claim`. Bare
+`start` always creates an ordinary bookmark-free feature workspace, and the
+entire `start` → `refresh` → `integrate` → `drop` lifecycle works without an
+`[items]` table or ticket system.
+
 ## Repository-defined work items
 
 Work items are optional. With no `[items].driver`, a repository uses the core
@@ -108,9 +130,12 @@ handle, or something stranger. A driver owns five transitions:
 - `return`: return owned markers when dropping unfinished work.
 
 The driver returns the repository-relative paths it changed; Kata commits or
-folds exactly those paths. There is no invisible claim state. If a jj tree and
-its marker moves are reconstructed as Kata would have made them, lifecycle
-commands work from that graph alone.
+folds exactly those paths. An empty path list is a real no-op and never broadens
+into unrelated open work. A driver may represent items in an external system,
+but ownership must remain derivable from the supplied graph context and that
+authoritative system—Kata keeps no private claim ledger. If the visible state
+is reconstructed as Kata would have made it, lifecycle commands work without
+prior Kata process state.
 
 Use the bundled folder Kanban driver:
 
@@ -173,7 +198,8 @@ ticket with the absolute file path; it prints direct dependency IDs one per
 line. The ready, blocked, order, graph, needs, and check commands all consume
 that same interface. `order` prints every unfinished item in dependency order,
 using column priority and then item ID to break otherwise-equivalent choices;
-it refuses cyclic, dangling, or duplicate graphs.
+it validates the entire graph—including done-only subgraphs—before omitting
+completed items, and refuses cyclic, dangling, or duplicate graphs.
 
 A repository can replace the entire inspection layer with
 `[kanban] command = "scripts/todo"`; this is independent of both the dependency
@@ -185,10 +211,44 @@ Copy `jjkata.example.toml` to a repository's default workspace. Relative paths
 resolve from that root. `jjworkflow.toml` is still read as a migration aid, but
 new repositories should use `jjkata.toml`.
 
-The Python `hooks/worktree_create.py` and `hooks/worktree_remove.py` bridge
-hosts with WorktreeCreate/WorktreeRemove events. Register them per repository:
-the create hook replaces a host's native Git-worktree creation and must not be
-enabled globally for unrelated repositories.
+The Python `hooks/worktree_create.py` and `hooks/worktree_remove.py` bridges are
+repository opt-in. The create hook replaces native Git-worktree creation, so
+Kata intentionally does not register either bridge in a plugin manifest.
+
+Claude Code supports the required events. Copy
+[`hooks/claude-project-hooks.example.json`](hooks/claude-project-hooks.example.json)
+to `.claude/settings.json` in the repository, replace
+`/ABSOLUTE/PATH/TO/jj-kata` with the installed plugin or checkout root, then
+review the project hook in Claude Code. The bridge accepts Claude's
+`WorktreeCreate` and `WorktreeRemove` JSON. Generated names must match
+`[A-Za-z0-9][A-Za-z0-9._-]*`; names containing `/` are refused. See Claude's
+[hook reference](https://docs.anthropic.com/en/docs/claude-code/hooks).
+
+Codex hooks currently have no WorktreeCreate or WorktreeRemove event, so there
+is no equivalent safe repository-local registration; use the Kata skill or
+commands directly rather than attaching these bridges to another event. See
+the [official Codex hooks reference](https://learn.chatgpt.com/docs/hooks.md).
+Antigravity likewise has no verified repository-local replacement event in
+Kata 0.11; its plugin can use the skills and commands, but not these bridges.
+
+## Requirements and exit contract
+
+The Python package requires Python 3.11 or newer. Lifecycle commands support
+POSIX hosts (Linux and macOS), require jj 0.43.0 or newer, and verify a known
+jj-sensei boundary configuration before mutation. The read-only bundled Kanban
+commands do not import the POSIX lock and remain portable to Windows.
+
+- `0`: completed successfully.
+- `2`: configuration/input refusal before Kata mutates lifecycle state.
+- `69`: Kata changed or preserved a deliberate recovery state that needs a
+  retry, cleanup, or jj-sensei Harmony.
+- `75`: timed out waiting for the repository Kata lock.
+- `130`: interrupted.
+
+Unexpected jj failures use exit `1`. External item drivers must leave state
+unchanged on nonzero exit; Kata reports those failures as `2`. A failed
+provision executable runs after workspace creation, returns `69`, and leaves
+the workspace for inspection.
 
 ## Install
 
