@@ -687,6 +687,62 @@ def test_return_items_refuses_newer_default_ticket_edits(tmp_path: Path) -> None
     assert workspace.is_dir()
 
 
+def test_drop_reports_conflicts_it_leaves_on_the_default_line(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    jj(repo, "commit", "-m", "kata: configure shared visibility")
+    add_ticket(repo, "tug")
+    workflow(repo, "claim", "tug")
+    (repo / "docs/tickets/wip/tug.md").write_text("coordinator rewrote this\n")
+    jj(repo, "commit", "-m", "tickets: coordinator edits the wip card")
+
+    result = workflow(repo, "drop", "tug", check=False)
+
+    assert result.returncode == 69
+    assert "left conflicts in" in result.stderr
+    assert "harmony skill" in result.stderr
+
+
+def test_shared_return_lands_beside_a_live_coordinator_change(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    jj(repo, "commit", "-m", "kata: configure shared visibility")
+    add_ticket(repo, "guided-tour")
+    (repo / "coordinator.txt").write_text("coordinator work\n")
+    jj(repo, "describe", "-m", "docs: coordinator work in progress")
+    coordinator = jj(repo, "log", "--no-graph", "-r", "@", "-T", "change_id").stdout
+
+    workflow(repo, "claim", "guided-tour")
+    ticket = repo / ".workspaces/guided-tour/docs/tickets/wip/guided-tour.md"
+    ticket.write_text(ticket.read_text() + "blocked upstream\n")
+
+    result = workflow(repo, "drop", "guided-tour", "--return-items")
+
+    assert "returned its item edits" in result.stderr
+    assert not jj(
+        repo, "log", "--no-graph", "-r", "conflicts()", "-T", "change_id"
+    ).stdout
+    returned = repo / "docs/tickets/planned/guided-tour.md"
+    assert "blocked upstream" in returned.read_text()
+    assert not (repo / "docs/tickets/wip").exists()
+    assert (
+        jj(repo, "log", "--no-graph", "-r", "default@-", "-T", "description").stdout
+        == "items: return guided-tour\n"
+    )
+    assert jj(repo, "log", "--no-graph", "-r", "@", "-T", "change_id").stdout == (
+        coordinator
+    )
+    assert (
+        jj(repo, "log", "--no-graph", "-r", "@", "-T", "description").stdout
+        == "docs: coordinator work in progress\n"
+    )
+    assert (repo / "coordinator.txt").is_file()
+
+
 def test_return_apply_failure_restores_and_preserves_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

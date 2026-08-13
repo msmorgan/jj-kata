@@ -39,6 +39,7 @@ def worktree_remove() -> int:
     cwd = Path(str(data.get("cwd") or Path.cwd()))
     worktree_path = Path(str(data.get("worktree_path") or cwd))
     name = str(data.get("name") or data.get("worktree_name") or worktree_path.name)
+    coordinator: Lifecycle | None = None
     try:
         lifecycle = Lifecycle(cwd)
         coordinator = Lifecycle(lifecycle.default_root)
@@ -46,8 +47,20 @@ def worktree_remove() -> int:
             if name in coordinator.workspace_names():
                 coordinator.drop(name)
     except KataError as error:
-        print(f"kata: worktree removal kept {name}: {error}", file=sys.stderr)
+        # drop can fail after it has already retired the workspace, so read the
+        # outcome back rather than reporting every refusal as a preserved one.
+        state = "retired" if _is_retired(coordinator, name) else "kept"
+        print(f"kata: worktree removal {state} {name}: {error}", file=sys.stderr)
     return 0
+
+
+def _is_retired(coordinator: Lifecycle | None, name: str) -> bool:
+    if coordinator is None:
+        return False
+    try:
+        return name not in coordinator.workspace_names()
+    except KataError:
+        return False
 
 
 def worktree_create_main(argv: list[str] | None = None) -> int:

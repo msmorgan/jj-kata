@@ -1088,6 +1088,31 @@ class Lifecycle:
                 ) from error
         self.unstale_workspaces()
 
+    def _retire_claim(self, name: str) -> None:
+        # A shared claim's move out of the origin column lives on the default
+        # line, and drop abandons it. The return has to be a diff against the
+        # tree that survives that abandon; retiring the anchor afterwards
+        # instead rebases the return over the very move it re-does, colliding
+        # add against add on the coordinator's line.
+        claim_id = self._change_id(self.bookmark_revset(name))
+        self.bank_workspaces()
+        self.jj.run("bookmark", "forget", name, cwd=self.default_root)
+        if self._live(claim_id):
+            self.jj.run("abandon", claim_id, cwd=self.default_root)
+        self.unstale_workspaces()
+
+    def _require_no_new_conflicts(self, name: str, before: set[str]) -> None:
+        introduced = [
+            change for change in self._changes("conflicts()") if change not in before
+        ]
+        if not introduced:
+            return
+        raise KataError(
+            f"dropped {name}, but it left conflicts in {', '.join(introduced)}; "
+            f"resolve them in {self.default_root} with jj-sensei's harmony skill",
+            EXPECTED_STOP,
+        )
+
     @staticmethod
     def _capture_paths(root: Path, paths: tuple[str, ...]) -> dict[str, bytes | None]:
         captured: dict[str, bytes | None] = {}
@@ -1143,17 +1168,40 @@ class Lifecycle:
             *self._filesets(paths),
             cwd=self.default_root,
         )
-        if changed:
+        if not changed:
+            return False
+        description = self.message("return", name, items)
+        # Insert the return below default@ rather than committing default@ itself:
+        # jj commit would hand the coordinator's change ID and description to the
+        # return and relocate its work to a fresh, undescribed change.
+        self.jj.run(
+            "new",
+            "--no-edit",
+            "-B",
+            "default@",
+            "-m",
+            description,
+            cwd=self.default_root,
+        )
+        return_id = self._change_id("default@-")
+        try:
             self.jj.run(
-                "commit",
+                "squash",
+                "--from",
+                "default@",
+                "--into",
+                return_id,
                 "-m",
-                self.message("return", name, items),
+                description,
                 "--",
                 *self._filesets(paths),
                 cwd=self.default_root,
             )
-            return True
-        return False
+        except KataError:
+            if self._live(return_id):
+                self.jj.run("abandon", return_id, cwd=self.default_root, check=False)
+            raise
+        return True
 
     def drop(
         self,
@@ -1170,6 +1218,7 @@ class Lifecycle:
         self.snapshot_one(ws_dir)
         visibility = self._workspace_visibility(name, ws_dir)
         pretransition_wc = self._commit_id(f"{name}@", cwd=ws_dir)
+        conflicted_before = set(self._changes("conflicts()"))
 
         captured: dict[str, bytes | None] | None = None
         returned_items: tuple[str, ...] = ()
@@ -1234,6 +1283,9 @@ class Lifecycle:
                 )
             captured = self._capture_paths(ws_dir, transition.paths)
             self.snapshot_one(ws_dir)
+            if visibility == "shared" and self.bookmark_exists(name):
+                self._retire_claim(name)
+                self.snapshot_one(ws_dir)
             expected_wc = self._commit_id(f"{name}@", cwd=ws_dir)
             default_before = self._capture_paths(self.default_root, transition.paths)
             try:
@@ -1262,6 +1314,7 @@ class Lifecycle:
                 visibility=visibility,
                 changed_state=committed,
             )
+            self._require_no_new_conflicts(name, conflicted_before)
             if committed:
                 note(f"dropped {name} and returned its item edits")
             else:
@@ -1274,4 +1327,5 @@ class Lifecycle:
             expected_wc=pretransition_wc,
             visibility=visibility,
         )
+        self._require_no_new_conflicts(name, conflicted_before)
         note(f"dropped {name}")
