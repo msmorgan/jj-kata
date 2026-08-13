@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 import time
-import tomllib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
-from .errors import WorkflowError
+from .config import load_config, section
+from .errors import KataError
+from .items import ItemDriver, Transition, load_driver
 from .jj import Jj
-from .kanban import DEFAULT_COLUMNS, comma_list
 
 EXPECTED_STOP = 69
 LOCK_TIMEOUT = 75
@@ -25,7 +27,7 @@ def note(message: str) -> None:
     print(f"jj-kata: {message}", file=sys.stderr)
 
 
-class Workflow:
+class Lifecycle:
     def __init__(self, cwd: Path | None = None, jj: Jj | None = None) -> None:
         self.jj = jj or Jj()
         self.invocation_cwd = (cwd or Path.cwd()).resolve()
@@ -37,23 +39,27 @@ class Workflow:
                 "workspace", "root", "--name", "default", cwd=self.current_root
             )
         ).resolve()
-        self.config = self._load_config()
+        self.config: dict[str, Any] = load_config(self.default_root)
+        lifecycle = section(self.config, "lifecycle")
+        self.visibility = str(
+            lifecycle.get("visibility", self.config.get("visibility", "feature"))
+        )
+        if self.visibility not in {"feature", "shared"}:
+            raise KataError("visibility must be 'feature' or 'shared'", 2)
+        self.item_driver: ItemDriver | None = load_driver(
+            self.config, self.default_root
+        )
         self.unbankable: set[str] = set()
-
-    def _load_config(self) -> dict[str, object]:
-        path = self.default_root / "jjworkflow.toml"
-        if not path.is_file():
-            return {}
-        try:
-            with path.open("rb") as config_file:
-                return tomllib.load(config_file)
-        except tomllib.TOMLDecodeError as error:
-            raise WorkflowError(f"invalid {path}: {error}", 2) from error
 
     @contextmanager
     def lock(self) -> Iterator[None]:
-        lock_path = self.default_root / ".jj" / "workflow.lock"
-        timeout = float(os.environ.get("JJ_WORKFLOW_LOCK_TIMEOUT", "600"))
+        lock_path = self.default_root / ".jj" / "kata.lock"
+        timeout = float(
+            os.environ.get(
+                "JJ_KATA_LOCK_TIMEOUT",
+                os.environ.get("JJ_WORKFLOW_LOCK_TIMEOUT", "600"),
+            )
+        )
         deadline = time.monotonic() + timeout
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         with lock_path.open("a+") as lock_file:
@@ -63,7 +69,7 @@ class Workflow:
                     break
                 except BlockingIOError:
                     if time.monotonic() >= deadline:
-                        raise WorkflowError(
+                        raise KataError(
                             f"timed out waiting for {lock_path}", LOCK_TIMEOUT
                         ) from None
                     time.sleep(0.1)
@@ -76,37 +82,9 @@ class Workflow:
     def on_default(self) -> bool:
         return self.current_root == self.default_root
 
-    @property
-    def columns(self) -> tuple[str, ...]:
-        return comma_list(os.environ.get("KANBAN_COLUMNS", ",".join(DEFAULT_COLUMNS)))
-
-    @property
-    def wip_column(self) -> str:
-        return os.environ.get("KANBAN_WIP_COLUMN", "wip")
-
-    @property
-    def done_column(self) -> str:
-        return os.environ.get("KANBAN_DONE_COLUMN", "done")
-
-    @property
-    def triage_columns(self) -> tuple[str, ...]:
-        boundary = min(
-            (
-                self.columns.index(name)
-                for name in (self.wip_column, self.done_column)
-                if name in self.columns
-            ),
-            default=len(self.columns),
-        )
-        return self.columns[:boundary]
-
-    @property
-    def tickets_root(self) -> Path:
-        return self.default_root / "docs" / "tickets"
-
     def validate_name(self, name: str) -> None:
         if name == "default" or not NAME_RE.fullmatch(name):
-            raise WorkflowError(
+            raise KataError(
                 "workspace names use letters, digits, '.', '_', and '-' and may not "
                 f"be 'default' (got {name!r})",
                 2,
@@ -138,14 +116,14 @@ class Workflow:
             check=False,
         )
         if result.returncode:
-            raise WorkflowError(f"no live workspace named {name!r}", 2)
+            raise KataError(f"no live workspace named {name!r}", 2)
         return Path(result.stdout.strip()).resolve()
 
     def current_workspace_name(self) -> str:
         for name in self.workspace_names():
             if self.workspace_root(name) == self.current_root:
                 return name
-        raise WorkflowError("could not identify the current workspace")
+        raise KataError("could not identify the current workspace")
 
     def bookmark_exists(self, name: str) -> bool:
         return bool(
@@ -202,7 +180,7 @@ class Workflow:
         )
 
     def _live(self, revset: str) -> bool:
-        return (
+        return bool(
             self.jj.run(
                 "log",
                 "--no-graph",
@@ -213,21 +191,18 @@ class Workflow:
                 "--ignore-working-copy",
                 cwd=self.default_root,
                 check=False,
-            ).returncode
-            == 0
+            ).stdout.strip()
         )
 
     def require_default(self, command: str) -> None:
         if not self.on_default:
-            raise WorkflowError(f"{command!r} runs from the default workspace", 2)
+            raise KataError(f"{command!r} runs from the default workspace", 2)
 
     def require_self_or_default(self, name: str) -> None:
         if not self.on_default and self.current_workspace_name() != name:
-            raise WorkflowError(
-                f"cannot act on {name!r} from another feature workspace", 2
-            )
+            raise KataError(f"cannot act on {name!r} from another feature workspace", 2)
 
-    def require_linear_trunk(self) -> None:
+    def require_linear_default(self) -> None:
         anchor = self.jj.run(
             "log",
             "--no-graph",
@@ -240,7 +215,7 @@ class Workflow:
             check=False,
         ).stdout.strip()
         if not anchor:
-            raise WorkflowError(
+            raise KataError(
                 "default@ is a merge; the coordinator line must be linear", 2
             )
 
@@ -251,50 +226,14 @@ class Workflow:
             path = self.default_root / path
         return path.resolve()
 
-    def ticket_triage_path(self, slug: str, root: Path | None = None) -> Path | None:
-        ticket_root = (root or self.default_root) / "docs" / "tickets"
-        for column in self.triage_columns:
-            candidate = ticket_root / column / f"{slug}.md"
-            if candidate.is_file():
-                return candidate
-        return None
-
-    def ticket_state(self, slug: str) -> str:
-        if self.ticket_triage_path(slug):
-            return "triage"
-        if (self.tickets_root / self.wip_column / f"{slug}.md").is_file():
-            return "wip"
-        if (self.tickets_root / self.done_column / f"{slug}.md").is_file():
-            return "done"
-        return "unknown"
-
-    def claim_slugs(self, name: str) -> list[str]:
-        if not self.bookmark_exists(name):
-            return []
-        paths = self.jj.lines(
-            "diff",
-            "-r",
-            self.bookmark_revset(name),
-            "--name-only",
-            "--ignore-working-copy",
-            cwd=self.default_root,
-        )
-        prefix = f"docs/tickets/{self.wip_column}/"
-        return sorted(
-            path.removeprefix(prefix).removesuffix(".md")
-            for path in paths
-            if path.startswith(prefix) and path.endswith(".md")
-        )
-
     def bank_workspaces(self) -> None:
         self.unbankable.clear()
         for name in self.workspace_names():
             try:
                 root = self.workspace_root(name)
-            except WorkflowError:
+            except KataError:
                 continue
-            result = self.jj.run("util", "snapshot", cwd=root, check=False)
-            if result.returncode:
+            if self.jj.run("util", "snapshot", cwd=root, check=False).returncode:
                 self.unbankable.add(name)
         if self.unbankable:
             note(
@@ -308,7 +247,7 @@ class Workflow:
                 continue
             try:
                 root = self.workspace_root(name)
-            except WorkflowError:
+            except KataError:
                 continue
             self.jj.run("workspace", "update-stale", cwd=root, check=False)
 
@@ -325,62 +264,17 @@ class Workflow:
         if not ignore.exists():
             ignore.write_text("*\n", encoding="utf-8")
 
-    def _cleanup_created(self, name: str, claim_id: str, ws_dir: Path) -> None:
+    def _cleanup_created(self, name: str, anchor_id: str, ws_dir: Path) -> None:
         if name in self.workspace_names():
             self.jj.run("workspace", "forget", name, cwd=self.default_root, check=False)
         if self.bookmark_exists(name):
             self.jj.run("bookmark", "forget", name, cwd=self.default_root, check=False)
-        if claim_id and self._live(claim_id):
-            self.jj.run("abandon", claim_id, cwd=self.default_root, check=False)
+        if anchor_id and self._live(anchor_id):
+            self.jj.run("abandon", anchor_id, cwd=self.default_root, check=False)
         if ws_dir.exists():
             shutil.rmtree(ws_dir)
 
-    def start(self, name: str) -> Path:
-        self.require_default("start")
-        self.validate_name(name)
-        self.require_linear_trunk()
-        ws_dir = self.workspace_base() / name
-        if ws_dir.exists():
-            raise WorkflowError(f"workspace directory already exists: {ws_dir}", 2)
-        if name in self.workspace_names() or self.bookmark_exists(name):
-            raise WorkflowError(f"workspace or bookmark {name!r} already exists", 2)
-
-        ws_dir.parent.mkdir(parents=True, exist_ok=True)
-        self._ignore_workspace_base(self.workspace_base())
-        claim_id = ""
-        try:
-            self.jj.run(
-                "new",
-                "--no-edit",
-                "-A",
-                "default@- & fork_point(default@-)",
-                "-B",
-                "default@",
-                "-m",
-                f"kata: start {name}",
-                cwd=self.default_root,
-            )
-            claim_id = self._change_id("default@-")
-            self.jj.run(
-                "bookmark",
-                "create",
-                name,
-                "-r",
-                claim_id,
-                cwd=self.default_root,
-            )
-            self.jj.run(
-                "workspace",
-                "add",
-                str(ws_dir),
-                "-r",
-                self.bookmark_revset(name),
-                cwd=self.default_root,
-            )
-        except WorkflowError:
-            self._cleanup_created(name, claim_id, ws_dir)
-            raise
-
+    def _provision(self, ws_dir: Path) -> None:
         provision = Path(
             str(self.config.get("provision_hook", "scripts/provision-workspace"))
         )
@@ -389,115 +283,232 @@ class Workflow:
         if provision.is_file() and os.access(provision, os.X_OK):
             result = subprocess.run([str(provision), str(ws_dir)], check=False)
             if result.returncode:
-                raise WorkflowError(
-                    f"provision hook failed; workspace remains at {ws_dir}"
+                raise KataError(f"provision hook failed; workspace remains at {ws_dir}")
+
+    def start(self, name: str) -> Path:
+        self.require_default("start")
+        self.validate_name(name)
+        self.require_linear_default()
+        ws_dir = self.workspace_base() / name
+        if ws_dir.exists():
+            raise KataError(f"workspace directory already exists: {ws_dir}", 2)
+        if name in self.workspace_names() or self.bookmark_exists(name):
+            raise KataError(f"workspace or bookmark {name!r} already exists", 2)
+
+        ws_dir.parent.mkdir(parents=True, exist_ok=True)
+        self._ignore_workspace_base(self.workspace_base())
+        anchor_id = ""
+        try:
+            if self.visibility == "shared":
+                self.jj.run(
+                    "new",
+                    "--no-edit",
+                    "-A",
+                    "default@- & fork_point(default@-)",
+                    "-B",
+                    "default@",
+                    "-m",
+                    f"kata: start {name}",
+                    cwd=self.default_root,
                 )
+                anchor_id = self._change_id("default@-")
+                self.jj.run(
+                    "bookmark", "create", name, "-r", anchor_id, cwd=self.default_root
+                )
+                revision = self.bookmark_revset(name)
+            else:
+                revision = "default@-"
+            self.jj.run(
+                "workspace", "add", str(ws_dir), "-r", revision, cwd=self.default_root
+            )
+        except KataError:
+            self._cleanup_created(name, anchor_id, ws_dir)
+            raise
+        self._provision(ws_dir)
         return ws_dir
 
-    def adopt(self, into: str, tickets: list[str]) -> None:
-        if not tickets:
-            raise WorkflowError("claim needs at least one ticket", 2)
-        self.validate_name(into)
-        self.workspace_root(into)
-        if not self.bookmark_exists(into):
-            raise WorkflowError(f"no live claim bookmark named {into!r}", 2)
-        if len(set(tickets)) != len(tickets):
-            raise WorkflowError("a ticket may only be named once", 2)
-
-        moves: list[tuple[Path, Path]] = []
-        for ticket in tickets:
-            self.validate_name(ticket)
-            source = self.ticket_triage_path(ticket)
-            if source is None:
-                state = self.ticket_state(ticket)
-                if state == "wip":
-                    raise WorkflowError(f"{ticket!r} is already claimed", 2)
-                if state == "done":
-                    raise WorkflowError(f"{ticket!r} is already done", 2)
-                raise WorkflowError(f"no triage ticket named {ticket!r}", 2)
-            destination = self.tickets_root / self.wip_column / source.name
-            moves.append((source, destination))
-
-        self.bank_workspaces()
-        owned = self.claim_slugs(into)
-        paths: list[str] = []
-        moved: list[tuple[Path, Path]] = []
-        try:
-            for source, destination in moves:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                source.replace(destination)
-                moved.append((source, destination))
-                paths.extend(
-                    [
-                        str(source.relative_to(self.default_root)),
-                        str(destination.relative_to(self.default_root)),
-                    ]
-                )
-            slugs = sorted(set(owned + tickets))
-            self.jj.run(
-                "squash",
-                "--from",
-                "@",
-                "--into",
-                self.bookmark_revset(into),
-                "-m",
-                f"kata: claim {', '.join(slugs)}",
-                "--",
-                *paths,
-                cwd=self.default_root,
+    def _driver(self) -> ItemDriver:
+        if self.item_driver is None:
+            raise KataError(
+                "claim needs an item driver; configure [items].driver or [kanban]", 2
             )
-        except WorkflowError:
-            for source, destination in reversed(moved):
-                if destination.exists() and not source.exists():
-                    source.parent.mkdir(parents=True, exist_ok=True)
-                    destination.replace(source)
+        return self.item_driver
+
+    @staticmethod
+    def _filesets(paths: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(f"root-file:{json.dumps(path)}" for path in paths)
+
+    def _feature_base(self, name: str) -> str:
+        return f"fork_point(default@ | {name}@)"
+
+    def _item_context(self, name: str) -> tuple[str, str]:
+        if self.visibility == "shared" and self.bookmark_exists(name):
+            revision = self.bookmark_revset(name)
+            return f"({revision})-", revision
+        return self._feature_base(name), f"{name}@"
+
+    def _transition(
+        self,
+        action: str,
+        name: str,
+        *,
+        root: Path,
+        requested: tuple[str, ...] = (),
+    ) -> Transition:
+        base, revision = self._item_context(name)
+        return self._driver().transition(
+            action,
+            root=root,
+            workspace=name,
+            requested=requested,
+            base_revision=base,
+            revision=revision,
+            visibility=self.visibility,
+        )
+
+    def ownership(self, name: str, ws_dir: Path | None = None) -> Transition:
+        return self._transition("owned", name, root=ws_dir or self.workspace_root(name))
+
+    def owned_items(self, name: str, ws_dir: Path | None = None) -> tuple[str, ...]:
+        return self.ownership(name, ws_dir).items
+
+    def _claim_change(self, name: str, ws_dir: Path) -> str | None:
+        changes = self._changes(
+            f'default@..{name}@ & description(glob:"kata: claim *")', cwd=ws_dir
+        )
+        return changes[0] if len(changes) == 1 else None
+
+    def adopt(self, into: str, items: list[str]) -> None:
+        if not items:
+            raise KataError("claim needs at least one item", 2)
+        self.validate_name(into)
+        ws_dir = self.workspace_root(into)
+        if len(set(items)) != len(items):
+            raise KataError("an item may only be named once", 2)
+        requested = tuple(items)
+
+        if self.visibility == "shared":
+            if not self.bookmark_exists(into):
+                raise KataError(f"no shared claim anchor named {into!r}", 2)
+            self.bank_workspaces()
+            transition = self._transition(
+                "claim", into, root=self.default_root, requested=requested
+            )
+            try:
+                self.jj.run(
+                    "squash",
+                    "--from",
+                    "@",
+                    "--into",
+                    self.bookmark_revset(into),
+                    "-m",
+                    f"kata: claim {', '.join(sorted(set(self.owned_items(into) + requested)))}",
+                    "--",
+                    *self._filesets(transition.paths),
+                    cwd=self.default_root,
+                )
+            except KataError:
+                self.jj.run(
+                    "restore",
+                    "--",
+                    *self._filesets(transition.paths),
+                    cwd=self.default_root,
+                    check=False,
+                )
+                raise
+            finally:
+                self.unstale_workspaces()
+            return
+
+        existing = self.owned_items(into, ws_dir)
+        claim_change = self._claim_change(into, ws_dir)
+        transition = self._transition("claim", into, root=ws_dir, requested=requested)
+        try:
+            claimed = tuple(sorted(set(existing + requested)))
+            if claim_change:
+                self.jj.run(
+                    "squash",
+                    "--from",
+                    "@",
+                    "--into",
+                    claim_change,
+                    "-m",
+                    f"kata: claim {', '.join(claimed)}",
+                    "--",
+                    *self._filesets(transition.paths),
+                    cwd=ws_dir,
+                )
+            else:
+                self.jj.run(
+                    "commit",
+                    "-m",
+                    f"kata: claim {', '.join(claimed)}",
+                    "--",
+                    *self._filesets(transition.paths),
+                    cwd=ws_dir,
+                )
+        except KataError:
+            self.jj.run(
+                "restore",
+                "--",
+                *self._filesets(transition.paths),
+                cwd=ws_dir,
+                check=False,
+            )
             raise
-        finally:
-            self.unstale_workspaces()
 
     def claim(
-        self, tickets: list[str], *, into: str | None = None, or_start: bool = False
+        self,
+        items: list[str],
+        *,
+        into: str | None = None,
+        or_start: bool = False,
+        workspace_name: str | None = None,
     ) -> Path | None:
         if into:
-            if or_start:
-                raise WorkflowError("--into and --or-start do not combine", 2)
+            if or_start or workspace_name:
+                raise KataError("--into does not combine with --or-start or --name", 2)
             self.require_default("claim --into")
-            self.adopt(into, tickets)
-            note(f"folded {', '.join(tickets)} into {into}'s claim")
+            self.adopt(into, items)
+            note(f"claimed {', '.join(items)} into {into}")
             return None
 
         if not self.on_default:
             if or_start:
-                raise WorkflowError("--or-start only runs from default", 2)
+                raise KataError("--or-start only runs from default", 2)
             name = self.current_workspace_name()
-            self.adopt(name, tickets)
-            note(f"folded {', '.join(tickets)} into {name}'s claim")
+            self.adopt(name, items)
+            note(f"claimed {', '.join(items)} into {name}")
             return None
 
-        if len(tickets) != 1:
-            raise WorkflowError(
-                "claim starts one workspace for one ticket; use --into for extras", 2
+        if workspace_name is None and len(items) != 1:
+            raise KataError(
+                "claim needs --name when starting a workspace for multiple items", 2
             )
-        name = tickets[0]
-        if or_start and self.ticket_state(name) != "triage":
-            ws_dir = self.start(name)
-            self.jj.run(
-                "describe",
-                "-r",
-                self.bookmark_revset(name),
-                "-m",
-                f"kata: claim {name}",
-                cwd=self.default_root,
+        name = workspace_name or items[0]
+        if or_start:
+            if self.item_driver is None:
+                return self.start(name)
+            probe = self.item_driver.transition(
+                "probe",
+                root=self.default_root,
+                workspace=name,
+                requested=tuple(items),
+                visibility=self.visibility,
             )
-            self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
-            return ws_dir
+            if probe.items != tuple(items):
+                return self.start(name)
 
         ws_dir = self.start(name)
-        claim_id = self._change_id(self.bookmark_revset(name))
+        anchor_id = (
+            self._change_id(self.bookmark_revset(name))
+            if self.bookmark_exists(name)
+            else ""
+        )
         try:
-            self.adopt(name, [name])
-        except WorkflowError:
-            self._cleanup_created(name, claim_id, ws_dir)
+            self.adopt(name, items)
+        except KataError:
+            self._cleanup_created(name, anchor_id, ws_dir)
             raise
         return ws_dir
 
@@ -517,13 +528,13 @@ class Workflow:
         )
 
     def _conflict_stop(self, what: str, ws_dir: Path) -> None:
-        raise WorkflowError(
+        raise KataError(
             f"{what}; resolve it in {ws_dir} with jj-sensei's harmony skill, then retry",
             EXPECTED_STOP,
         )
 
     def _refresh_detach(self, name: str) -> None:
-        self.require_linear_trunk()
+        self.require_linear_default()
         ws_dir = self.workspace_root(name)
         revset = f"default@..{name}@"
         if not self._changes(revset, cwd=ws_dir):
@@ -533,16 +544,16 @@ class Workflow:
         conflicted = self._conflicts(revset, ws_dir)
         self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
         if conflicted:
-            self._conflict_stop(f"{name} now conflicts with the trunk tip", ws_dir)
+            self._conflict_stop(f"{name} now conflicts with the default tip", ws_dir)
 
     def _refresh_reorder(self, name: str) -> None:
-        self.require_linear_trunk()
+        self.require_linear_default()
         ws_dir = self.workspace_root(name)
         if not self.bookmark_exists(name):
-            raise WorkflowError(f"{name!r} has no claim bookmark", 2)
+            raise KataError(f"{name!r} has no shared claim anchor", 2)
         roots = self._changes(f"roots(default@..{name}@)")
         if len(roots) != 1:
-            raise WorkflowError(
+            raise KataError(
                 f"{name}'s stack has {len(roots)} roots; it cannot be reordered", 2
             )
         root = roots[0]
@@ -571,16 +582,15 @@ class Workflow:
         if all_workspaces:
             self.require_default("refresh --all")
             if name:
-                raise WorkflowError("refresh --all takes no workspace name", 2)
-            targets = [
-                item
-                for item in self.workspace_names()
-                if item != "default" and self.bookmark_exists(item)
-            ]
+                raise KataError("refresh --all takes no workspace name", 2)
+            targets = [item for item in self.workspace_names() if item != "default"]
             self.bank_workspaces()
             try:
                 for target in targets:
-                    self._refresh_reorder(target)
+                    if self.visibility == "shared":
+                        self._refresh_reorder(target)
+                    else:
+                        self._refresh_detach(target)
             finally:
                 self.unstale_workspaces()
             note(f"refreshed {len(targets)} workspace(s)")
@@ -588,24 +598,31 @@ class Workflow:
 
         if self.on_default:
             if not name:
-                raise WorkflowError(
+                raise KataError(
                     "refresh needs a workspace name on default, or --all", 2
                 )
             self.bank_workspaces()
             try:
-                self._refresh_reorder(name)
+                if self.visibility == "shared":
+                    self._refresh_reorder(name)
+                else:
+                    self._refresh_detach(name)
             finally:
                 self.unstale_workspaces()
             return
 
         current = self.current_workspace_name()
         if name and name != current:
-            raise WorkflowError("a feature workspace may only refresh itself", 2)
+            raise KataError("a feature workspace may only refresh itself", 2)
         self._refresh_detach(current)
 
     def _require_closed(self, name: str, ws_dir: Path) -> None:
         self.snapshot_one(ws_dir)
-        empty = self._is_empty(f"{name}@", cwd=ws_dir)
+        if not self._is_empty(f"{name}@", cwd=ws_dir):
+            raise KataError(
+                f"{name}@ still holds work; commit it and leave an empty change",
+                EXPECTED_STOP,
+            )
         description = self.jj.text(
             "log",
             "--no-graph",
@@ -616,61 +633,54 @@ class Workflow:
             "--ignore-working-copy",
             cwd=ws_dir,
         )
-        if not empty:
-            raise WorkflowError(
-                f"{name}@ still holds work; commit it and leave an empty change",
-                EXPECTED_STOP,
-            )
         if description:
-            raise WorkflowError(
+            raise KataError(
                 f"{name}@ is described but empty; finish or clear it before integrate",
                 EXPECTED_STOP,
             )
 
-    def _require_wip_tickets(self, name: str, ws_dir: Path, slugs: list[str]) -> None:
-        for slug in slugs:
-            expected = ws_dir / "docs" / "tickets" / self.wip_column / f"{slug}.md"
-            if expected.is_file():
-                continue
-            landed = next(
-                (
-                    column
-                    for column in self.columns
-                    if (ws_dir / "docs" / "tickets" / column / f"{slug}.md").is_file()
-                ),
-                None,
-            )
-            location = f"in {landed}/" if landed else "missing"
-            raise WorkflowError(
-                f"{slug} is no longer in {self.wip_column}/ ({location}); "
-                f"restore it there in {name} before integrating, or use "
-                "drop --amend-ticket when handing it back",
-                EXPECTED_STOP,
-            )
+    def _complete_feature_items(
+        self, target: str, ws_dir: Path, items: tuple[str, ...]
+    ) -> None:
+        if not items:
+            return
+        transition = self._transition("complete", target, root=ws_dir, requested=items)
+        self.jj.run(
+            "commit",
+            "-m",
+            f"kata: complete {', '.join(items)}",
+            "--",
+            *self._filesets(transition.paths),
+            cwd=ws_dir,
+        )
 
-    def integrate(self, name: str | None = None) -> None:
-        target = name or self.current_workspace_name()
-        self.validate_name(target)
-        self.require_self_or_default(target)
-        if not self.bookmark_exists(target):
-            raise WorkflowError(f"{target!r} has no live claim bookmark", 2)
-        ws_dir = self.workspace_root(target)
-        self.require_linear_trunk()
-        self._require_closed(target, ws_dir)
-        behind = self._changes(f"{target}@-..default@- & ~empty()")
-        if behind:
-            raise WorkflowError(
-                f"{target} is behind default; run jj-kata refresh inside it first", 2
+    def _place_feature(self, target: str, ws_dir: Path) -> None:
+        wc_id = self._change_id(f"{target}@", cwd=ws_dir)
+        selection = f"default@..{target}@-"
+        if self._changes(selection):
+            self.jj.run(
+                "rebase",
+                "-r",
+                selection,
+                "-A",
+                "default@- & fork_point(default@-)",
+                "-B",
+                "default@",
+                cwd=self.default_root,
             )
-        slugs = self.claim_slugs(target)
-        self._require_wip_tickets(target, ws_dir, slugs)
+            if self._conflicts("default@", self.default_root):
+                self._conflict_stop(
+                    f"folding {target} into default conflicts with the default line",
+                    self.default_root,
+                )
+        if self._live(wc_id):
+            self.jj.run("rebase", "-r", wc_id, "-d", "@-", cwd=self.default_root)
 
-        self.bank_workspaces()
+    def _place_shared(self, target: str, ws_dir: Path) -> tuple[str, bool, str]:
         claim_id = self._change_id(self.bookmark_revset(target))
         claim_empty = self._is_empty(self.bookmark_revset(target))
         wc_id = self._change_id(f"{target}@", cwd=ws_dir)
         self._refresh_detach(target)
-
         fork_parent = self.jj.run(
             "log",
             "--no-graph",
@@ -694,9 +704,8 @@ class Workflow:
             self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
             if self._conflicts(f"{self.bookmark_revset(target)}::", self.default_root):
                 self._conflict_stop(
-                    f"re-joining {target}'s claim conflicts with trunk", ws_dir
+                    f"re-joining {target}'s claim conflicts with default", ws_dir
                 )
-
         selection = f"{self.bookmark_revset(target)} | default@..{target}@-"
         self.jj.run(
             "rebase",
@@ -710,36 +719,51 @@ class Workflow:
         )
         if self._conflicts("default@", self.default_root):
             self._conflict_stop(
-                f"folding {target} into default conflicts with trunk", self.default_root
+                f"folding {target} into default conflicts", self.default_root
             )
+        return claim_id, claim_empty, wc_id
 
-        move_paths: list[str] = []
-        for slug in slugs:
-            source = self.tickets_root / self.wip_column / f"{slug}.md"
-            destination = self.tickets_root / self.done_column / f"{slug}.md"
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            source.replace(destination)
-            move_paths.extend(
-                [
-                    str(source.relative_to(self.default_root)),
-                    str(destination.relative_to(self.default_root)),
-                ]
+    def integrate(self, name: str | None = None) -> None:
+        target = name or self.current_workspace_name()
+        self.validate_name(target)
+        self.require_self_or_default(target)
+        if self.visibility == "shared" and not self.bookmark_exists(target):
+            raise KataError(f"{target!r} has no shared claim anchor", 2)
+        ws_dir = self.workspace_root(target)
+        self.require_linear_default()
+        self._require_closed(target, ws_dir)
+        behind = self._changes(f"{target}@-..default@- & ~empty()")
+        if behind:
+            raise KataError(
+                f"{target} is behind default; run jj-kata refresh inside it first", 2
             )
-        if move_paths:
-            self.jj.run(
-                "commit",
-                "-m",
-                f"kata: complete {' '.join(slugs)}",
-                "--",
-                *move_paths,
-                cwd=self.default_root,
-            )
+        items = self.owned_items(target, ws_dir) if self.item_driver else ()
 
-        self.jj.run("bookmark", "forget", target, cwd=self.default_root)
-        if claim_empty and self._live(claim_id):
-            self.jj.run("abandon", claim_id, cwd=self.default_root)
-        if self._live(wc_id):
-            self.jj.run("rebase", "-r", wc_id, "-d", "@-", cwd=self.default_root)
+        if self.visibility == "feature":
+            self._complete_feature_items(target, ws_dir, items)
+            self.bank_workspaces()
+            self._refresh_detach(target)
+            self._place_feature(target, ws_dir)
+        else:
+            self.bank_workspaces()
+            claim_id, claim_empty, wc_id = self._place_shared(target, ws_dir)
+            if items:
+                transition = self._transition(
+                    "complete", target, root=self.default_root, requested=items
+                )
+                self.jj.run(
+                    "commit",
+                    "-m",
+                    f"kata: complete {', '.join(items)}",
+                    "--",
+                    *self._filesets(transition.paths),
+                    cwd=self.default_root,
+                )
+            self.jj.run("bookmark", "forget", target, cwd=self.default_root)
+            if claim_empty and self._live(claim_id):
+                self.jj.run("abandon", claim_id, cwd=self.default_root)
+            if self._live(wc_id):
+                self.jj.run("rebase", "-r", wc_id, "-d", "@-", cwd=self.default_root)
         self.unstale_workspaces()
         note(f"integrated {target}; retire it with jj-kata drop {target}")
 
@@ -781,51 +805,44 @@ class Workflow:
             shutil.rmtree(ws_dir)
         self.unstale_workspaces()
 
-    def _capture_ticket_text(self, name: str, ws_dir: Path) -> dict[str, bytes]:
-        slugs = self.claim_slugs(name)
-        if not slugs:
-            raise WorkflowError(
-                f"{name}'s claim owns no ticket; use plain drop instead", 2
-            )
-        captured: dict[str, bytes] = {}
-        for slug in slugs:
-            path = next(
-                (
-                    ws_dir / "docs" / "tickets" / column / f"{slug}.md"
-                    for column in self.columns
-                    if (ws_dir / "docs" / "tickets" / column / f"{slug}.md").is_file()
-                ),
-                None,
-            )
-            if path is None:
-                raise WorkflowError(f"{name} no longer has a ticket file for {slug}", 2)
-            captured[slug] = path.read_bytes()
+    @staticmethod
+    def _capture_paths(root: Path, paths: tuple[str, ...]) -> dict[str, bytes | None]:
+        captured: dict[str, bytes | None] = {}
+        for relative in paths:
+            path = root / relative
+            captured[relative] = path.read_bytes() if path.is_file() else None
         return captured
 
-    def _apply_ticket_text(self, name: str, captured: dict[str, bytes]) -> None:
-        paths: list[str] = []
-        for slug, content in captured.items():
-            destination = self.ticket_triage_path(slug)
-            if destination is None:
-                destination = self.tickets_root / self.triage_columns[-1] / f"{slug}.md"
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(content)
-            paths.append(str(destination.relative_to(self.default_root)))
+    def _apply_paths(
+        self, name: str, items: tuple[str, ...], captured: dict[str, bytes | None]
+    ) -> None:
+        for relative, content in captured.items():
+            path = self.default_root / relative
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+        paths = tuple(captured)
         changed = self.jj.lines(
-            "diff", "--name-only", "--", *paths, cwd=self.default_root
+            "diff",
+            "--name-only",
+            "--",
+            *self._filesets(paths),
+            cwd=self.default_root,
         )
         if changed:
             self.jj.run(
                 "commit",
                 "-m",
-                f"tickets: amend {', '.join(captured)}",
+                f"items: return {', '.join(items)}",
                 "--",
-                *paths,
+                *self._filesets(paths),
                 cwd=self.default_root,
             )
-            note(f"dropped {name} and wrote its ticket edits back to triage")
+            note(f"dropped {name} and returned its item edits")
         else:
-            note(f"dropped {name}; its tickets were unedited")
+            note(f"dropped {name}; its items were unedited")
 
     def drop(
         self,
@@ -839,34 +856,49 @@ class Workflow:
         self.require_default("drop")
         if integrated:
             if name or force or amend_ticket:
-                raise WorkflowError(
-                    "drop --integrated takes no name, --force, or --amend-ticket", 2
+                raise KataError(
+                    "drop --integrated takes no name, --force, or --return-items", 2
                 )
             self._drop_integrated(dry_run=dry_run)
             return
         if dry_run:
-            raise WorkflowError("--dry-run only applies to drop --integrated", 2)
+            raise KataError("--dry-run only applies to drop --integrated", 2)
         if not name:
-            raise WorkflowError("drop needs a workspace name", 2)
+            raise KataError("drop needs a workspace name", 2)
         self.validate_name(name)
         ws_dir = self.workspace_root(name)
         self.snapshot_one(ws_dir)
-        captured = self._capture_ticket_text(name, ws_dir) if amend_ticket else None
+
+        captured: dict[str, bytes | None] | None = None
+        returned_items: tuple[str, ...] = ()
+        ownership: Transition | None = None
+        if amend_ticket:
+            if self.item_driver is None:
+                raise KataError("this workspace has no configured item driver", 2)
+            ownership = self.ownership(name, ws_dir)
+            returned_items = ownership.items
+            if not returned_items:
+                raise KataError(f"{name!r} owns no work items", 2)
+
         unintegrated = self._unintegrated_changes(name)
         if unintegrated and not force:
-            at_risk = True
-            if amend_ticket:
-                at_risk = any(
-                    not path.startswith("docs/tickets/")
-                    for path in self._unintegrated_paths(name)
-                )
+            at_risk = not amend_ticket or bool(
+                self._unintegrated_paths(name)
+                - set(ownership.paths if ownership else ())
+            )
             if at_risk:
-                raise WorkflowError(
+                raise KataError(
                     f"{name} has un-integrated work; integrate it or use --force", 2
                 )
+
+        if amend_ticket:
+            transition = self._transition(
+                "return", name, root=ws_dir, requested=returned_items
+            )
+            captured = self._capture_paths(ws_dir, transition.paths)
         self._drop_one(name, ws_dir)
         if captured is not None:
-            self._apply_ticket_text(name, captured)
+            self._apply_paths(name, returned_items, captured)
         else:
             note(f"dropped {name}")
 
@@ -879,7 +911,7 @@ class Workflow:
             ws_dir = self.workspace_root(name)
             try:
                 self.snapshot_one(ws_dir)
-            except WorkflowError:
+            except KataError:
                 kept.append(name)
                 continue
             if self._unintegrated_changes(name):

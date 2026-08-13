@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
+from .config import find_config
 from .errors import KataError
+from .items import ExternalDriver, load_driver
 from .kanban import configure_parser as configure_kanban_parser
 from .kanban import run as run_kanban
-from .workflow import Workflow
+from .lifecycle import Lifecycle
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,12 +22,13 @@ def build_parser() -> argparse.ArgumentParser:
     start = commands.add_parser("start", help="start an ad-hoc feature workspace")
     start.add_argument("name")
 
-    claim = commands.add_parser("claim", help="claim ticket-backed work")
-    claim.add_argument("tickets", nargs="+")
+    claim = commands.add_parser("claim", help="claim repository-defined work items")
+    claim.add_argument("tickets", nargs="+", metavar="ITEM")
+    claim.add_argument("--name", metavar="WORKSPACE")
     claim.add_argument("--into", metavar="WORKSPACE")
     claim.add_argument("--or-start", action="store_true")
 
-    refresh = commands.add_parser("refresh", help="bring feature work up to trunk")
+    refresh = commands.add_parser("refresh", help="bring feature work up to default")
     refresh.add_argument("name", nargs="?")
     refresh.add_argument("--all", action="store_true", dest="all_workspaces")
 
@@ -34,7 +38,18 @@ def build_parser() -> argparse.ArgumentParser:
     drop = commands.add_parser("drop", help="retire a feature workspace")
     drop.add_argument("name", nargs="?")
     drop.add_argument("--force", action="store_true")
-    drop.add_argument("--amend-ticket", action="store_true")
+    drop.add_argument(
+        "--return-items",
+        action="store_true",
+        dest="amend_ticket",
+        help="return owned items through the configured driver before dropping",
+    )
+    drop.add_argument(
+        "--amend-ticket",
+        action="store_true",
+        dest="amend_ticket",
+        help=argparse.SUPPRESS,
+    )
     drop.add_argument("--integrated", action="store_true")
     drop.add_argument("--dry-run", action="store_true")
 
@@ -47,21 +62,34 @@ def build_parser() -> argparse.ArgumentParser:
 
 def dispatch(args: argparse.Namespace) -> int:
     if args.command == "kanban":
+        config_root, config = find_config(Path.cwd())
+        if config_root is not None:
+            driver = load_driver(config, config_root)
+            if isinstance(driver, ExternalDriver):
+                arguments = [args.kanban_command]
+                if hasattr(args, "slug"):
+                    arguments.append(args.slug)
+                return driver.inspect(arguments, cwd=Path.cwd())
         return run_kanban(args)
-    workflow = Workflow()
-    with workflow.lock():
+    lifecycle = Lifecycle()
+    with lifecycle.lock():
         if args.command == "start":
-            print(workflow.start(args.name))
+            print(lifecycle.start(args.name))
         elif args.command == "claim":
-            path = workflow.claim(args.tickets, into=args.into, or_start=args.or_start)
+            path = lifecycle.claim(
+                args.tickets,
+                into=args.into,
+                or_start=args.or_start,
+                workspace_name=args.name,
+            )
             if path:
                 print(path)
         elif args.command == "refresh":
-            workflow.refresh(args.name, all_workspaces=args.all_workspaces)
+            lifecycle.refresh(args.name, all_workspaces=args.all_workspaces)
         elif args.command == "integrate":
-            workflow.integrate(args.name)
+            lifecycle.integrate(args.name)
         elif args.command == "drop":
-            workflow.drop(
+            lifecycle.drop(
                 args.name,
                 force=args.force,
                 amend_ticket=args.amend_ticket,

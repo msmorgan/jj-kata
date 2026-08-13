@@ -1,46 +1,49 @@
 ---
 name: kanban
-description: Use when a repository tracks work as Markdown cards in docs/tickets status folders and the user asks to inspect the board, find ready or blocked work, trace dependencies, or validate the ticket graph.
+description: Use when a jj-kata repository tracks work as files in status folders and the user asks to inspect the board, find ready or blocked work, trace dependencies, validate the graph, or configure the bundled folder Kanban integration.
 ---
 
 # Kanban
 
-Use the bundled `jj-kata kanban` command to inspect a repository's file-backed
-ticket board. The directory containing a card is its status column; a card's
-filename without `.md` is its slug.
-
-Resolve the plugin-root command from this loaded `SKILL.md`, never from the
-project being inspected. If the loader reports
-`/PLUGIN/skills/kanban/SKILL.md`, the command is `/PLUGIN/scripts/jj-kata`.
-
-Run it from somewhere inside the target project:
+Use the grouped `jj-kata kanban` command. Resolve the plugin-root launcher from
+this loaded skill; for `/PLUGIN/skills/kanban/SKILL.md`, run
+`/PLUGIN/scripts/jj-kata` from inside the target repository.
 
 ```bash
 /PLUGIN/scripts/jj-kata kanban board
 /PLUGIN/scripts/jj-kata kanban ready
 /PLUGIN/scripts/jj-kata kanban blocked
-/PLUGIN/scripts/jj-kata kanban graph SLUG
-/PLUGIN/scripts/jj-kata kanban needs SLUG
+/PLUGIN/scripts/jj-kata kanban graph ITEM
+/PLUGIN/scripts/jj-kata kanban needs ITEM
 /PLUGIN/scripts/jj-kata kanban check
 ```
 
 Commands are read-only:
 
-- `board` lists every card grouped in column order.
-- `ready` lists triage cards whose dependencies all exist and are done.
-- `blocked` lists triage cards with dangling or unfinished dependencies.
-- `graph SLUG` prints all recursive upstream needs and direct downstream cards.
-- `needs SLUG` prints the card's direct dependency slugs.
-- `check` reports duplicate slugs, dangling needs, and dependency cycles; it
-  exits 1 if any are found.
+- `board` lists items grouped by column.
+- `ready` lists claimable items whose dependencies are done.
+- `blocked` lists claimable items with missing or unfinished dependencies.
+- `graph ITEM` prints recursive upstream needs and direct downstream items.
+- `needs ITEM` prints direct dependency IDs.
+- `check` reports duplicates, dangling needs, and dependency cycles; it exits 1
+  when problems exist.
 
-The default board root is the nearest ancestor's `docs/tickets`. Use
-`--root PATH` when the board lives elsewhere. By default the recognized columns
-are `bugs,critical,planned,maybe,wip,done`, with `done` satisfying dependencies
-and all columns before `wip` treated as triage. Repositories may override these
-with comma-separated `KANBAN_COLUMNS`, `KANBAN_DONE_COLUMN`, and
-`KANBAN_WIP_COLUMN` environment variables.
+The bundled defaults are `docs/tickets`, `wip`, `done`, and `*.md`. Only WIP
+and done have special roles; every other immediate folder is claimable.
+Configure names and file patterns in `jjkata.toml`:
 
-Do not move cards merely because the board exposes their state. A requested
-status change is an ordinary file move and should follow the repository's own
-version-control and workflow rules.
+```toml
+[kanban]
+root = "tasks"
+wip = "doing"
+done = "finished"
+patterns = ["*.task"]
+columns = ["urgent", "backlog", "doing", "finished"] # optional order
+```
+
+The bundled graph feature reads `needs: [item, ...]` from frontmatter. If
+`[items].driver` names an external repository command, Kata delegates these
+inspection commands to it instead; let the repository own its graph format.
+
+Do not move items merely because inspection exposes their state. Use
+`jj-kata claim`, `integrate`, or `drop --return-items` for lifecycle moves.

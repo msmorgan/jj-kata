@@ -1,48 +1,36 @@
 ---
 name: kata
-description: "Use when working in a jj repository that follows jj-kata's default-coordinator and feature-workspace lifecycle: start or claim work, refresh a feature from the default line, integrate closed work, or retire a workspace. Signs include a default workspace with named feature workspaces, .workspaces/, or jjkata.toml."
+description: "Use when a jj repository follows jj-kata's named feature-workspace lifecycle: start or claim repository-defined work, refresh a feature from the default line, integrate deliberately closed work, return claimed items, or retire a workspace. Signs include a default workspace with named feature workspaces, .workspaces/, jjkata.toml, or jjworkflow.toml."
 ---
 
 # jj-kata
 
-This skill owns the workflow-specific layer on top of Jujutsu:
+Use Kata for the repository's `start`/`claim` → `refresh` → `integrate` →
+`drop` practice. Use jj-sensei for general jj knowledge, boundary setup,
+history shaping outside this lifecycle, and stale/divergent/conflicted workspace
+repair.
 
-- `start` and `claim` create named feature workspaces.
-- `refresh` brings a feature current with the coordinator line.
-- `integrate` folds deliberately closed feature work into `default`.
-- `drop` retires the workspace and its bounded feature stack.
-- Ticket claims move cards from triage to `wip`, then integration moves them to
-  `done`.
-
-Use jj-sensei for general jj guidance, repository boundaries/setup, history
-shaping outside this lifecycle, status, conflict repair, and divergent or stale
-workspace recovery.
-
-## Command location
+## Command
 
 Resolve the plugin-root `scripts/jj-kata` from this loaded `SKILL.md`, never
-from the target repository and never from `PATH`. If this file is
-`/PLUGIN/skills/kata/SKILL.md`, the command is:
+from the target repository or `PATH`. For
+`/PLUGIN/skills/kata/SKILL.md`, run `/PLUGIN/scripts/jj-kata` from the workspace
+it should act on.
 
-```bash
-/PLUGIN/scripts/jj-kata
-```
+Do not pipe a Kata command. Preserve its exit status: 0 is success, 2 is a
+refusal before the transition, 69 leaves an expected state to finish or repair,
+75 is lock timeout, and 130 is interruption.
 
-Run it from the workspace it should act from. The command finds the repository
-and `default` workspace from the current directory.
+Every command and subcommand supports `--help`.
 
-Do not pipe a workflow command. Its exit status is meaningful: 0 is success, 2
-is a refusal before the requested lifecycle transition, 69 leaves an expected
-state for the operator to fix, and 75 is lock timeout. Capture or redirect its
-output only if the exit status is preserved.
+## Lifecycle
 
-## Two-tier lifecycle
-
-The `default` workspace coordinates creation and cross-feature changes:
+From `default`:
 
 ```bash
 jj-kata start NAME
 jj-kata claim ITEM
+jj-kata claim ITEM... --name NAME
 jj-kata claim ITEM... --into NAME
 jj-kata refresh NAME
 jj-kata refresh --all
@@ -50,69 +38,61 @@ jj-kata integrate NAME
 jj-kata drop NAME
 ```
 
-A feature workspace acts only on itself:
+From a feature workspace, act only on itself:
 
 ```bash
-jj-kata claim ITEM...   # add work items to this feature's claim
-jj-kata refresh         # detach this feature onto current default
-jj-kata integrate       # integrate this feature
+jj-kata claim ITEM...
+jj-kata refresh
+jj-kata integrate
 ```
 
-`start NAME` is ad hoc. `claim TICKET` creates a workspace with the ticket's
-slug and moves `docs/tickets/<triage>/TICKET.md` into `wip/` in the claim
-commit. `claim --into` and feature-local `claim` add more tickets to the same
-claim. `claim NAME --or-start` is reserved for the worktree bridge: it claims a
-matching triage card and otherwise starts ad hoc work.
+Item IDs are opaque. `claim ITEM` uses the ID as the workspace name only as a
+convenience; pass `--name NAME` when that is inappropriate or several items
+start together.
 
-## Refresh and integrate
+Refresh before review or integration when `default` has moved. Integration
+requires an empty, undescribed feature `@`; close work with `jj commit -m ...`
+first. It folds closed feature changes into the default line and parks the
+workspace on the integrated tip. Retire it from `default` with `drop NAME`.
 
-Refresh a feature before review or integration whenever trunk has moved. A
-feature-local refresh rebases only that feature's stack onto `default@-`.
-Coordinator refresh reorders the named claim immediately below `default@` and
-carries its feature stack with it.
-
-Integration accepts only an empty, undescribed feature `@`. Close the work with
-`jj commit -m ...` or otherwise leave a deliberate empty cap first. It refuses
-an open, described-empty, behind-trunk, or ticket-inconsistent feature before
-folding it.
-
-The ticket move from `wip/` to `done/` belongs to `integrate`; never move or
-delete an owned wip ticket by hand. A successful ticketed integration leaves a
-`workflow: claim ...` entry and a real `workflow: complete ...` entry in the
-history. Integration keeps the workspace parked on the new trunk tip so it can
-be inspected or reused; normally retire it next with `drop NAME` from default.
+Plain drop refuses unintegrated work. `--force` explicitly discards it.
+`--return-items` runs the configured return transition, preserves the paths it
+reports, and refuses unrelated work unless `--force` is also explicit.
 
 If refresh or integration reports conflicts, use jj-sensei's harmony skill in
-the named workspace. Do not retry integration past a conflict and do not perform
-operation-log surgery.
+the named workspace. Do not retry past a conflict or perform operation-log
+surgery.
 
-## Drop safely
+## Visibility and state
 
-Plain `drop NAME` refuses unintegrated or resumed work. `drop NAME --force`
-explicitly discards that workspace's claim and bounded feature stack.
+`visibility = "feature"` is the default. Claims live only on their feature
+line, with no Kata bookmark, until integration.
 
-When a ticketed attempt is blocked or premature, edit the ticket with what was
-learned and run:
+`visibility = "shared"` opts into a bookmarked claim anchor linearly inside the
+default tree. Later work based on default sees active claim markers.
 
-```bash
-jj-kata drop NAME --amend-ticket
-```
+Kata has no private claim ledger. The item driver derives ownership from the
+base/revision context Kata supplies. A reconstructed graph with the same marker
+moves must work without any prior Kata invocation.
 
-That retires the claim and writes the edited ticket back to its triage column as
-`tickets: amend ...`. Work outside `docs/tickets/` still blocks this form unless
-`--force` is also explicit.
-
-Use `drop --integrated` to sweep only parked, integrated, empty workspaces;
-`drop --integrated --dry-run` previews the same selection.
+When implementing or debugging a repository driver, read
+[the item-driver protocol](references/item-driver.md).
 
 ## Configuration
 
-All settings are optional in repository-root `jjkata.toml`:
+Read settings from `jjkata.toml` in the default workspace. Legacy
+`jjworkflow.toml` remains a migration fallback. Relative paths resolve from the
+default root.
 
 ```toml
+visibility = "feature"
 workspace_dir = ".workspaces"
 provision_hook = "scripts/provision-workspace"
+
+[items]
+driver = "kanban" # or "scripts/items"
 ```
 
-Relative paths resolve from the default workspace root. The provision hook is
-an optional executable called with the newly created workspace path.
+The provision hook is optional. Kata calls an executable hook with the created
+workspace path after creation; a hook failure deliberately leaves that
+workspace intact for inspection.

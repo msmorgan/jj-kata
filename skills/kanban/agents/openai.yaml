@@ -1,4 +1,4 @@
 interface:
-  display_name: "Kanban Tickets"
-  short_description: "Inspect file-backed ticket boards"
-  default_prompt: "Use $kanban to show which repository tickets are ready or blocked."
+  display_name: "Kanban"
+  short_description: "Inspect file-backed work-item boards"
+  default_prompt: "Use $kanban to inspect the work-item board in this repository."

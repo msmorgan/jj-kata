@@ -1,4 +1,4 @@
 interface:
   display_name: "jj Kata"
-  short_description: "Run the claim-to-integrate workspace lifecycle"
-  default_prompt: "Use $kata to manage this repository's feature workspace lifecycle."
+  short_description: "Run the feature-workspace lifecycle"
+  default_prompt: "Use $kata to manage the feature-workspace lifecycle in this repository."

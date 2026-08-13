@@ -120,6 +120,8 @@ def test_ticket_claim_refresh_and_integrate(tmp_path: Path) -> None:
     workflow(repo, "claim", "ticket-a")
     workspace = repo / ".workspaces" / "ticket-a"
     assert (workspace / "docs" / "tickets" / "wip" / "ticket-a.md").is_file()
+    assert (repo / "docs" / "tickets" / "planned" / "ticket-a.md").is_file()
+    assert not (repo / "docs" / "tickets" / "wip" / "ticket-a.md").exists()
 
     (repo / "trunk.txt").write_text("trunk moved\n")
     jj(repo, "commit", "-m", "trunk: move")
@@ -148,6 +150,162 @@ def test_ticket_claim_refresh_and_integrate(tmp_path: Path) -> None:
     ).stdout
     assert "kata: claim ticket-a" in descriptions
     assert "kata: complete ticket-a" in descriptions
+
+
+def test_shared_visibility_publishes_claim_through_an_anchor(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text('visibility = "shared"\n')
+    jj(repo, "commit", "-m", "kata: configure shared visibility")
+    add_ticket(repo, "ticket-a")
+
+    workflow(repo, "claim", "ticket-a")
+
+    workspace = repo / ".workspaces" / "ticket-a"
+    assert (repo / "docs/tickets/wip/ticket-a.md").is_file()
+    assert (workspace / "docs/tickets/wip/ticket-a.md").is_file()
+    assert jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        'bookmarks(exact:"ticket-a")',
+        "-T",
+        "change_id",
+    ).stdout.strip()
+
+
+def test_reconstructed_feature_tree_needs_no_hidden_claim_state(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    add_ticket(repo, "manual-ticket")
+    workspace = repo / ".workspaces" / "manual-claim"
+    workspace.parent.mkdir()
+    jj(
+        repo,
+        "workspace",
+        "add",
+        str(workspace),
+        "--name",
+        "manual-claim",
+        "-r",
+        "default@-",
+    )
+    source = workspace / "docs/tickets/planned/manual-ticket.md"
+    destination = workspace / "docs/tickets/wip/manual-ticket.md"
+    destination.parent.mkdir(parents=True)
+    source.replace(destination)
+    jj(workspace, "commit", "-m", "reconstruct the intended claim tree")
+
+    workflow(repo, "integrate", "manual-claim")
+
+    assert (repo / "docs/tickets/done/manual-ticket.md").is_file()
+    assert not (repo / ".jj/kata/claims/manual-claim.json").exists()
+
+
+def test_kanban_folders_and_extension_are_repository_configuration(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        """[kanban]
+root = "tasks"
+wip = "doing"
+done = "finished"
+patterns = ["*.task"]
+"""
+    )
+    backlog = repo / "tasks/backlog"
+    backlog.mkdir(parents=True)
+    (backlog / "odd-job.task").write_text("an opaque work marker\n")
+    jj(repo, "commit", "-m", "tasks: add odd job")
+
+    workflow(repo, "claim", "odd-job")
+    workspace = repo / ".workspaces/odd-job"
+
+    assert (repo / "tasks/backlog/odd-job.task").is_file()
+    assert (workspace / "tasks/doing/odd-job.task").is_file()
+    workflow(repo, "integrate", "odd-job")
+    assert (repo / "tasks/finished/odd-job.task").is_file()
+
+
+def test_repository_script_can_own_items_and_kanban_commands(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    driver = scripts / "items.py"
+    driver.write_text(
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import shutil
+import subprocess
+import sys
+
+action = sys.argv[1]
+root = pathlib.Path.cwd()
+if action == "ready":
+    print("external-ready")
+    raise SystemExit(0)
+payload = json.load(sys.stdin)
+requested = payload["requested"]
+
+def files(revision):
+    result = subprocess.run(
+        ["jj", "--no-pager", "file", "list", "-r", revision],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return set(result.stdout.splitlines())
+
+paths = []
+if action == "probe":
+    items = [item for item in requested if (root / "queue" / f"{item}.item").is_file()]
+elif action == "claim":
+    items = requested
+    for item in items:
+        source = root / "queue" / f"{item}.item"
+        destination = root / "active" / source.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(source, destination)
+        paths.extend([f"queue/{source.name}", f"active/{source.name}"])
+elif action == "owned":
+    before = files(payload["context"]["base_revision"])
+    after = files(payload["context"]["revision"])
+    items = sorted(
+        pathlib.PurePosixPath(path).stem
+        for path in after - before
+        if path.startswith("active/")
+    )
+elif action == "complete":
+    items = requested
+    for item in items:
+        source = root / "active" / f"{item}.item"
+        destination = root / "finished" / source.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(source, destination)
+        paths.extend([f"active/{source.name}", f"finished/{source.name}"])
+else:
+    raise SystemExit(f"unsupported action: {action}")
+print(json.dumps({"items": items, "paths": paths}))
+"""
+    )
+    driver.chmod(0o755)
+    (repo / "jjkata.toml").write_text('[items]\ndriver = "scripts/items.py"\n')
+    queue = repo / "queue"
+    queue.mkdir()
+    (queue / "ticket:42.item").write_text("opaque\n")
+    jj(repo, "commit", "-m", "items: configure repository driver")
+
+    workflow(repo, "claim", "ticket:42", "--name", "scripted")
+    workspace = repo / ".workspaces/scripted"
+    assert (workspace / "active/ticket:42.item").is_file()
+    assert (repo / "queue/ticket:42.item").is_file()
+
+    inspected = workflow(repo, "kanban", "ready")
+    assert inspected.stdout == "external-ready\n"
+
+    workflow(repo, "integrate", "scripted")
+    assert (repo / "finished/ticket:42.item").is_file()
 
 
 def test_claim_into_existing_workspace_completes_every_ticket(tmp_path: Path) -> None:
@@ -209,7 +367,7 @@ def test_integrate_requires_closed_working_copy(tmp_path: Path) -> None:
     assert not (repo / "open.txt").exists()
 
 
-def test_drop_amend_ticket_preserves_notes_in_triage(tmp_path: Path) -> None:
+def test_drop_return_items_preserves_notes_in_origin_column(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     add_ticket(repo, "blocked-ticket")
     workflow(repo, "claim", "blocked-ticket")
@@ -217,15 +375,34 @@ def test_drop_amend_ticket_preserves_notes_in_triage(tmp_path: Path) -> None:
     ticket = workspace / "docs" / "tickets" / "wip" / "blocked-ticket.md"
     ticket.write_text("# blocked-ticket\n\nBlocked on an upstream API.\n")
 
-    workflow(repo, "drop", "blocked-ticket", "--amend-ticket")
+    workflow(repo, "drop", "blocked-ticket", "--return-items")
 
     restored = repo / "docs" / "tickets" / "planned" / "blocked-ticket.md"
     assert "Blocked on an upstream API" in restored.read_text()
     assert not workspace.exists()
     assert (
         jj(repo, "log", "--no-graph", "-r", "default@-", "-T", "description").stdout
-        == "tickets: amend blocked-ticket\n"
+        == "items: return blocked-ticket\n"
     )
+
+
+def test_return_items_refuses_unrelated_work_before_moving_markers(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    add_ticket(repo, "blocked-ticket")
+    workflow(repo, "claim", "blocked-ticket")
+    workspace = repo / ".workspaces/blocked-ticket"
+    ticket = workspace / "docs/tickets/wip/blocked-ticket.md"
+    ticket.write_text("blocked notes\n")
+    (workspace / "unrelated.txt").write_text("do not discard\n")
+
+    result = workflow(repo, "drop", "blocked-ticket", "--return-items", check=False)
+
+    assert result.returncode == 2
+    assert ticket.read_text() == "blocked notes\n"
+    assert not (workspace / "docs/tickets/planned/blocked-ticket.md").exists()
+    assert (workspace / "unrelated.txt").is_file()
 
 
 def test_plain_drop_refuses_unintegrated_work(tmp_path: Path) -> None:

@@ -1,0 +1,25 @@
+# Copy to jjkata.toml in a repository's default workspace. Every setting is optional.
+
+# Keep claim markers on their feature line (default), or publish them through
+# a bookmarked anchor on the default line with "shared".
+visibility = "feature"
+
+# Feature workspace base. Relative paths resolve from the default workspace.
+workspace_dir = ".workspaces"
+
+# Executable called after workspace creation with the new workspace path.
+provision_hook = "scripts/provision-workspace"
+
+# Omit this table to auto-enable the bundled driver when its board root exists.
+[items]
+driver = "kanban" # or "scripts/items", or ["python3", "scripts/items.py"]
+
+[kanban]
+root = "docs/tickets"
+wip = "wip"
+done = "done"
+patterns = ["*.md"]
+
+# Optional presentation priority. Without it, columns are discovered and
+# sorted, followed by WIP and done.
+# columns = ["bugs", "critical", "planned", "maybe", "wip", "done"]
