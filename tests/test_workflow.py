@@ -687,6 +687,32 @@ def test_return_items_refuses_newer_default_ticket_edits(tmp_path: Path) -> None
     assert workspace.is_dir()
 
 
+def test_claim_leaves_a_described_feature_change_alone(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    add_ticket(repo, "later")
+    workflow(repo, "start", "adhoc")
+    workspace = repo / ".workspaces/adhoc"
+    (workspace / "wip.txt").write_text("in progress\n")
+    jj(workspace, "describe", "-m", "feat: half-finished work")
+    before = jj(workspace, "log", "--no-graph", "-r", "@", "-T", "change_id").stdout
+
+    workflow(repo, "claim", "later", "--into", "adhoc")
+
+    assert jj(workspace, "log", "--no-graph", "-r", "@", "-T", "change_id").stdout == (
+        before
+    )
+    assert (
+        jj(workspace, "log", "--no-graph", "-r", "@", "-T", "description").stdout
+        == "feat: half-finished work\n"
+    )
+    assert (workspace / "wip.txt").is_file()
+    assert (
+        jj(workspace, "log", "--no-graph", "-r", "@-", "-T", "description").stdout
+        == "kata: claim later\n"
+    )
+    assert (workspace / "docs/tickets/wip/later.md").is_file()
+
+
 def test_drop_reports_conflicts_it_leaves_on_the_default_line(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     (repo / "jjkata.toml").write_text(

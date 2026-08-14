@@ -669,14 +669,7 @@ class Lifecycle:
                     cwd=ws_dir,
                 )
             else:
-                self.jj.run(
-                    "commit",
-                    "-m",
-                    description,
-                    "--",
-                    *self._filesets(transition.paths),
-                    cwd=ws_dir,
-                )
+                self._commit_below(ws_dir, "@", description, transition.paths)
         except KataError:
             if transition.paths:
                 self.jj.run(
@@ -1086,6 +1079,34 @@ class Lifecycle:
                 ) from error
         self.unstale_workspaces()
 
+    def _commit_below(
+        self, root: Path, revision: str, description: str, paths: tuple[str, ...]
+    ) -> str:
+        # jj commit would describe the working-copy change itself, handing its
+        # change ID and description to Kata's commit and relocating the author's
+        # own work to a fresh, undescribed change. Insert Kata's commit below it
+        # instead so the change the author is editing survives untouched.
+        self.jj.run("new", "--no-edit", "-B", revision, "-m", description, cwd=root)
+        created = self._change_id(f"({revision})-", cwd=root)
+        try:
+            self.jj.run(
+                "squash",
+                "--from",
+                revision,
+                "--into",
+                created,
+                "-m",
+                description,
+                "--",
+                *self._filesets(paths),
+                cwd=root,
+            )
+        except KataError:
+            if self._live(created):
+                self.jj.run("abandon", created, cwd=root, check=False)
+            raise
+        return created
+
     def _retire_claim(self, name: str) -> None:
         # A shared claim's move out of the origin column lives on the default
         # line, and drop abandons it. The return has to be a diff against the
@@ -1168,37 +1189,9 @@ class Lifecycle:
         )
         if not changed:
             return False
-        description = self.message("return", name, items)
-        # Insert the return below default@ rather than committing default@ itself:
-        # jj commit would hand the coordinator's change ID and description to the
-        # return and relocate its work to a fresh, undescribed change.
-        self.jj.run(
-            "new",
-            "--no-edit",
-            "-B",
-            "default@",
-            "-m",
-            description,
-            cwd=self.default_root,
+        self._commit_below(
+            self.default_root, "default@", self.message("return", name, items), paths
         )
-        return_id = self._change_id("default@-")
-        try:
-            self.jj.run(
-                "squash",
-                "--from",
-                "default@",
-                "--into",
-                return_id,
-                "-m",
-                description,
-                "--",
-                *self._filesets(paths),
-                cwd=self.default_root,
-            )
-        except KataError:
-            if self._live(return_id):
-                self.jj.run("abandon", return_id, cwd=self.default_root, check=False)
-            raise
         return True
 
     def drop(
