@@ -610,6 +610,7 @@ class Lifecycle:
                 if transition.paths:
                     self.jj.run(
                         "squash",
+                        "--keep-emptied",
                         "--from",
                         "@",
                         "--into",
@@ -658,6 +659,7 @@ class Lifecycle:
             if claim_change:
                 self.jj.run(
                     "squash",
+                    "--keep-emptied",
                     "--from",
                     "@",
                     "--into",
@@ -1086,11 +1088,14 @@ class Lifecycle:
         # change ID and description to Kata's commit and relocating the author's
         # own work to a fresh, undescribed change. Insert Kata's commit below it
         # instead so the change the author is editing survives untouched.
+        # --keep-emptied covers the same invariant for an empty working copy,
+        # which jj would otherwise abandon and replace with a new change ID.
         self.jj.run("new", "--no-edit", "-B", revision, "-m", description, cwd=root)
         created = self._change_id(f"({revision})-", cwd=root)
         try:
             self.jj.run(
                 "squash",
+                "--keep-emptied",
                 "--from",
                 revision,
                 "--into",

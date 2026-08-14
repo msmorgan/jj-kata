@@ -687,6 +687,76 @@ def test_return_items_refuses_newer_default_ticket_edits(tmp_path: Path) -> None
     assert workspace.is_dir()
 
 
+@pytest.mark.parametrize("visibility", ["feature", "shared"])
+@pytest.mark.parametrize("occupied", [True, False])
+def test_lifecycle_never_disturbs_the_default_working_copy(
+    tmp_path: Path, visibility: str, occupied: bool
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        f'[items]\ndriver = "kanban"\nvisibility = "{visibility}"\n'
+    )
+    jj(repo, "commit", "-m", "kata: configure")
+    add_ticket(repo, "tkt")
+    if occupied:
+        (repo / "inflight.txt").write_text("half-written\n")
+        jj(repo, "describe", "-m", "docs: in-flight coordinator work")
+
+    def default_change() -> str:
+        return jj(
+            repo, "log", "--no-graph", "-r", "default@", "-T", "change_id"
+        ).stdout.strip()
+
+    # Kata tucks its commits in below default@; the coordinator's own change
+    # keeps its identity whether or not it currently holds work.
+    original = default_change()
+    workflow(repo, "claim", "tkt")
+    assert default_change() == original
+    workspace = repo / ".workspaces/tkt"
+    (workspace / "x.txt").write_text("x\n")
+    jj(workspace, "commit", "-m", "feat: work")
+    workflow(repo, "integrate", "tkt")
+    assert default_change() == original
+    workflow(repo, "drop", "tkt")
+    assert default_change() == original
+
+    assert (repo / "x.txt").is_file()
+    if occupied:
+        assert (repo / "inflight.txt").is_file()
+        assert (
+            jj(repo, "log", "--no-graph", "-r", "default@", "-T", "description").stdout
+            == "docs: in-flight coordinator work\n"
+        )
+
+
+@pytest.mark.parametrize("visibility", ["feature", "shared"])
+def test_return_items_never_disturbs_an_empty_default(
+    tmp_path: Path, visibility: str
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        f'[items]\ndriver = "kanban"\nvisibility = "{visibility}"\n'
+    )
+    jj(repo, "commit", "-m", "kata: configure")
+    add_ticket(repo, "tkt")
+
+    def default_change() -> str:
+        return jj(
+            repo, "log", "--no-graph", "-r", "default@", "-T", "change_id"
+        ).stdout.strip()
+
+    original = default_change()
+    workflow(repo, "claim", "tkt")
+    assert default_change() == original
+    ticket = repo / ".workspaces/tkt/docs/tickets/wip/tkt.md"
+    ticket.write_text(ticket.read_text() + "blocked upstream\n")
+
+    workflow(repo, "drop", "tkt", "--return-items")
+
+    assert default_change() == original
+    assert "blocked upstream" in (repo / "docs/tickets/planned/tkt.md").read_text()
+
+
 def test_claim_leaves_a_described_feature_change_alone(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     add_ticket(repo, "later")
