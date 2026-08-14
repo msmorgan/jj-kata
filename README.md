@@ -235,6 +235,49 @@ complete = "coordination: complete {items}"
 return = "coordination: return {items}"
 ```
 
+### Session orientation
+
+Every host registers one hook, `hooks/session_start.py`, and it is the only hook
+Kata's manifests carry. It reports where an agent has landed before that agent's
+first turn:
+
+```text
+jj-kata: alpha (feature workspace) | items: kanban | live: default, alpha
+```
+
+The line is followed by the invariant for that position — coordinate from
+`default`, or work only on the feature workspace you are in — and an instruction
+to load the `kata` skill. A repository without `kata.toml` or `jjkata.toml` in
+its default workspace is not a Kata repository, and the hook stays completely
+silent; so does a config file in a directory jj has never seen. Missing
+jj-sensei boundaries are called out here rather than discovered through the
+first refused lifecycle command.
+
+It also reports a workspace directory that is not ignored. Kata writes an ignore
+file when it first creates that directory but will not replace one already
+there, so a repository can end up committing workspace clutter to the
+coordinator's line. Rather than reimplement gitignore precedence, the check
+observes the outcome those rules produce — anything jj tracks under the base is
+by definition not ignored — so a rule in a global excludes file satisfies it
+exactly as well as one in the repository. A `workspace_dir` outside the
+repository is satisfied by definition and is never checked. Live workspaces
+themselves are safe regardless: jj does not descend into a nested workspace
+root, so only stray files beside them can leak.
+
+Orientation reads and never writes. It resolves the default workspace through
+jj, so a workspace placed outside the repository tree still finds its
+configuration, and every query passes `--ignore-working-copy` so the probe
+records no operation and snapshots nothing. Any failure — no jj on `PATH`, an
+unreadable payload — is silence, never a failed session.
+
+Claude Code and Codex share [`hooks/hooks.json`](hooks/hooks.json) and receive
+the orientation at `SessionStart`. Antigravity reads the plugin-root
+[`hooks.json`](hooks.json) and receives it as an ephemeral message on its first
+`PreInvocation`; later invocations return an empty response rather than
+repeating the guidance every turn.
+
+### Worktree bridges
+
 The Python `hooks/worktree_create.py` and `hooks/worktree_remove.py` bridges are
 repository opt-in. The create hook replaces native Git-worktree creation, so
 Kata intentionally does not register either bridge in a plugin manifest.

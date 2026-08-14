@@ -38,6 +38,7 @@ def test_plugin_keeps_both_python_skills_and_worktree_bridges() -> None:
         ROOT / "scripts/jj-kata",
         ROOT / "hooks/worktree_create.py",
         ROOT / "hooks/worktree_remove.py",
+        ROOT / "hooks/session_start.py",
     ]
     for command in expected:
         assert command.is_file() and os.access(command, os.X_OK)
@@ -73,15 +74,41 @@ def test_every_shipped_executable_has_help() -> None:
         ],
         [ROOT / "hooks/worktree_create.py"],
         [ROOT / "hooks/worktree_remove.py"],
+        [ROOT / "hooks/session_start.py"],
     ]
     for command in commands:
         result = subprocess.run(
             [*map(str, command), "--help"], capture_output=True, text=True, check=False
         )
         assert result.returncode == 0, result.stderr
-        assert result.stdout.startswith("usage: kata") or result.stdout.startswith(
-            "usage: worktree_"
+        assert result.stdout.startswith(
+            ("usage: kata", "usage: worktree_", "usage: session_start")
         )
+
+
+def skill_frontmatter(name: str) -> dict[str, str]:
+    _, _, rest = (ROOT / f"skills/{name}/SKILL.md").read_text().partition("---\n")
+    body, _, _ = rest.partition("\n---\n")
+    fields: dict[str, str] = {}
+    for line in body.splitlines():
+        key, separator, value = line.partition(": ")
+        if separator:
+            fields[key] = value.strip().strip('"')
+    return fields
+
+
+def test_kata_skill_only_advertises_the_qualifying_signal() -> None:
+    """The description decides when an agent loads this skill unprompted. It once
+    listed `.workspaces/` and live feature workspaces as signs of a Kata
+    repository, which describes any multi-workspace jj repo — including this
+    plugin's own, which has a .workspaces/ and no config file. The single
+    qualifier is the config file, and the description has to say so."""
+    description = skill_frontmatter("kata")["description"]
+
+    assert "kata.toml or jjkata.toml" in description
+    assert "default workspace" in description
+    assert "do not make a repository Kata's" in description
+    assert "Signs include" not in description
 
 
 def test_kata_skill_keeps_feature_work_out_of_default() -> None:
@@ -92,8 +119,11 @@ def test_kata_skill_keeps_feature_work_out_of_default() -> None:
 
 
 def test_superseded_generic_components_remain_absent() -> None:
-    assert not (ROOT / "hooks.json").exists()
-    assert not (ROOT / "hooks/hooks.json").exists()
+    # The hook manifests this once excluded now register session orientation only;
+    # tests/test_session_start_hook.py pins what they may contain. What stays gone
+    # is the fish-scripted generic hook system they replaced.
+    assert not (ROOT / "hooks/jj_guard.fish").exists()
+    assert not (ROOT / "hooks/jj_status.fish").exists()
     assert not (ROOT / "skills/setup").exists()
     assert not (ROOT / "skills/handoff").exists()
     executable_sources = [ROOT / name for name in ("src", "skills", "hooks", "tests")]

@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from .boundaries import boundaries_installed
 from .config import load_config, section
 from .errors import KataError
 from .items import ItemDriver, Transition, load_driver
@@ -93,27 +94,7 @@ class Lifecycle:
         aliases = self.jj.run(
             "config", "list", "--repo", cwd=self.default_root, check=False
         ).stdout
-        compact = "".join(aliases.split())
-        sensei = (
-            'revset-aliases."other_workspaces()"="working_copies()~@"' in compact
-            and 'revset-aliases."not_default()"="@~default@"' in compact
-            and (
-                'revset-aliases."only_if(condition,revisions)"='
-                '"revisions&descendants(ancestors(condition))"' in compact
-            )
-            and (
-                'revset-aliases."immutable_heads()"="builtin_immutable_heads()|'
-                'only_if(not_default(),other_workspaces())"' in compact
-            )
-        )
-        legacy_sensei = (
-            'revset-aliases."all_if_any(rev)"="descendants(ancestors(rev))"' in compact
-            and (
-                'revset-aliases."immutable_heads()"="builtin_immutable_heads()|'
-                '((working_copies()~@)&all_if_any(default@~@))"' in compact
-            )
-        )
-        if not (sensei or legacy_sensei):
+        if not boundaries_installed(aliases):
             raise KataError(
                 "kata needs its teacher: install jj-sensei from "
                 "msmorgan/marketplace, then use its boundaries skill to configure "

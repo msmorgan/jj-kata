@@ -1,9 +1,12 @@
 ---
 name: kata
-description: "Coordinate safe parallel-agent work in a jj repository that follows jj-kata's named feature-workspace lifecycle: start or claim repository-defined work, refresh a feature from the default line, integrate deliberately closed work, return claimed items, or retire a workspace. Signs include a default workspace with named feature workspaces, .workspaces/, kata.toml, or jjkata.toml."
+description: "Coordinate safe parallel-agent work through jj-kata's named feature-workspace lifecycle: start or claim repository-defined work, refresh a feature from the default line, integrate deliberately closed work, return claimed items, or retire a workspace. Applies only when the default workspace of a Jujutsu repository holds kata.toml or jjkata.toml. Additional jj workspaces, a .workspaces/ directory, or any branch-per-feature layout do not make a repository Kata's."
 ---
 
 # jj-kata
+
+Kata governs a repository only when `kata.toml` or `jjkata.toml` sits in its
+`default` workspace; without that file, use ordinary jj through jj-sensei.
 
 Use Kata to coordinate parallel feature workspaces through
 `start` → `refresh` → `integrate` → `drop`. `claim` optionally attaches
@@ -141,6 +144,10 @@ Use the plugin-root [example configuration](../../kata.example.toml) as the
 complete starting point. A legacy `jjworkflow.toml` is a hard migration refusal.
 
 Lifecycle commands require Python 3.11+, jj 0.43.0+, and a POSIX host. The
-read-only Kanban subcommand remains portable. Claude Code hook registration is
+read-only Kanban subcommand remains portable.
+
+Every host registers a session-orientation hook that reports the current
+workspace and configuration on arrival; it reads state only, so trust the
+commands rather than that line. Registration for the opt-in worktree bridges is
 documented in the plugin-root README; Codex and Antigravity do not currently
 offer the equivalent repository-local worktree replacement event.
