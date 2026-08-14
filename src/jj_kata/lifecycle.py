@@ -996,6 +996,15 @@ class Lifecycle:
                 f"{target} is behind default; run kata refresh inside it first", 2
             )
         items = self.owned_items(target, ws_dir) if self.item_driver else ()
+        # A bookmark named after the workspace is positive evidence of a claim
+        # anchor. Deriving no items from one means Kata could not read the claim
+        # — usually its marker commit has drifted below the fork point — and the
+        # integrate would otherwise report success having moved nothing on the
+        # board. A workspace with no such bookmark is indistinguishable from a
+        # bare start that owns nothing by design, so it stays quiet.
+        unread_claim = (
+            bool(self.item_driver) and not items and self.bookmark_exists(target)
+        )
         visibility = self._workspace_visibility(target, ws_dir)
         try:
             self._complete_feature_items(target, ws_dir, items, visibility=visibility)
@@ -1018,6 +1027,12 @@ class Lifecycle:
             self.unstale_workspaces(strict=False)
             raise
         self.unstale_workspaces()
+        if unread_claim:
+            note(
+                f"{target} has a claim anchor Kata could not read, so no item "
+                "transition ran and the board is unchanged; check the item's "
+                "column by hand"
+            )
         note(f"integrated {target}; retire it with kata drop {target}")
 
     def _unintegrated_changes(self, name: str) -> list[str]:

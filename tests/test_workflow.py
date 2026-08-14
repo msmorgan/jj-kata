@@ -757,6 +757,55 @@ def test_return_items_never_disturbs_an_empty_default(
     assert "blocked upstream" in (repo / "docs/tickets/planned/tkt.md").read_text()
 
 
+def test_integrate_reports_a_claim_anchor_it_could_not_read(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    jj(repo, "commit", "-m", "kata: configure")
+    add_ticket(repo, "tkt")
+
+    # A claim whose column move has drifted below fork_point(default@ | tkt@),
+    # so the driver derives no ownership from it.
+    (repo / "docs/tickets/wip").mkdir(parents=True, exist_ok=True)
+    (repo / "docs/tickets/planned/tkt.md").rename(repo / "docs/tickets/wip/tkt.md")
+    jj(repo, "commit", "-m", "workflow: claim tkt")
+    claim = jj(repo, "log", "--no-graph", "-r", "@-", "-T", "change_id").stdout.strip()
+    jj(repo, "bookmark", "create", "tkt", "-r", claim)
+    (repo / "trunk.txt").write_text("moved\n")
+    jj(repo, "commit", "-m", "trunk: advance")
+    tip = jj(repo, "log", "--no-graph", "-r", "@-", "-T", "change_id").stdout.strip()
+    workspace = repo / ".workspaces/tkt"
+    workspace.parent.mkdir(exist_ok=True)
+    jj(repo, "workspace", "add", str(workspace), "--name", "tkt", "-r", tip)
+    (workspace / "x.txt").write_text("work\n")
+    jj(workspace, "commit", "-m", "feat: the work")
+
+    result = workflow(repo, "integrate", "tkt")
+
+    assert result.returncode == 0
+    assert "claim anchor Kata could not read" in result.stderr
+    assert (repo / "x.txt").is_file()
+    assert (repo / "docs/tickets/wip/tkt.md").is_file()
+
+
+def test_integrate_stays_quiet_for_a_bare_start_under_a_driver(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text('[items]\ndriver = "kanban"\n')
+    jj(repo, "commit", "-m", "kata: configure")
+    workflow(repo, "start", "plain")
+    workspace = repo / ".workspaces/plain"
+    (workspace / "y.txt").write_text("y\n")
+    jj(workspace, "commit", "-m", "feat: unticketed")
+
+    result = workflow(repo, "integrate", "plain")
+
+    assert "could not read" not in result.stderr
+    assert (repo / "y.txt").is_file()
+
+
 def test_claim_leaves_a_described_feature_change_alone(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     add_ticket(repo, "later")
