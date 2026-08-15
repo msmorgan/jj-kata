@@ -3,6 +3,7 @@ needs:
   - kanban-origin-rollback
   - baseline-parity-coverage
   - concurrent-workflow-coverage
+  - self-hosted-test-isolation
 ---
 
 # Release jj-kata 0.12.5
