@@ -8,8 +8,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 KATA = ROOT / "scripts" / "kata"
-TEST_CONFIG_HOME = Path("/tmp") / f"jj-kata-concurrency-tests-{os.getpid()}"
-TEST_CONFIG_HOME.mkdir(parents=True, exist_ok=True)
+TEST_CONFIG_HOME = Path(os.environ["XDG_CONFIG_HOME"])
 
 
 def environment(config_home: Path, **overrides: str) -> dict[str, str]:
