@@ -244,15 +244,18 @@ def test_integrate_refuses_when_a_claimed_ticket_is_no_longer_in_wip(
     assert "kata drop ticket-a --return-items" in result.stderr
     assert workspace.is_dir()
     assert not (repo / "feature.txt").exists()
-    assert "kata: complete ticket-a" not in jj(
-        repo,
-        "log",
-        "--no-graph",
-        "-r",
-        "::default@",
-        "-T",
-        "description",
-    ).stdout
+    assert (
+        "kata: complete ticket-a"
+        not in jj(
+            repo,
+            "log",
+            "--no-graph",
+            "-r",
+            "::default@",
+            "-T",
+            "description",
+        ).stdout
+    )
 
 
 def test_shared_visibility_publishes_claim_through_an_anchor(tmp_path: Path) -> None:
