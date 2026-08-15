@@ -17,6 +17,7 @@ def card(board: Path, column: str, slug: str, needs=()) -> None:
 def run(board: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(KATA), "kanban", "--root", str(board), *args],
+        cwd=board.parent,
         capture_output=True,
         text=True,
         env=os.environ,

@@ -8,7 +8,7 @@ import pytest
 
 from jj_kata.orientation import orient, render
 
-TEST_CONFIG_HOME = Path("/tmp") / f"jj-kata-tests-{os.getpid()}"
+TEST_CONFIG_HOME = Path(os.environ["XDG_CONFIG_HOME"])
 CURRENT_BOUNDARIES = [
     ('revset-aliases."other_workspaces()"', "working_copies() ~ @"),
     ('revset-aliases."not_default()"', "@ ~ default@"),

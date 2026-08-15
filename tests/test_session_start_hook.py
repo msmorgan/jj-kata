@@ -11,7 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 HOOK = ROOT / "hooks" / "session_start.py"
 PLUGIN_ROOT_VARIABLES = ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT")
-TEST_CONFIG_HOME = Path("/tmp") / f"jj-kata-tests-{os.getpid()}"
+TEST_CONFIG_HOME = Path(os.environ["XDG_CONFIG_HOME"])
 
 
 def environment(**overrides: str) -> dict[str, str]:
