@@ -1296,6 +1296,59 @@ def test_provisioning_only_runs_when_a_hook_is_configured(tmp_path: Path) -> Non
     assert marker.read_text().strip() == str(repo / ".workspaces/provisioned")
 
 
+@pytest.mark.parametrize("visibility", ["feature", "shared"])
+def test_claim_transition_precedes_provisioning(
+    tmp_path: Path, visibility: str
+) -> None:
+    repo = init_repo(tmp_path)
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    hook = scripts / "provision-workspace"
+    hook.write_text('#!/bin/sh\ntest -f "$1/docs/tickets/wip/tkt.md"\n')
+    hook.chmod(0o755)
+    (repo / "jjkata.toml").write_text(
+        'provision_hook = "scripts/provision-workspace"\n'
+        f'[items]\ndriver = "kanban"\nvisibility = "{visibility}"\n'
+    )
+    add_ticket(repo, "tkt")
+
+    result = workflow(repo, "claim", "tkt")
+
+    workspace = repo / ".workspaces/tkt"
+    assert (workspace / "docs/tickets/wip/tkt.md").is_file()
+    assert f"kata: provisioning workspace {workspace}" in result.stderr
+    assert f"kata: provisioned workspace {workspace}" in result.stderr
+
+
+@pytest.mark.parametrize("visibility", ["feature", "shared"])
+def test_failed_claim_provisioning_keeps_the_claim(
+    tmp_path: Path, visibility: str
+) -> None:
+    repo = init_repo(tmp_path)
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    hook = scripts / "provision-workspace"
+    hook.write_text("#!/bin/sh\nexit 17\n")
+    hook.chmod(0o755)
+    (repo / "jjkata.toml").write_text(
+        'provision_hook = "scripts/provision-workspace"\n'
+        f'[items]\ndriver = "kanban"\nvisibility = "{visibility}"\n'
+    )
+    add_ticket(repo, "tkt")
+
+    result = workflow(repo, "claim", "tkt", check=False)
+
+    workspace = repo / ".workspaces/tkt"
+    assert result.returncode == 69
+    assert f"kata: provisioning workspace {workspace}" in result.stderr
+    assert "kata: provisioned workspace" not in result.stderr
+    assert (workspace / "docs/tickets/wip/tkt.md").is_file()
+
+    retry = workflow(workspace, "claim", "tkt", check=False)
+    assert retry.returncode == 2
+    assert "Kanban item 'tkt' is already in WIP" in retry.stderr
+
+
 def test_boundary_check_rejects_semantic_lookalikes(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     jj(

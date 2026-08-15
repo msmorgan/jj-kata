@@ -132,8 +132,10 @@ not a prerequisite or part of the parallel-workspace topology.
 
 The provision hook is off unless `provision_hook` names it; Kata never
 discovers one by convention. When set, Kata calls the executable with the
-created workspace path after creation, and a hook failure deliberately leaves
-that workspace intact for inspection.
+created workspace path after creation. Claims establish visible item ownership
+before the hook runs. A hook failure deliberately leaves that workspace and
+its claim intact for inspection and repair; stderr markers bracket the hook's
+own output.
 
 Use the plugin-root [example configuration](../../kata.example.toml) as the
 complete starting point. A legacy `jjworkflow.toml` is a hard migration refusal.

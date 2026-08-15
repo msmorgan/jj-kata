@@ -272,7 +272,10 @@ commands do not import the POSIX lock and remain portable to Windows.
 Unexpected jj failures use exit `1`. External item drivers must leave state
 unchanged on nonzero exit; Kata reports those failures as `2`. A failed
 provision executable runs after workspace creation, returns `69`, and leaves
-the workspace for inspection.
+the workspace for inspection. Claims establish visible item ownership before
+provisioning starts, so a failed hook leaves both the workspace and its claim
+intact for repair. Kata writes provisioning start and completion markers to
+stderr around the hook's own output.
 
 ## Install
 

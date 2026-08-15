@@ -401,6 +401,7 @@ class Lifecycle:
     def _provision(self, provision: Path | None, ws_dir: Path) -> None:
         if provision is None:
             return
+        note(f"provisioning workspace {ws_dir}")
         try:
             result = subprocess.run([str(provision), str(ws_dir)], check=False)
         except OSError as error:
@@ -412,8 +413,11 @@ class Lifecycle:
             raise KataError(
                 f"provision hook failed; workspace remains at {ws_dir}", EXPECTED_STOP
             )
+        note(f"provisioned workspace {ws_dir}")
 
-    def _start(self, name: str, *, shared_claim: bool = False) -> Path:
+    def _create(
+        self, name: str, *, shared_claim: bool = False
+    ) -> tuple[Path, Path | None]:
         self.require_default("start")
         self.validate_name(name)
         self.require_linear_default()
@@ -453,6 +457,10 @@ class Lifecycle:
         except KataError:
             self._cleanup_created(name, anchor_id, ws_dir)
             raise
+        return ws_dir, provision
+
+    def _start(self, name: str, *, shared_claim: bool = False) -> Path:
+        ws_dir, provision = self._create(name, shared_claim=shared_claim)
         self._provision(provision, ws_dir)
         return ws_dir
 
@@ -725,7 +733,9 @@ class Lifecycle:
             if probe.items != tuple(items):
                 return self.start(name)
 
-        ws_dir = self._start(name, shared_claim=self.claim_visibility == "shared")
+        ws_dir, provision = self._create(
+            name, shared_claim=self.claim_visibility == "shared"
+        )
         anchor_id = (
             self._change_id(self.bookmark_revset(name))
             if self.bookmark_exists(name)
@@ -736,6 +746,7 @@ class Lifecycle:
         except KataError:
             self._cleanup_created(name, anchor_id, ws_dir)
             raise
+        self._provision(provision, ws_dir)
         return ws_dir
 
     def _conflicts(self, revset: str, cwd: Path) -> bool:

@@ -235,15 +235,17 @@ class FolderKanbanDriver:
         moves: list[tuple[Path, Path]] = []
         if action == "claim":
             for identifier in requested:
-                matches = [
-                    cards[column][identifier]
-                    for column in self._claimable_columns(cards)
-                    if identifier in cards[column]
-                ]
-                if len(matches) != 1:
-                    detail = "not found" if not matches else "ambiguous"
-                    raise KataError(f"Kanban item {identifier!r} is {detail}", 2)
-                source = root / matches[0]
+                locations = [column for column in cards if identifier in cards[column]]
+                if not locations:
+                    raise KataError(f"Kanban item {identifier!r} is not found", 2)
+                if len(locations) != 1:
+                    raise KataError(f"Kanban item {identifier!r} is ambiguous", 2)
+                column = locations[0]
+                if column == self.settings.wip:
+                    raise KataError(f"Kanban item {identifier!r} is already in WIP", 2)
+                if column == self.settings.done:
+                    raise KataError(f"Kanban item {identifier!r} is already done", 2)
+                source = root / cards[column][identifier]
                 destination = root / self.board_prefix / self.settings.wip / source.name
                 moves.append((source, destination))
         elif action == "complete":
