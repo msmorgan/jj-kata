@@ -166,6 +166,21 @@ class FolderKanbanDriver:
             result[column][identifier] = relative
         return result
 
+    def _history_cards(
+        self, root: Path, base_revision: str, revision: str
+    ) -> tuple[dict[str, dict[str, str]], ...]:
+        revisions = self.jj.lines(
+            "log",
+            "--no-graph",
+            "-r",
+            f"({base_revision})::({revision})",
+            "-T",
+            'commit_id ++ "\\n"',
+            "--ignore-working-copy",
+            cwd=root,
+        )
+        return tuple(self._revision_cards(root, item) for item in revisions)
+
     def _claimable_columns(self, cards: dict[str, dict[str, str]]) -> tuple[str, ...]:
         return tuple(
             column
@@ -184,7 +199,6 @@ class FolderKanbanDriver:
         revision: str | None = None,
         visibility: str = "feature",
     ) -> Any:
-        del workspace, visibility
         from .items import Transition
 
         if action == "owned":
@@ -193,7 +207,19 @@ class FolderKanbanDriver:
             before = self._revision_cards(root, base_revision)
             after = self._revision_cards(root, revision)
             before_wip = set(before.get(self.settings.wip, {}))
-            after_wip = set(after.get(self.settings.wip, {}))
+            # Endpoint trees cannot distinguish a bare start from a claim whose
+            # card was moved back to its exact origin. Feature history retains
+            # that positive evidence: the card visibly entered WIP in between.
+            history = (
+                self._history_cards(root, base_revision, revision)
+                if visibility == "feature"
+                else (after,)
+            )
+            historical_wip = {
+                identifier
+                for cards in history
+                for identifier in cards.get(self.settings.wip, {})
+            }
             after_paths = {
                 path for column in after.values() for path in column.values()
             }
@@ -203,10 +229,11 @@ class FolderKanbanDriver:
                 for identifier, path in before[column].items()
                 if path not in after_paths
             }
-            owned = moved_from_claimable | (after_wip - before_wip)
+            owned = moved_from_claimable | (historical_wip - before_wip)
             owned_paths = {
                 path
-                for cards in (*before.values(), *after.values())
+                for snapshot in (before, *history, after)
+                for cards in snapshot.values()
                 for identifier, path in cards.items()
                 if identifier in owned
             }
@@ -252,7 +279,12 @@ class FolderKanbanDriver:
             for identifier in requested:
                 path = cards.get(self.settings.wip, {}).get(identifier)
                 if path is None:
-                    raise KataError(f"Kanban item {identifier!r} is not in WIP", 69)
+                    raise KataError(
+                        f"Kanban item {identifier!r} is not in WIP; restore it to "
+                        "WIP to integrate, or from default return the claim with "
+                        f"`kata drop {workspace} --return-items`",
+                        69,
+                    )
                 source = root / path
                 destination = (
                     root / self.board_prefix / self.settings.done / source.name

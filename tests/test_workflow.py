@@ -213,6 +213,48 @@ def test_ticket_claim_refresh_and_integrate(tmp_path: Path) -> None:
     assert "kata: complete ticket-a" in descriptions
 
 
+@pytest.mark.parametrize("visibility", ["feature", "shared"])
+@pytest.mark.parametrize("violation", ["origin", "done", "deleted"])
+def test_integrate_refuses_when_a_claimed_ticket_is_no_longer_in_wip(
+    tmp_path: Path, visibility: str, violation: str
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        f'[items]\ndriver = "kanban"\nvisibility = "{visibility}"\n'
+    )
+    jj(repo, "commit", "-m", "kata: configure item visibility")
+    add_ticket(repo, "ticket-a")
+    workflow(repo, "claim", "ticket-a")
+    workspace = repo / ".workspaces/ticket-a"
+    ticket = workspace / "docs/tickets/wip/ticket-a.md"
+    if violation == "deleted":
+        ticket.unlink()
+    else:
+        column = "planned" if violation == "origin" else "done"
+        destination = workspace / f"docs/tickets/{column}/ticket-a.md"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        ticket.rename(destination)
+    (workspace / "feature.txt").write_text("feature\n")
+    jj(workspace, "commit", "-m", f"feat: move ticket to {violation}")
+
+    result = workflow(repo, "integrate", "ticket-a", check=False)
+
+    assert result.returncode == 69
+    assert "Kanban item 'ticket-a' is not in WIP" in result.stderr
+    assert "kata drop ticket-a --return-items" in result.stderr
+    assert workspace.is_dir()
+    assert not (repo / "feature.txt").exists()
+    assert "kata: complete ticket-a" not in jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        "::default@",
+        "-T",
+        "description",
+    ).stdout
+
+
 def test_shared_visibility_publishes_claim_through_an_anchor(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     (repo / "jjkata.toml").write_text(
