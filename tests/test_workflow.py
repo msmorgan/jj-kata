@@ -738,6 +738,52 @@ def test_complete_shared_lifecycle_refreshes_integrates_and_drops(
     ).stdout.strip()
 
 
+def test_shared_refresh_from_feature_preserves_anchor_until_integration(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    add_ticket(repo, "shared-ticket")
+    workflow(repo, "claim", "shared-ticket")
+    workspace = repo / ".workspaces/shared-ticket"
+    (workspace / "feature.txt").write_text("feature\n")
+    jj(workspace, "commit", "-m", "feat: shared work")
+    (repo / "coordinator.txt").write_text("coordinator\n")
+    jj(repo, "commit", "-m", "trunk: advance")
+
+    result = workflow(workspace, "refresh")
+
+    assert "refreshed shared-ticket; rerun tests" in result.stderr
+    assert jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        'bookmarks(exact:"shared-ticket") & fork_point(default@ | shared-ticket@)',
+        "-T",
+        "change_id",
+    ).stdout.strip()
+
+    workflow(workspace, "integrate")
+    workflow(repo, "drop", "shared-ticket")
+
+    assert (repo / "feature.txt").is_file()
+    assert (repo / "coordinator.txt").is_file()
+    assert (repo / "docs/tickets/done/shared-ticket.md").is_file()
+    assert not workspace.exists()
+    assert not jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        'bookmarks(exact:"shared-ticket")',
+        "-T",
+        "change_id",
+    ).stdout.strip()
+
+
 def test_return_items_refuses_newer_default_ticket_edits(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     add_ticket(repo, "collision")

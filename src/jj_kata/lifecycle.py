@@ -815,6 +815,11 @@ class Lifecycle:
         else:
             note(f"refresh of {name} was a no-op; existing test results still apply")
 
+    def _refresh_workspace(self, name: str) -> bool:
+        if self._workspace_visibility(name) == "shared":
+            return self._refresh_reorder(name)
+        return self._refresh_detach(name)
+
     def refresh(self, name: str | None = None, *, all_workspaces: bool = False) -> None:
         if all_workspaces:
             self.require_default("refresh --all")
@@ -826,11 +831,7 @@ class Lifecycle:
             changed = 0
             try:
                 for target in targets:
-                    if self._workspace_visibility(target) == "shared":
-                        refreshed = self._refresh_reorder(target)
-                    else:
-                        refreshed = self._refresh_detach(target)
-                    changed += refreshed
+                    changed += self._refresh_workspace(target)
             except KataError:
                 self.unstale_workspaces(strict=False)
                 raise
@@ -852,10 +853,7 @@ class Lifecycle:
                     raise KataError(
                         f"{name!r} could not be snapshotted and was left untouched", 2
                     )
-                if self._workspace_visibility(name) == "shared":
-                    changed = self._refresh_reorder(name)
-                else:
-                    changed = self._refresh_detach(name)
+                changed = self._refresh_workspace(name)
             except KataError:
                 self.unstale_workspaces(strict=False)
                 raise
@@ -866,7 +864,18 @@ class Lifecycle:
         current = self.current_workspace_name()
         if name and name != current:
             raise KataError("a feature workspace may only refresh itself", 2)
-        self._report_refresh(current, self._refresh_detach(current))
+        self.bank_workspaces()
+        try:
+            if current in self.unbankable:
+                raise KataError(
+                    f"{current!r} could not be snapshotted and was left untouched", 2
+                )
+            changed = self._refresh_workspace(current)
+        except KataError:
+            self.unstale_workspaces(strict=False)
+            raise
+        self.unstale_workspaces()
+        self._report_refresh(current, changed)
 
     def _require_closed(self, name: str, ws_dir: Path) -> None:
         self.snapshot_one(ws_dir)
