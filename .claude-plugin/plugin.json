@@ -2,7 +2,7 @@
   "name": "jj-kata",
   "displayName": "jj-kata",
   "description": "Safe Jujutsu workspace coordination for parallel agents, with optional file-backed Kanban.",
-  "version": "0.12.4",
+  "version": "0.12.5",
   "author": {
     "name": "Michael Morgan"
   },
