@@ -1,0 +1,12 @@
+workspace_dir = ".workspaces"
+
+[items]
+driver = "kanban"
+visibility = "shared"
+
+[kanban]
+root = "docs/tickets"
+wip = "wip"
+done = "done"
+patterns = ["*.md"]
+columns = ["planned", "wip", "done"]
