@@ -76,10 +76,14 @@ convenience; pass `--name NAME` when that is inappropriate or several items
 start together. With no `[items].driver`, use `start`; no filesystem layout
 implicitly enables claims.
 
-Refresh before review or integration when `default` has moved. Integration
-requires an empty, undescribed feature `@`; close work with `jj commit -m ...`
-first. It folds closed feature changes into the default line and parks the
-workspace on the integrated tip. Retire it from `default` with `drop NAME`.
+Refresh before review or integration when `default` has moved. Kata reports
+`refresh of NAME was a no-op; existing test results still apply` when it did not
+rewrite the feature stack; do not rerun tests solely because of that no-op. A
+changed refresh says `rerun tests`, and `--all` reports changed and current
+counts. Integration requires an empty, undescribed feature `@`; close work with
+`jj commit -m ...` first. It folds closed feature changes into the default line
+and parks the workspace on the integrated tip. Retire it from `default` with
+`drop NAME`.
 
 Plain drop refuses unintegrated work. `--force` explicitly discards it.
 `--return-items` runs the configured return transition, preserves the paths it

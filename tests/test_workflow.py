@@ -492,6 +492,77 @@ def test_default_refresh_reorders_feature_before_integrate(tmp_path: Path) -> No
     assert (repo / "feature.txt").is_file()
 
 
+@pytest.mark.parametrize("visibility", ["feature", "shared"])
+def test_refresh_reports_when_a_workspace_is_already_current(
+    tmp_path: Path, visibility: str
+) -> None:
+    repo = init_repo(tmp_path)
+    if visibility == "shared":
+        (repo / "jjkata.toml").write_text(
+            '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+        )
+        add_ticket(repo, "current")
+        workflow(repo, "claim", "current")
+    else:
+        workflow(repo, "start", "current")
+    workspace = repo / ".workspaces/current"
+    before = jj(workspace, "log", "--no-graph", "-r", "@", "-T", "commit_id").stdout
+
+    result = (
+        workflow(repo, "refresh", "current")
+        if visibility == "shared"
+        else workflow(workspace, "refresh")
+    )
+
+    assert "refresh of current was a no-op" in result.stderr
+    assert "existing test results still apply" in result.stderr
+    assert (
+        jj(workspace, "log", "--no-graph", "-r", "@", "-T", "commit_id").stdout
+        == before
+    )
+
+
+@pytest.mark.parametrize("visibility", ["feature", "shared"])
+def test_refresh_reports_when_a_workspace_changed(
+    tmp_path: Path, visibility: str
+) -> None:
+    repo = init_repo(tmp_path)
+    if visibility == "shared":
+        (repo / "jjkata.toml").write_text(
+            '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+        )
+        add_ticket(repo, "behind")
+        workflow(repo, "claim", "behind")
+    else:
+        workflow(repo, "start", "behind")
+    workspace = repo / ".workspaces/behind"
+    (workspace / "feature.txt").write_text("feature\n")
+    jj(workspace, "commit", "-m", "feat: work")
+    (repo / "trunk.txt").write_text("new trunk\n")
+    jj(repo, "commit", "-m", "trunk: advance")
+
+    result = (
+        workflow(repo, "refresh", "behind")
+        if visibility == "shared"
+        else workflow(workspace, "refresh")
+    )
+
+    assert "refreshed behind; rerun tests" in result.stderr
+    assert "existing test results still apply" not in result.stderr
+
+
+def test_refresh_all_counts_changed_and_current_workspaces(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    workflow(repo, "start", "behind")
+    (repo / "trunk.txt").write_text("new trunk\n")
+    jj(repo, "commit", "-m", "trunk: advance")
+    workflow(repo, "start", "current")
+
+    result = workflow(repo, "refresh", "--all")
+
+    assert "refreshed 1 workspace(s); 1 already current" in result.stderr
+
+
 def test_refresh_all_skips_a_missing_workspace_directory(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     workflow(repo, "start", "healthy")

@@ -751,20 +751,32 @@ class Lifecycle:
             EXPECTED_STOP,
         )
 
-    def _refresh_detach(self, name: str) -> None:
+    def _parents_match(self, revisions: list[str], parent: str, cwd: Path) -> bool:
+        expected = set(self._changes(parent, cwd=cwd))
+        return bool(expected) and all(
+            set(self._changes(f"parents({revision})", cwd=cwd)) == expected
+            for revision in revisions
+        )
+
+    def _refresh_detach(self, name: str) -> bool:
         self.require_linear_default()
         ws_dir = self.workspace_root(name)
         revset = f"default@..{name}@"
         if not self._changes(revset, cwd=ws_dir):
             self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
-            return
+            return False
+        roots = self._changes(f"roots({revset})", cwd=ws_dir)
+        if self._parents_match(roots, "default@-", ws_dir):
+            self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
+            return False
         self.jj.run("rebase", "-r", revset, "-d", "default@-", cwd=ws_dir)
         conflicted = self._conflicts(revset, ws_dir)
         self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
         if conflicted:
             self._conflict_stop(f"{name} now conflicts with the default tip", ws_dir)
+        return True
 
-    def _refresh_reorder(self, name: str) -> None:
+    def _refresh_reorder(self, name: str) -> bool:
         self.require_linear_default()
         ws_dir = self.workspace_root(name)
         if not self.bookmark_exists(name):
@@ -775,26 +787,33 @@ class Lifecycle:
                 f"{name}'s stack has {len(roots)} roots; it cannot be reordered", 2
             )
         root = roots[0]
+        anchor = self.bookmark_revset(name)
+        anchor_is_current = self._parents_match(["default@"], anchor, self.default_root)
+        stack_is_current = self._parents_match([root], anchor, self.default_root)
+        if anchor_is_current and stack_is_current:
+            self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
+            return False
         self.jj.run(
             "rebase",
             "-r",
-            self.bookmark_revset(name),
+            anchor,
             "-B",
             "default@",
             cwd=self.default_root,
         )
         stack = f"{root}:: & ::{name}@"
-        self.jj.run(
-            "rebase",
-            "-r",
-            stack,
-            "-d",
-            self.bookmark_revset(name),
-            cwd=self.default_root,
-        )
+        self.jj.run("rebase", "-r", stack, "-d", anchor, cwd=self.default_root)
         self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
         if self._conflicts(stack, self.default_root):
             self._conflict_stop(f"{name} now conflicts with default", ws_dir)
+        return True
+
+    @staticmethod
+    def _report_refresh(name: str, changed: bool) -> None:
+        if changed:
+            note(f"refreshed {name}; rerun tests")
+        else:
+            note(f"refresh of {name} was a no-op; existing test results still apply")
 
     def refresh(self, name: str | None = None, *, all_workspaces: bool = False) -> None:
         if all_workspaces:
@@ -804,17 +823,22 @@ class Lifecycle:
             targets = [item for item in self.workspace_names() if item != "default"]
             self.bank_workspaces()
             targets = [target for target in targets if target not in self.unbankable]
+            changed = 0
             try:
                 for target in targets:
                     if self._workspace_visibility(target) == "shared":
-                        self._refresh_reorder(target)
+                        refreshed = self._refresh_reorder(target)
                     else:
-                        self._refresh_detach(target)
+                        refreshed = self._refresh_detach(target)
+                    changed += refreshed
             except KataError:
                 self.unstale_workspaces(strict=False)
                 raise
             self.unstale_workspaces()
-            note(f"refreshed {len(targets)} workspace(s)")
+            note(
+                f"refreshed {changed} workspace(s); "
+                f"{len(targets) - changed} already current"
+            )
             return
 
         if self.on_default:
@@ -829,19 +853,20 @@ class Lifecycle:
                         f"{name!r} could not be snapshotted and was left untouched", 2
                     )
                 if self._workspace_visibility(name) == "shared":
-                    self._refresh_reorder(name)
+                    changed = self._refresh_reorder(name)
                 else:
-                    self._refresh_detach(name)
+                    changed = self._refresh_detach(name)
             except KataError:
                 self.unstale_workspaces(strict=False)
                 raise
             self.unstale_workspaces()
+            self._report_refresh(name, changed)
             return
 
         current = self.current_workspace_name()
         if name and name != current:
             raise KataError("a feature workspace may only refresh itself", 2)
-        self._refresh_detach(current)
+        self._report_refresh(current, self._refresh_detach(current))
 
     def _require_closed(self, name: str, ws_dir: Path) -> None:
         self.snapshot_one(ws_dir)
