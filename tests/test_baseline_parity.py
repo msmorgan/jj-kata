@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 KATA = ROOT / "scripts" / "kata"
 WORKTREE_CREATE = ROOT / "hooks" / "worktree_create.py"
 WORKTREE_REMOVE = ROOT / "hooks" / "worktree_remove.py"
-TEST_CONFIG_HOME = Path("/tmp") / f"jj-kata-tests-{os.getpid()}"
+TEST_CONFIG_HOME = Path(os.environ["XDG_CONFIG_HOME"])
 
 
 def run(
