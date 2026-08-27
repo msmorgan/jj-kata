@@ -150,6 +150,8 @@ class FolderKanbanDriver:
     def _working_cards(self, root: Path) -> dict[str, dict[str, str]]:
         result: dict[str, dict[str, str]] = defaultdict(dict)
         board = root / self.board_prefix
+        if not board.exists():
+            raise KataError(f"Kanban root does not exist: {board}", 2)
         if not board.is_dir():
             raise KataError(f"Kanban root is not a directory: {board}", 2)
         for path in sorted(item for item in board.rglob("*") if item.is_file()):

@@ -285,6 +285,39 @@ class Lifecycle:
                 "default@ is a merge; the coordinator line must be linear", 2
             )
 
+    def require_forkable_default(self) -> None:
+        # New workspaces fork from default@- so the coordinator's own in-flight
+        # change never leaks into a feature. When default@ is the only change on
+        # the coordinator line, that parent is root(), and the fork would hand
+        # back a workspace with an empty tree instead of the repository.
+        if not self._live("default@- & root()"):
+            return
+        description = self.jj.text(
+            "log",
+            "--no-graph",
+            "-r",
+            "default@",
+            "-T",
+            "description",
+            "--ignore-working-copy",
+            cwd=self.default_root,
+        ).strip()
+        if description:
+            raise KataError(
+                f"default@ ({self._change_id('default@')[:8]} "
+                f"{description.splitlines()[0]!r}) is the only change on the "
+                "coordinator line; kata forks feature workspaces from default@-, "
+                "which here is the empty root commit; run 'jj new' in the default "
+                "workspace, then retry",
+                2,
+            )
+        raise KataError(
+            "the coordinator line has no committed change; kata forks feature "
+            "workspaces from default@-, which here is the empty root commit; commit "
+            "the repository content in the default workspace, then retry",
+            2,
+        )
+
     def workspace_base(self) -> Path:
         configured = str(self.config.get("workspace_dir", ".workspaces"))
         path = Path(configured).expanduser()
@@ -402,6 +435,7 @@ class Lifecycle:
         self.require_default("start")
         self.validate_name(name)
         self.require_linear_default()
+        self.require_forkable_default()
         provision = self._provision_path()
         ws_dir = self.workspace_base() / name
         if ws_dir.exists():
@@ -1010,6 +1044,8 @@ class Lifecycle:
         return claim_id, claim_empty, wc_id
 
     def integrate(self, name: str | None = None) -> None:
+        if name is None and self.on_default:
+            raise KataError("integrate needs a workspace name on default", 2)
         target = name or self.current_workspace_name()
         self.validate_name(target)
         self.require_self_or_default(target)

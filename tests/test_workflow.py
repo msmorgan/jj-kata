@@ -1541,3 +1541,102 @@ def test_lifecycle_rejects_older_jj_before_mutation(tmp_path: Path) -> None:
         Lifecycle(cwd=tmp_path, jj=OldJj())  # type: ignore[arg-type]
 
     assert failure.value.code == 2
+
+
+def test_integrate_without_a_name_on_default_asks_for_one(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    workflow(repo, "start", "feature-a")
+
+    result = workflow(repo, "integrate", check=False)
+
+    assert result.returncode == 2
+    assert "integrate needs a workspace name on default" in result.stderr
+
+
+def unborn_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "unborn"
+    repo.mkdir()
+    jj(repo, "git", "init", "--colocate")
+    jj(
+        repo,
+        "config",
+        "set",
+        "--repo",
+        'revset-aliases."all_if_any(rev)"',
+        "descendants(ancestors(rev))",
+    )
+    jj(
+        repo,
+        "config",
+        "set",
+        "--repo",
+        'revset-aliases."immutable_heads()"',
+        "builtin_immutable_heads() | ((working_copies() ~ @) & "
+        "all_if_any(default@ ~ @))",
+    )
+    (repo / "base.txt").write_text("base\n")
+    return repo
+
+
+def test_start_refuses_to_fork_a_described_initial_change_from_root(
+    tmp_path: Path,
+) -> None:
+    repo = unborn_repo(tmp_path)
+    jj(repo, "describe", "-m", "chore: initial commit")
+
+    result = workflow(repo, "start", "feature-a", check=False)
+
+    assert result.returncode == 2
+    assert "chore: initial commit" in result.stderr
+    assert "empty root commit" in result.stderr
+    assert "run 'jj new' in the default workspace" in result.stderr
+    assert not (repo / ".workspaces/feature-a").exists()
+
+    jj(repo, "new")
+    workflow(repo, "start", "feature-a")
+    assert (repo / ".workspaces/feature-a/base.txt").is_file()
+
+
+def test_claim_refuses_before_blaming_the_board_on_a_fresh_repository(
+    tmp_path: Path,
+) -> None:
+    repo = unborn_repo(tmp_path)
+    enable_kanban(repo)
+    ticket = repo / "docs/tickets/planned/tkt.md"
+    ticket.parent.mkdir(parents=True)
+    ticket.write_text("# tkt\n")
+    jj(repo, "describe", "-m", "chore: scaffold and board")
+
+    result = workflow(repo, "claim", "tkt", check=False)
+
+    assert result.returncode == 2
+    assert "empty root commit" in result.stderr
+    assert "Kanban root" not in result.stderr
+    assert not (repo / ".workspaces/tkt").exists()
+
+    jj(repo, "new")
+    workflow(repo, "claim", "tkt")
+    assert (repo / ".workspaces/tkt/docs/tickets/wip/tkt.md").is_file()
+
+
+def test_start_refuses_when_the_coordinator_line_has_no_commit(
+    tmp_path: Path,
+) -> None:
+    repo = unborn_repo(tmp_path)
+
+    result = workflow(repo, "start", "feature-a", check=False)
+
+    assert result.returncode == 2
+    assert "no committed change" in result.stderr
+    assert not (repo / ".workspaces/feature-a").exists()
+
+
+def test_start_still_forks_past_uncommitted_default_scratch(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "scratch.txt").write_text("coordinator scratch\n")
+
+    workflow(repo, "start", "feature-a")
+
+    workspace = repo / ".workspaces/feature-a"
+    assert (workspace / "base.txt").is_file()
+    assert not (workspace / "scratch.txt").exists()

@@ -25,6 +25,11 @@ changes, even during single-agent work. Work and close commits inside that
 workspace; use `default` for creation, cross-workspace coordination,
 integration, and retirement.
 
+New workspaces fork from `default@-`, so a coordinator change still in flight
+never reaches a feature. A repository whose only change is `default@` therefore
+has nothing to fork from, and `start` and `claim` refuse rather than hand back
+an empty tree: run `jj new` on the initial commit before the first one.
+
 There is no cross-host plugin dependency mechanism, so install Kata's teacher
 first. For Codex:
 
