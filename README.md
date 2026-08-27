@@ -26,9 +26,13 @@ workspace; use `default` for creation, cross-workspace coordination,
 integration, and retirement.
 
 New workspaces fork from `default@-`, so a coordinator change still in flight
-never reaches a feature. A repository whose only change is `default@` therefore
-has nothing to fork from, and `start` and `claim` refuse rather than hand back
-an empty tree: run `jj new` on the initial commit before the first one.
+never reaches a feature. `start` and `claim` report on stderr what `default@`
+was holding when they forked below it; the work is deliberately absent, and an
+`@` left described on the coordinator line is the usual way a feature ends up
+without content it was expected to have. A repository whose only change is
+`default@` has nothing to fork from at all, and both commands refuse rather
+than hand back an empty tree: run `jj new` on the initial commit before the
+first one.
 
 There is no cross-host plugin dependency mechanism, so install Kata's teacher
 first. For Codex:

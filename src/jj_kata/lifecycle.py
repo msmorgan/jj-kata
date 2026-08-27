@@ -318,6 +318,52 @@ class Lifecycle:
             2,
         )
 
+    def _default_at_summary(self) -> str | None:
+        # Deliberately without --ignore-working-copy: an edit the coordinator has
+        # not snapshotted yet is exactly the content this reports on.
+        if (
+            self.jj.text(
+                "log",
+                "--no-graph",
+                "-r",
+                "default@",
+                "-T",
+                "empty",
+                cwd=self.default_root,
+            )
+            == "true"
+        ):
+            return None
+        description = self.jj.text(
+            "log",
+            "--no-graph",
+            "-r",
+            "default@",
+            "-T",
+            "description",
+            "--ignore-working-copy",
+            cwd=self.default_root,
+        ).strip()
+        if not description:
+            return "uncommitted changes"
+        summary = description.splitlines()[0]
+        if len(summary) > 60:
+            summary = summary[:57] + "..."
+        return f"{self._change_id('default@')[:8]} {summary!r}"
+
+    def note_excluded_default_work(self, name: str, base: str, *, shared: bool) -> None:
+        # A feature forks below default@ by design, so coordinator work parked
+        # there is silently absent from it. Say so at creation: the alternative is
+        # discovering it as a missing file much later, or not at all.
+        summary = self._default_at_summary()
+        if summary is None:
+            return
+        label = f"the {name} anchor" if shared else "default@-"
+        note(
+            f"forked from {label} ({self._change_id(base)[:8]}); "
+            f"default@ ({summary}) is not in the new workspace"
+        )
+
     def workspace_base(self) -> Path:
         configured = str(self.config.get("workspace_dir", ".workspaces"))
         path = Path(configured).expanduser()
@@ -472,6 +518,7 @@ class Lifecycle:
         except KataError:
             self._cleanup_created(name, anchor_id, ws_dir)
             raise
+        self.note_excluded_default_work(name, revision, shared=shared_claim)
         return ws_dir, provision
 
     def _start(self, name: str, *, shared_claim: bool = False) -> Path:

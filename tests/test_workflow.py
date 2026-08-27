@@ -1640,3 +1640,59 @@ def test_start_still_forks_past_uncommitted_default_scratch(tmp_path: Path) -> N
     workspace = repo / ".workspaces/feature-a"
     assert (workspace / "base.txt").is_file()
     assert not (workspace / "scratch.txt").exists()
+
+
+@pytest.mark.parametrize("visibility", ["feature", "shared"])
+def test_claim_reports_the_coordinator_work_it_forked_below(
+    tmp_path: Path, visibility: str
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        f'[items]\ndriver = "kanban"\nvisibility = "{visibility}"\n'
+    )
+    jj(repo, "commit", "-m", "kata: configure")
+    add_ticket(repo, "tkt")
+    (repo / "inflight.txt").write_text("half-written\n")
+    jj(repo, "describe", "-m", "docs: in-flight coordinator work")
+
+    result = workflow(repo, "claim", "tkt")
+
+    assert "is not in the new workspace" in result.stderr
+    assert "docs: in-flight coordinator work" in result.stderr
+    assert not (repo / ".workspaces/tkt/inflight.txt").exists()
+
+
+def test_start_says_nothing_when_the_coordinator_holds_nothing(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+
+    result = workflow(repo, "start", "feature-a")
+
+    assert "is not in the new workspace" not in result.stderr
+
+
+def test_start_reports_unsnapshotted_coordinator_edits(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "scratch.txt").write_text("coordinator scratch\n")
+
+    result = workflow(repo, "start", "feature-a")
+
+    assert "default@ (uncommitted changes) is not in the new workspace" in result.stderr
+    assert not (repo / ".workspaces/feature-a/scratch.txt").exists()
+
+
+def test_start_shortens_a_long_coordinator_description(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "inflight.txt").write_text("half-written\n")
+    jj(repo, "describe", "-m", "docs: " + "long " * 40)
+
+    result = workflow(repo, "start", "feature-a")
+
+    excluded = next(
+        line
+        for line in result.stderr.splitlines()
+        if "not in the new workspace" in line
+    )
+    assert "..." in excluded
+    assert len(excluded) < 160
