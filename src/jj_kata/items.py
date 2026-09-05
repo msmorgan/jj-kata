@@ -19,6 +19,16 @@ class Transition:
 
 
 class ItemDriver(Protocol):
+    def validate_edits(
+        self,
+        *,
+        root: Path,
+        workspace: str,
+        owned: tuple[str, ...],
+        base_revision: str,
+        paths: set[str],
+    ) -> None: ...
+
     def transition(
         self,
         action: str,
@@ -77,6 +87,18 @@ def resolve_command(command: tuple[str, ...], default_root: Path) -> tuple[str, 
 class ExternalDriver:
     def __init__(self, command: tuple[str, ...], default_root: Path) -> None:
         self.command = resolve_command(command, default_root)
+
+    def validate_edits(
+        self,
+        *,
+        root: Path,
+        workspace: str,
+        owned: tuple[str, ...],
+        base_revision: str,
+        paths: set[str],
+    ) -> None:
+        # Protocol v1 has no edit-validation action or definition of WIP.
+        pass
 
     def transition(
         self,

@@ -34,6 +34,22 @@ directly on the coordinator line. This rule applies even when only one agent is
 currently active—the separate workspace is the unit of coordination and safe
 recovery.
 
+## Item ownership
+
+**Edit WIP tickets only when this workspace owns their claim.** Shared
+visibility makes other agents' WIP tickets readable in your tree; it does not
+grant ownership. Treat those tickets as read-only, including progress notes,
+dependency updates, renames, deletions, and status moves. Record follow-up work
+in your own ticket, or ask the coordinator to arrange a handoff. A bare `start`
+does not acquire any inherited WIP tickets.
+
+With the bundled Kanban driver, `refresh` and `integrate` refuse unintegrated
+changes touching unowned WIP tickets before rebasing or completing items.
+`refresh --all` checks every target before refreshing any of them. The check
+examines each change, so reverting an accidental edit in a later commit is
+insufficient: remove it from the offending changes in your own feature
+workspace, then retry. Leave the owner's workspace and claim untouched.
+
 ## Command
 
 Resolve the plugin-root `scripts/kata` from this loaded `SKILL.md`, never

@@ -66,3 +66,6 @@ driver.
 
 Do not move items merely because inspection exposes their state. Use
 `kata claim`, `integrate`, or `drop --return-items` for lifecycle moves.
+Before editing a WIP ticket, apply Kata's
+[item ownership rules](../kata/SKILL.md#item-ownership): visibility in the board
+does not make its claim yours.

@@ -133,6 +133,16 @@ derives owned items from that context, and the anchor description matches the
 configured claim template. A foreign bookmark is left alone; ambiguous
 anchor-shaped state is refused.
 
+Shared WIP tickets belong to the workspace that claimed them. Other agents
+may read them, but must keep edits, notes, and status changes within their own
+claimed tickets. The bundled Kanban driver refuses `refresh` and `integrate`
+with exit 2 when the feature changes unowned WIP tickets, listing the offending
+paths before any rebase or completion transition. `refresh --all` validates all
+targets first. Validation includes each unintegrated change, so an edit followed
+by a revert must be removed from the earlier changes before retrying. This
+guard uses the configured board root, WIP column, and file patterns; external
+item drivers retain their existing protocol without Kanban-specific validation.
+
 Visibility applies only when starting a workspace through `claim`. Bare
 `start` always creates an ordinary bookmark-free feature workspace, and the
 entire `start` → `refresh` → `integrate` → `drop` lifecycle works without an

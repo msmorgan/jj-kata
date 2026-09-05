@@ -306,6 +306,165 @@ def test_bare_start_ignores_claim_visibility(tmp_path: Path) -> None:
     ).stdout
 
 
+@pytest.mark.parametrize("command", ["integrate", "refresh", "refresh-all"])
+@pytest.mark.parametrize("claim", ["start", "feature", "shared"])
+def test_foreign_wip_edits_refused_before_lifecycle_mutation(
+    tmp_path: Path, command: str, claim: str
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    add_ticket(repo, "owner")
+    add_ticket(repo, "intruder")
+    workflow(repo, "claim", "owner")
+    owner = repo / ".workspaces/owner"
+    if claim == "feature":
+        (repo / "jjkata.toml").write_text('[items]\ndriver = "kanban"\n')
+        jj(repo, "commit", "-m", "kata: use feature visibility for new claims")
+    workflow(repo, "start" if claim == "start" else "claim", "intruder")
+    intruder = repo / ".workspaces/intruder"
+    ticket = "docs/tickets/wip/owner.md"
+    (owner / ticket).write_text("owner's ongoing work\n")
+    jj(owner, "commit", "-m", "docs: update my ticket")
+    (intruder / ticket).write_text("accidental foreign edit\n")
+    jj(intruder, "commit", "-m", "docs: mistakenly update another ticket")
+    if command == "refresh-all":
+        workflow(repo, "start", "aaa-safe")
+        (repo / "new-default.txt").write_text("default moved\n")
+        jj(repo, "commit", "-m", "feat: advance default before refreshing all")
+    before = jj(
+        repo, "log", "--no-graph", "-r", "all()", "-T", "builtin_log_oneline"
+    ).stdout
+
+    result = (
+        workflow(repo, "refresh", "--all", check=False)
+        if command == "refresh-all"
+        else workflow(intruder, command, check=False)
+    )
+
+    assert result.returncode == 2, result.stderr
+    assert "unowned WIP" in result.stderr
+    assert ticket in result.stderr
+    assert (
+        before
+        == jj(
+            repo, "log", "--no-graph", "-r", "all()", "-T", "builtin_log_oneline"
+        ).stdout
+    )
+    assert (owner / ticket).read_text() == "owner's ongoing work\n"
+    assert (intruder / ticket).read_text() == "accidental foreign edit\n"
+
+
+def test_refresh_refuses_open_edits_to_a_ticket_claimed_after_fork(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    add_ticket(repo, "owner")
+    workflow(repo, "start", "intruder")
+    intruder = repo / ".workspaces/intruder"
+    workflow(repo, "claim", "owner")
+    ticket = intruder / "docs/tickets/planned/owner.md"
+    ticket.write_text("unsnapshotted foreign edit\n")
+    default_before = jj(
+        repo, "log", "--no-graph", "-r", "::default@", "-T", "builtin_log_oneline"
+    ).stdout
+
+    result = workflow(repo, "refresh", "intruder", check=False)
+
+    assert result.returncode == 2, result.stderr
+    assert "unowned WIP" in result.stderr
+    assert "docs/tickets/planned/owner.md" in result.stderr
+    assert ticket.read_text() == "unsnapshotted foreign edit\n"
+    assert (
+        default_before
+        == jj(
+            repo, "log", "--no-graph", "-r", "::default@", "-T", "builtin_log_oneline"
+        ).stdout
+    )
+
+
+@pytest.mark.parametrize("edit", ["delete", "move", "rename", "revert", "copy"])
+def test_foreign_wip_history_and_moves_are_protected(tmp_path: Path, edit: str) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+        '[kanban]\nroot = "tasks"\nwip = "doing"\ndone = "finished"\n'
+        'patterns = ["*.task"]\n'
+    )
+    source = repo / "tasks/backlog/owner.task"
+    source.parent.mkdir(parents=True)
+    source.write_text("owner's ticket\n")
+    jj(repo, "commit", "-m", "tasks: add owner")
+    workflow(repo, "claim", "owner")
+    workflow(repo, "start", "intruder")
+    intruder = repo / ".workspaces/intruder"
+    ticket = intruder / "tasks/doing/owner.task"
+    if edit == "delete":
+        ticket.unlink()
+    elif edit in {"move", "rename", "copy"}:
+        destination = intruder / (
+            "tasks/doing/renamed.task"
+            if edit == "rename"
+            else "tasks/finished/owner.task"
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if edit == "copy":
+            destination.write_text(ticket.read_text())
+        else:
+            ticket.replace(destination)
+    else:
+        ticket.write_text("accidental edit\n")
+        jj(intruder, "commit", "-m", "docs: mistakenly edit ticket")
+        ticket.write_text("owner's ticket\n")
+    jj(intruder, "commit", "-m", "docs: foreign ticket changes")
+    before = jj(
+        repo, "log", "--no-graph", "-r", "all()", "-T", "builtin_log_oneline"
+    ).stdout
+
+    result = workflow(repo, "integrate", "intruder", check=False)
+
+    assert result.returncode == 2, result.stderr
+    assert "unowned WIP" in result.stderr
+    assert "owner.task" in result.stderr
+    assert (
+        before
+        == jj(
+            repo, "log", "--no-graph", "-r", "all()", "-T", "builtin_log_oneline"
+        ).stdout
+    )
+
+
+@pytest.mark.parametrize("visibility", ["feature", "shared"])
+def test_owned_wip_edits_integrate_with_inherited_foreign_wip(
+    tmp_path: Path, visibility: str
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    add_ticket(repo, "owner")
+    add_ticket(repo, "mine")
+    workflow(repo, "claim", "owner")
+    (repo / "jjkata.toml").write_text(
+        f'[items]\ndriver = "kanban"\nvisibility = "{visibility}"\n'
+    )
+    jj(repo, "commit", "-m", "kata: configure new claims")
+    workflow(repo, "claim", "mine")
+    workspace = repo / ".workspaces/mine"
+    (workspace / "docs/tickets/wip/mine.md").write_text("my progress\n")
+    jj(workspace, "commit", "-m", "docs: update my ticket")
+
+    workflow(workspace, "refresh")
+    workflow(workspace, "integrate")
+
+    assert (repo / "docs/tickets/done/mine.md").read_text() == "my progress\n"
+    assert (repo / "docs/tickets/wip/owner.md").read_text() == "# owner\n"
+
+
 def test_reconstructed_feature_tree_needs_no_hidden_claim_state(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     add_ticket(repo, "manual-ticket")

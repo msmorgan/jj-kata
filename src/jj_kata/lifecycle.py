@@ -631,6 +631,19 @@ class Lifecycle:
     def owned_items(self, name: str, ws_dir: Path | None = None) -> tuple[str, ...]:
         return self.ownership(name, ws_dir).items
 
+    def _validate_item_edits(
+        self, name: str, items: tuple[str, ...] | None = None
+    ) -> None:
+        if self.item_driver is None:
+            return
+        self.item_driver.validate_edits(
+            root=self.workspace_root(name),
+            workspace=name,
+            owned=self.owned_items(name) if items is None else items,
+            base_revision=self._feature_base(name),
+            paths=self._unintegrated_paths(name),
+        )
+
     def _claim_change(
         self, name: str, ws_dir: Path, paths: tuple[str, ...]
     ) -> str | None:
@@ -912,6 +925,8 @@ class Lifecycle:
             changed = 0
             try:
                 for target in targets:
+                    self._validate_item_edits(target)
+                for target in targets:
                     changed += self._refresh_workspace(target)
             except KataError:
                 self.unstale_workspaces(strict=False)
@@ -934,6 +949,7 @@ class Lifecycle:
                     raise KataError(
                         f"{name!r} could not be snapshotted and was left untouched", 2
                     )
+                self._validate_item_edits(name)
                 changed = self._refresh_workspace(name)
             except KataError:
                 self.unstale_workspaces(strict=False)
@@ -951,6 +967,7 @@ class Lifecycle:
                 raise KataError(
                     f"{current!r} could not be snapshotted and was left untouched", 2
                 )
+            self._validate_item_edits(current)
             changed = self._refresh_workspace(current)
         except KataError:
             self.unstale_workspaces(strict=False)
@@ -1105,6 +1122,7 @@ class Lifecycle:
                 f"{target} is behind default; run kata refresh inside it first", 2
             )
         items = self.owned_items(target, ws_dir) if self.item_driver else ()
+        self._validate_item_edits(target, items)
         # A bookmark named after the workspace is positive evidence of a claim
         # anchor. Deriving no items from one means Kata could not read the claim
         # — usually its marker commit has drifted below the fork point — and the
@@ -1155,7 +1173,9 @@ class Lifecycle:
                     "diff",
                     "-r",
                     change,
-                    "--name-only",
+                    "-T",
+                    'if(status == "renamed", source.path() ++ "\\n") '
+                    '++ target.path() ++ "\\n"',
                     "--ignore-working-copy",
                     cwd=self.default_root,
                 )

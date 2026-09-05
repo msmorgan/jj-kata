@@ -190,6 +190,43 @@ class FolderKanbanDriver:
             if column not in {self.settings.wip, self.settings.done}
         )
 
+    def validate_edits(
+        self,
+        *,
+        root: Path,
+        workspace: str,
+        owned: tuple[str, ...],
+        base_revision: str,
+        paths: set[str],
+    ) -> None:
+        foreign = {
+            identifier
+            for revision in (base_revision, "default@")
+            for identifier in self._revision_cards(root, revision).get(
+                self.settings.wip, {}
+            )
+        } - set(owned)
+        violations: list[str] = []
+        for path in sorted(paths):
+            parsed = self._parts(path)
+            if parsed is None:
+                continue
+            column, card_path = parsed
+            identifier = self._identifier(card_path)
+            if identifier in foreign or (
+                column == self.settings.wip and identifier not in owned
+            ):
+                violations.append(path)
+        if violations:
+            raise KataError(
+                f"{workspace} changes unowned WIP item paths: "
+                + ", ".join(violations)
+                + "; remove these edits from the feature's unintegrated changes "
+                "in its own workspace before retrying; leave the owner's "
+                "workspace and claim untouched",
+                2,
+            )
+
     def transition(
         self,
         action: str,
