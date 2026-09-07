@@ -356,6 +356,27 @@ def test_foreign_wip_edits_refused_before_lifecycle_mutation(
     assert (intruder / ticket).read_text() == "accidental foreign edit\n"
 
 
+def test_integrate_allows_claimed_feature_to_delete_unclaimed_planned_ticket(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "feature"\n'
+    )
+    add_ticket(repo, "mine")
+    add_ticket(repo, "obsolete")
+    workflow(repo, "claim", "mine")
+    workspace = repo / ".workspaces/mine"
+    (workspace / "docs/tickets/planned/obsolete.md").unlink()
+    jj(workspace, "commit", "-m", "docs: remove obsolete planned ticket")
+
+    result = workflow(repo, "integrate", "mine", check=False)
+
+    assert result.returncode == 0, result.stderr
+    assert not (repo / "docs/tickets/planned/obsolete.md").exists()
+    assert (repo / "docs/tickets/done/mine.md").is_file()
+
+
 def test_refresh_refuses_open_edits_to_a_ticket_claimed_after_fork(
     tmp_path: Path,
 ) -> None:

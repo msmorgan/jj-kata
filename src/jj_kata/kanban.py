@@ -266,7 +266,7 @@ class FolderKanbanDriver:
                 identifier
                 for column in self._claimable_columns(before)
                 for identifier, path in before[column].items()
-                if path not in after_paths
+                if path not in after_paths and identifier in historical_wip
             }
             owned = moved_from_claimable | (historical_wip - before_wip)
             owned_paths = {
