@@ -1,3 +1,3 @@
 """jj-kata's feature-workspace lifecycle and optional item integrations."""
 
-__version__ = "0.13.1"
+__version__ = "0.13.2"
