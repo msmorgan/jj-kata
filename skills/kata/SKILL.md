@@ -95,13 +95,14 @@ start together. With no `[items].driver`, use `start`; no filesystem layout
 implicitly enables claims.
 
 Refresh before review or integration when `default` has moved. Kata reports
-`refresh of NAME was a no-op; existing test results still apply` when it did not
-rewrite the feature stack; do not rerun tests solely because of that no-op. A
-changed refresh says `rerun tests`, and `--all` reports changed and current
-counts. Integration requires an empty, undescribed feature `@`; close work with
-`jj commit -m ...` first. It folds closed feature changes into the default line
-and parks the workspace on the integrated tip. Retire it from `default` with
-`drop NAME`.
+whether a single-workspace refresh changed the feature stack; `--all` reports
+changed and current counts. After a changed refresh, preserve prior results for
+behavior untouched by changes incorporated from `default`. Rerun only the
+checks whose behavior those changes could affect, following the repository's
+normal verification policy. Integration requires an empty, undescribed feature
+`@`; close work with `jj commit -m ...` first. It folds closed feature changes
+into the default line and parks the workspace on the integrated tip. Retire it
+from `default` with `drop NAME`.
 
 Kata snapshots live workspaces before graph rewrites and rechecks each banked
 working-copy commit immediately before the first rebase that could affect its

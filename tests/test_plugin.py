@@ -130,6 +130,14 @@ def test_kata_skill_keeps_feature_work_out_of_default() -> None:
     assert "even when only one agent is currently active" in guidance
 
 
+def test_kata_skill_scopes_post_refresh_verification() -> None:
+    guidance = " ".join((ROOT / "skills/kata/SKILL.md").read_text().split())
+
+    assert "preserve prior results" in guidance
+    assert "Rerun only the checks whose behavior those changes could affect" in guidance
+    assert "rerun tests" not in guidance
+
+
 def test_superseded_generic_components_remain_absent() -> None:
     # The hook manifests this once excluded now register session orientation only;
     # tests/test_session_start_hook.py pins what they may contain. What stays gone

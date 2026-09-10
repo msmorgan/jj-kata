@@ -79,10 +79,11 @@ configured item driver instead:
 ```
 
 Refresh preflights the feature topology before rebasing. A single-workspace
-refresh reports either `refreshed NAME; rerun tests` or `refresh of NAME was a
-no-op; existing test results still apply`; `--all` reports changed and
-already-current counts. The no-op result means Kata did not rewrite the feature
-stack, so tests run immediately before it need not be repeated.
+refresh reports either `refreshed NAME` or `refresh of NAME was a no-op`;
+`--all` reports changed and already-current counts. Preserve prior results for
+behavior untouched by changes incorporated from `default`; rerun only checks
+whose behavior those changes could affect under the repository's normal
+verification policy.
 
 Before graph rewrites, Kata snapshots every live workspace. Immediately before
 the first rebase that could rewrite a banked workspace's branch, it snapshots

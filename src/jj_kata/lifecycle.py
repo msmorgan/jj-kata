@@ -1079,9 +1079,9 @@ class Lifecycle:
     @staticmethod
     def _report_refresh(name: str, changed: bool) -> None:
         if changed:
-            note(f"refreshed {name}; rerun tests")
+            note(f"refreshed {name}")
         else:
-            note(f"refresh of {name} was a no-op; existing test results still apply")
+            note(f"refresh of {name} was a no-op")
 
     def _refresh_workspace(self, name: str) -> bool:
         if self._workspace_visibility(name) == "shared":

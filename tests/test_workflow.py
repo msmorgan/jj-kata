@@ -978,7 +978,7 @@ def test_refresh_reports_when_a_workspace_is_already_current(
     )
 
     assert "refresh of current was a no-op" in result.stderr
-    assert "existing test results still apply" in result.stderr
+    assert "test" not in result.stderr
     assert (
         jj(workspace, "log", "--no-graph", "-r", "@", "-T", "commit_id").stdout
         == before
@@ -1010,8 +1010,9 @@ def test_refresh_reports_when_a_workspace_changed(
         else workflow(workspace, "refresh")
     )
 
-    assert "refreshed behind; rerun tests" in result.stderr
-    assert "existing test results still apply" not in result.stderr
+    assert "refreshed behind" in result.stderr
+    assert "test" not in result.stderr
+    assert "rerun tests" not in result.stderr
 
 
 def test_refresh_all_counts_changed_and_current_workspaces(tmp_path: Path) -> None:
@@ -1218,7 +1219,8 @@ def test_shared_refresh_from_feature_preserves_anchor_until_integration(
 
     result = workflow(workspace, "refresh")
 
-    assert "refreshed shared-ticket; rerun tests" in result.stderr
+    assert "refreshed shared-ticket" in result.stderr
+    assert "test" not in result.stderr
     assert jj(
         repo,
         "log",
