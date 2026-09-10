@@ -45,9 +45,10 @@ def test_plugin_keeps_both_python_skills_and_worktree_bridges() -> None:
         assert command.read_text().startswith("#!/usr/bin/env python3\n")
 
     assert (ROOT / "skills/kanban/SKILL.md").is_file()
+    kanban_guidance = " ".join((ROOT / "skills/kanban/SKILL.md").read_text().split())
     assert (
-        "NEVER edit a WIP ticket unless you are in the workspace that claims it."
-        in (ROOT / "skills/kanban/SKILL.md").read_text()
+        "Treat every WIP ticket as read-only unless the current workspace owns its claim"
+        in kanban_guidance
     )
     assert (ROOT / "skills/kata/SKILL.md").is_file()
     assert (ROOT / "pyproject.toml").is_file()
@@ -123,11 +124,61 @@ def test_kata_skill_only_advertises_the_qualifying_signal() -> None:
     assert "Signs include" not in description
 
 
+def test_kata_skill_advertises_every_invocation_branch() -> None:
+    description = skill_frontmatter("kata")["description"]
+
+    assert (
+        "before beginning feature, fix, documentation, or other deliverable work"
+        in description
+    )
+    assert "configuring Kata" in description
+    assert "implementing or debugging an item driver" in description
+    assert "parallel-agent work" not in description
+
+
 def test_kata_skill_keeps_feature_work_out_of_default() -> None:
     guidance = " ".join((ROOT / "skills/kata/SKILL.md").read_text().split())
 
-    assert "Do not do feature work in `default`" in guidance
-    assert "even when only one agent is currently active" in guidance
+    assert "`default` is for coordination only" in guidance
+    assert "when only one agent is active too" in guidance
+
+
+def test_kata_skill_enters_the_returned_workspace_before_edits() -> None:
+    guidance = " ".join((ROOT / "skills/kata/SKILL.md").read_text().split())
+
+    assert "Use that exact path as the working directory" in guidance
+    assert (
+        "complete only when commands are running from the named feature workspace"
+        in guidance
+    )
+
+
+def test_kata_skill_uses_only_the_resolved_launcher_in_command_examples() -> None:
+    guidance = (ROOT / "skills/kata/SKILL.md").read_text()
+    normalized = " ".join(guidance.split())
+
+    assert (
+        "Never substitute a repository script or a `kata` found on `PATH`" in normalized
+    )
+    assert "\nkata start" not in guidance
+    assert "\nkata claim" not in guidance
+    assert "\nkata refresh" not in guidance
+    assert "\nkata integrate" not in guidance
+    assert "\nkata drop" not in guidance
+
+
+def test_kata_skill_discloses_conditional_reference() -> None:
+    skill = ROOT / "skills/kata"
+    guidance = (skill / "SKILL.md").read_text()
+
+    for name in ("configuration.md", "item-driver.md", "lifecycle-details.md"):
+        assert (skill / "references" / name).is_file()
+        assert name in guidance
+
+    assert (
+        "## Inspection invocation"
+        not in (skill / "references/item-driver.md").read_text()
+    )
 
 
 def test_kata_skill_scopes_post_refresh_verification() -> None:
@@ -136,6 +187,16 @@ def test_kata_skill_scopes_post_refresh_verification() -> None:
     assert "preserve prior results" in guidance
     assert "Rerun only the checks whose behavior those changes could affect" in guidance
     assert "rerun tests" not in guidance
+
+
+def test_kata_skill_makes_refresh_deterministic() -> None:
+    guidance = " ".join((ROOT / "skills/kata/SKILL.md").read_text().split())
+
+    assert (
+        "Run refresh unconditionally immediately before final review or integration"
+        in guidance
+    )
+    assert "complete when refresh exits 0 without conflicts" in guidance
 
 
 def test_superseded_generic_components_remain_absent() -> None:

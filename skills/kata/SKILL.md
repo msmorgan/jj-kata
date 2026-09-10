@@ -1,191 +1,144 @@
 ---
 name: kata
-description: "Coordinate safe parallel-agent work through jj-kata's named feature-workspace lifecycle: start or claim repository-defined work, archive a closed workspace stack, refresh a feature from the default line, integrate deliberately closed work, return claimed items, or retire a workspace. Applies only when the default workspace of a Jujutsu repository holds kata.toml or jjkata.toml. Additional jj workspaces, a .workspaces/ directory, or any branch-per-feature layout do not make a repository Kata's."
+description: "Use in a Kata-configured Jujutsu repository before beginning feature, fix, documentation, or other deliverable work; when starting, claiming, refreshing, integrating, archiving, returning, or retiring a named feature workspace; or when configuring Kata or implementing or debugging an item driver. Kata applies only when kata.toml or jjkata.toml exists in the default workspace; extra jj workspaces, a .workspaces directory, or a branch-per-feature layout do not make a repository Kata's."
 ---
 
 # jj-kata
 
 Kata governs a repository only when `kata.toml` or `jjkata.toml` sits in its
-`default` workspace; without that file, use ordinary jj through jj-sensei.
+`default` workspace. It owns the named-workspace lifecycle
+`start` -> `refresh` -> `integrate` -> `drop`; `claim` starts or extends work
+through a configured item driver. Use jj-sensei for all general jj operations,
+workspace boundaries, history shaping outside this lifecycle, and conflict or
+stale-workspace repair.
 
-Use Kata to coordinate parallel feature workspaces through
-`start` → `refresh` → `integrate` → `drop`. `claim` optionally attaches
-repository-defined work-item transitions, while `archive` preserves a closed
-feature stack and backs it out of its workspace. Use jj-sensei for general jj
-knowledge, boundary setup, history shaping outside this lifecycle, and stale/
-divergent/conflicted workspace repair.
+Kata requires jj-sensei's workspace-aware `immutable_heads()` guard. If Kata
+reports that the guard is missing, use jj-sensei's boundaries skill to install
+or audit it, then retry with the guard active.
 
-Kata refuses lifecycle commands when the repository lacks a workspace-aware
-`immutable_heads()` definition. Install `jj-sensei` from
-`msmorgan/marketplace`, then use its boundaries skill to install or audit the
-guard; never bypass the refusal.
+## Invariants
 
-## Workspace invariant
+**`default` is for coordination only.** Before changing repository content for
+any deliverable from `default`, start or claim a named workspace and continue
+from the path Kata returns. This applies when only one agent is active too: the
+feature workspace is the unit of coordination and recovery.
 
-**Do not do feature work in `default`.** `default` is the coordinator line:
-use it to start or claim named workspaces, target cross-workspace operations,
-and retire completed work. Before changing repository content for a feature,
-fix, documentation task, or other deliverable, run `kata start NAME` or
-`kata claim ...` from `default`, then do the work inside that named workspace.
+Inside a feature workspace, change only that feature and keep its ancestry on
+the default line rather than another live feature. Bring deliberately closed
+work back through Kata's refresh and integration lifecycle.
 
-If already inside a non-default workspace, keep working there and act only on
-that workspace; never create feature work on another live feature's ancestry.
-Integrate the deliberately closed work through Kata rather than developing
-directly on the coordinator line. This rule applies even when only one agent is
-currently active—the separate workspace is the unit of coordination and safe
-recovery.
+**Treat WIP tickets owned by another workspace as read-only.** Ownership covers
+notes, dependencies, renames, deletions, and status moves. A bare `start` does
+not acquire inherited WIP tickets. Record follow-up work in an owned ticket or
+ask the coordinator to arrange a handoff.
 
-## Item ownership
+The bundled Kanban driver checks every unintegrated change before refresh or
+integration. If it reports an unowned WIP edit, remove that edit from the
+offending change in your feature workspace; a later revert does not repair the
+earlier change. Leave the owning workspace and claim untouched.
 
-**Edit WIP tickets only when this workspace owns their claim.** Shared
-visibility makes other agents' WIP tickets readable in your tree; it does not
-grant ownership. Treat those tickets as read-only, including progress notes,
-dependency updates, renames, deletions, and status moves. Record follow-up work
-in your own ticket, or ask the coordinator to arrange a handoff. A bare `start`
-does not acquire any inherited WIP tickets.
+## Launcher
 
-With the bundled Kanban driver, `refresh` and `integrate` refuse unintegrated
-changes touching unowned WIP tickets before rebasing or completing items.
-`refresh --all` checks every target before refreshing any of them. The check
-examines each change, so reverting an accidental edit in a later commit is
-insufficient: remove it from the offending changes in your own feature
-workspace, then retry. Leave the owner's workspace and claim untouched.
+Resolve the plugin-root launcher from this loaded `SKILL.md`. For
+`/PLUGIN/skills/kata/SKILL.md`, every invocation below means
+`/PLUGIN/scripts/kata`; run it from the workspace it should act on. Never
+substitute a repository script or a `kata` found on `PATH`.
 
-## Command
-
-Resolve the plugin-root `scripts/kata` from this loaded `SKILL.md`, never
-from the target repository or `PATH`. For
-`/PLUGIN/skills/kata/SKILL.md`, run `/PLUGIN/scripts/kata` from the workspace
-it should act on.
-
-Do not pipe a Kata command. Preserve its exit status: 0 is success, 2 is a
-refusal before the transition, 69 leaves an expected state to finish or repair,
-75 is lock timeout, and 130 is interruption.
-
-Every command and subcommand supports `--help`.
+Preserve the command's exit status and output without piping it. Exit 0 is the
+completion criterion. For any other exit, stop and read
+[lifecycle recovery and exceptional operations](references/lifecycle-details.md)
+before proceeding.
 
 ## Lifecycle
 
-From `default`:
+### 1. Start or claim from `default`
+
+Choose `start` for ad-hoc work or when no `[items].driver` is configured. Choose
+`claim` for repository-defined work:
 
 ```bash
-kata start NAME
-kata claim ITEM
-kata claim ITEM... --name NAME
-kata claim ITEM... --into NAME
-kata claim HOST_NAME --or-start
-kata refresh NAME
-kata refresh --all
-kata integrate NAME
-kata drop NAME
+/PLUGIN/scripts/kata start NAME
+/PLUGIN/scripts/kata claim ITEM
+/PLUGIN/scripts/kata claim ITEM... --name NAME
+/PLUGIN/scripts/kata claim HOST_NAME --or-start
 ```
 
-From a feature workspace, act only on itself:
+On success, a newly created workspace path is printed to stdout. Use that exact
+path as the working directory for every subsequent tool call. This step is
+complete only when commands are running from the named feature workspace, not
+from `default`.
+
+To attach more items to an existing workspace, run one of these and remain in
+the owning feature workspace afterward:
 
 ```bash
-kata claim ITEM...
-kata archive
-kata refresh
-kata integrate
+# From default
+/PLUGIN/scripts/kata claim ITEM... --into NAME
+
+# From the owning feature workspace
+/PLUGIN/scripts/kata claim ITEM...
 ```
 
-Item IDs are opaque. `claim ITEM` uses the ID as the workspace name only as a
-convenience; pass `--name NAME` when that is inappropriate or several items
-start together. With no `[items].driver`, use `start`; no filesystem layout
-implicitly enables claims.
+Item IDs are opaque. A single `claim ITEM` uses the item ID as the workspace
+name; use `--name NAME` when it is not a legal or useful name, or when several
+items start together.
 
-Refresh before review or integration when `default` has moved. Kata reports
-whether a single-workspace refresh changed the feature stack; `--all` reports
-changed and current counts. After a changed refresh, preserve prior results for
-behavior untouched by changes incorporated from `default`. Rerun only the
-checks whose behavior those changes could affect, following the repository's
-normal verification policy. Integration requires an empty, undescribed feature
-`@`; close work with `jj commit -m ...` first. It folds closed feature changes
-into the default line and parks the workspace on the integrated tip. Retire it
-from `default` with `drop NAME`.
+### 2. Work and close the feature
 
-Kata snapshots live workspaces before graph rewrites and rechecks each banked
-working-copy commit immediately before the first rebase that could affect its
-branch. A workspace changed in that interval is preserved and the command stops
-with exit 69; retry the same Kata command after reviewing the newly snapshotted
-work.
+Make and verify the requested change inside the feature workspace. Before
+integration, close the work with `jj --no-pager commit -m "..."`. The feature
+is closed only when its working-copy `@` is empty and undescribed.
 
-Plain drop refuses unintegrated work. `--force` explicitly discards it.
-`--return-items` runs the configured return transition, preserves the paths it
-reports, refuses newer default-side item edits, and preserves the source
-workspace until the return commit succeeds. There is no bulk drop command:
-fresh and integrated empty workspaces are not visibly distinguishable.
+### 3. Refresh before review or integration
 
-Run `archive` inside a feature workspace after closing its work to an empty,
-undescribed `@`. It preserves the closed stack under `archive-WORKSPACE`. For a
-shared claim, it copies the shared claim beneath that archive and leaves `@`
-directly above the original claim, retaining ownership without the archived
-implementation. For a feature-local claim or bare workspace, it leaves a fresh
-empty `@` at `fork_point(@ | default@)` and the archived stack retains any local
-claim. It refuses empty stacks, non-claim-rooted shared topology, and an existing
-archive bookmark without changing them.
+Run refresh unconditionally immediately before final review or integration; an
+already-current no-op is successful and removes the need to infer whether
+`default` moved:
 
-If refresh or integration reports conflicts, use jj-sensei's harmony skill in
-the named workspace. Do not retry past a conflict or perform operation-log
-surgery.
+```bash
+# From the feature workspace
+/PLUGIN/scripts/kata refresh
 
-## Visibility and state
-
-`[items] visibility = "feature"` is the default. Claims live only on their
-feature line, with no Kata bookmark, until integration.
-
-`[items] visibility = "shared"` opts new claims into a bookmarked anchor
-linearly inside the default tree. Later work based on default sees active claim
-markers. Bare `start` never creates an anchor and does not consult item
-visibility.
-
-Kata has no private claim ledger. The item driver derives ownership from the
-base/revision context Kata supplies. A reconstructed graph with the same marker
-moves must work without any prior Kata invocation.
-
-Shared anchors require positive visible evidence: the bookmark is the
-feature/default common fork, the driver derives owned items there, and its
-description matches the configured claim message. Never treat bookmark
-existence alone as Kata ownership.
-
-When implementing or debugging a repository driver, read
-[the item-driver protocol](references/item-driver.md).
-
-## Configuration
-
-Read settings from canonical `kata.toml` or compatibility `jjkata.toml` in the
-default workspace; refuse when both exist. Relative paths resolve from the
-default root. `[messages]` may override Kata's `start`,
-`claim`, `complete`, and `return` commit-description templates using
-`{workspace}` and `{items}` fields.
-
-```toml
-workspace_dir = ".workspaces"
-provision_hook = "scripts/provision-workspace" # unset by default
-
-[items]
-driver = "kanban" # or "scripts/items"
-visibility = "feature" # or "shared"; applies only to new claims
+# Or from default
+/PLUGIN/scripts/kata refresh NAME
 ```
 
-The bundled Kanban driver is optional. It is a convenient ticket framework,
-not a prerequisite or part of the parallel-workspace topology.
+After a changed refresh, preserve prior results for behavior untouched by the
+changes incorporated from `default`. Rerun only the checks whose behavior those
+changes could affect under the repository's verification policy. This step is
+complete when refresh exits 0 without conflicts.
 
-The provision hook is off unless `provision_hook` names it; Kata never
-discovers one by convention. When set, Kata calls the executable with the
-created workspace path after creation. Claims establish visible item ownership
-before the hook runs. A hook failure deliberately leaves that workspace and
-its claim intact for inspection and repair; stderr markers bracket the hook's
-own output.
+### 4. Integrate the closed feature
 
-Use the plugin-root [example configuration](../../kata.example.toml) as the
-complete starting point. A legacy `jjworkflow.toml` is a hard migration refusal.
+```bash
+# From the feature workspace
+/PLUGIN/scripts/kata integrate
 
-Lifecycle commands require Python 3.11+, jj 0.43.0+, and a POSIX host. The
-read-only Kanban subcommand remains portable.
+# Or from default
+/PLUGIN/scripts/kata integrate NAME
+```
 
-Every host registers a session-orientation hook that reports the current
-workspace and configuration on arrival; it reads state only, so trust the
-commands rather than that line. Registration for the opt-in worktree bridges is
-documented in the plugin-root README; Codex and Antigravity do not currently
-offer the equivalent repository-local worktree replacement event.
+Integration folds the deliberately closed feature changes into the default
+line and parks the feature workspace on the integrated tip. This step is
+complete when integration exits 0.
+
+### 5. Retire the integrated workspace from `default`
+
+Return subsequent tool calls to the default workspace, then run:
+
+```bash
+/PLUGIN/scripts/kata drop NAME
+```
+
+The lifecycle is complete when drop exits 0 and reports that the named
+workspace was retired.
+
+## Conditional reference
+
+- For bulk refresh, `archive`, forced or item-returning drop, concurrency
+  recovery, conflicts, and nonzero exits, read
+  [lifecycle recovery and exceptional operations](references/lifecycle-details.md).
+- When configuring Kata, visibility, provisioning, or host hooks, read
+  [configuration](references/configuration.md).
+- When implementing or debugging a repository item driver, read
+  [the item-driver protocol](references/item-driver.md).

@@ -79,15 +79,3 @@ state unchanged; Kata presents it as exit 2.
 Visible state is the source of truth. A driver must give the same `owned`
 answer for an equivalent reconstructed jj tree and external item source,
 regardless of whether Kata created the changes.
-
-## Inspection invocation
-
-When `[kanban] command = "scripts/todo"` is configured,
-`kata kanban COMMAND [ITEM]` delegates directly as:
-
-```text
-KANBAN_COMMAND COMMAND [ITEM]
-```
-
-No lifecycle JSON is sent. Use ordinary stdout, stderr, and exit status for
-`board`, `ready`, `blocked`, `order`, `graph`, `needs`, and `check`.

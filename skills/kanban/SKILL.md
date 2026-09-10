@@ -69,8 +69,7 @@ Set `[kanban] command = "scripts/todo"` to delegate the entire inspection layer
 instead. That command need not be the dependency adapter or lifecycle item
 driver.
 
-Do not move items merely because inspection exposes their state. Use
-`kata claim`, `integrate`, or `drop --return-items` for lifecycle moves.
-NEVER edit a WIP ticket unless you are in the workspace that claims it. Apply
-Kata's [item ownership rules](../kata/SKILL.md#item-ownership): visibility in
-the board does not make its claim yours.
+Keep inspection read-only. Use Kata's lifecycle skill for `claim`, `integrate`,
+or `drop --return-items`. Treat every WIP ticket as read-only unless the current
+workspace owns its claim; apply Kata's
+[item-ownership invariant](../kata/SKILL.md#invariants).

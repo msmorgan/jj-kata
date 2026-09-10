@@ -18,17 +18,21 @@ from .errors import KataError
 from .jj import Jj
 
 WORKSPACE_TEMPLATE = 'name ++ "\\t" ++ root ++ "\\n"'
-SKILL_POINTER = "Load the `kata` skill before any workspace lifecycle action."
+SKILL_POINTER = (
+    "Load the `kata` skill now, before changing repository content or running "
+    "a workspace lifecycle command."
+)
 COORDINATOR_GUIDANCE = (
     "`default` is the coordinator line. Unless specifically instructed otherwise, "
-    "do not do feature work here: run `kata start NAME` or `kata claim ITEM` from "
-    "`default`, then make the change inside that named workspace."
+    "keep repository content unchanged here. Follow the loaded Kata skill to start "
+    "or claim a named workspace with its resolved launcher, then use the returned "
+    "path as the working directory and confirm the feature workspace before editing."
 )
 FEATURE_GUIDANCE = (
-    "You are inside the `{workspace}` feature workspace. Work only on "
-    "`{workspace}`, and never base work on another live feature's ancestry. Close "
-    "the work with `jj commit -m ...`, then bring it back through `kata refresh` "
-    "and `kata integrate` rather than editing the coordinator line."
+    "You are inside the `{workspace}` feature workspace. Make changes only for "
+    "`{workspace}` and keep its ancestry on the default line. Close the work with "
+    "`jj --no-pager commit -m ...`, then follow the loaded Kata skill to refresh "
+    "and integrate it with the resolved launcher."
 )
 BOUNDARIES_WARNING = (
     "⚠ This repository has no jj-sensei workspace boundaries, so Kata refuses "
@@ -108,7 +112,7 @@ def render(orientation: Orientation) -> str:
         blocks.append(BOUNDARIES_WARNING)
     if orientation.tracked:
         blocks.append(_tracked_warning(orientation))
-    blocks += [guidance, SKILL_POINTER]
+    blocks += [SKILL_POINTER, guidance]
     return "\n\n".join(blocks) + "\n"
 
 

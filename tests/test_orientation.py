@@ -106,6 +106,12 @@ def test_default_workspace_orients_as_the_coordinator(tmp_path: Path) -> None:
     assert text.startswith("jj-kata: default (coordinator)")
     assert "unless specifically instructed otherwise" in text.lower()
     assert "Load the `kata` skill" in text
+    assert text.index("Load the `kata` skill") < text.index(
+        "`default` is the coordinator"
+    )
+    assert "`kata start" not in text
+    assert "`kata claim" not in text
+    assert "returned path as the working directory" in text
 
 
 def test_feature_workspace_names_itself_and_its_siblings(tmp_path: Path) -> None:
@@ -123,7 +129,9 @@ def test_feature_workspace_names_itself_and_its_siblings(tmp_path: Path) -> None
     text = render(orientation)
     assert text.startswith("jj-kata: beta (feature workspace)")
     assert "live: default, alpha, beta" in text
-    assert "never base work on another live feature's ancestry" in text
+    assert "keep its ancestry on the default line" in text
+    assert "`kata refresh`" not in text
+    assert "resolved launcher" in text
 
 
 def test_a_workspace_outside_the_repository_tree_still_finds_its_default(
