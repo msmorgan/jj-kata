@@ -66,6 +66,8 @@ class Lifecycle:
         for action in DEFAULT_MESSAGES:
             self.message(action, "workspace", ("item",))
         self.unbankable: set[str] = set()
+        self.banked_commits: dict[str, str] = {}
+        self.checked_banks: set[str] = set()
 
     def _require_jj_version(self) -> None:
         output = self.jj.text("--version", cwd=self.default_root)
@@ -373,20 +375,87 @@ class Lifecycle:
 
     def bank_workspaces(self) -> None:
         self.unbankable.clear()
+        self.banked_commits.clear()
+        self.checked_banks.clear()
         for name in self.workspace_names():
             try:
                 root = self.workspace_root(name)
                 snapshot = self.jj.run("util", "snapshot", cwd=root, check=False)
+                if snapshot.returncode:
+                    self.unbankable.add(name)
+                    continue
+                self.banked_commits[name] = self._commit_id(f"{name}@", cwd=root)
             except KataError:
                 self.unbankable.add(name)
                 continue
-            if snapshot.returncode:
-                self.unbankable.add(name)
         if self.unbankable:
             note(
                 "leaving stale workspace(s) untouched: "
                 + ", ".join(sorted(self.unbankable))
             )
+
+    def _require_unchanged_banks(self, *names: str) -> None:
+        changed: list[str] = []
+        failed: list[str] = []
+        for name in names:
+            if name in self.checked_banks:
+                continue
+            expected = self.banked_commits.get(name)
+            if expected is None:
+                continue
+            try:
+                root = self.workspace_root(name)
+            except KataError:
+                failed.append(name)
+                continue
+            observed = self.jj.run(
+                "log",
+                "--no-graph",
+                "-r",
+                f"{name}@",
+                "-T",
+                "commit_id",
+                cwd=root,
+                check=False,
+            )
+            commit_id = observed.stdout.strip()
+            if observed.returncode or not commit_id:
+                failed.append(name)
+                continue
+            if commit_id != expected:
+                changed.append(name)
+                continue
+            self.checked_banks.add(name)
+        if failed or changed:
+            details: list[str] = []
+            if changed:
+                if len(changed) == 1:
+                    details.append(
+                        f"workspace {changed[0]!r} changed after it was banked"
+                    )
+                else:
+                    details.append(
+                        "workspaces changed after they were banked: "
+                        + ", ".join(changed)
+                    )
+            if failed:
+                details.append(
+                    "workspace(s) could not be rechecked: " + ", ".join(failed)
+                )
+            raise KataError(
+                "; ".join(details) + "; rebase refused; retry the Kata command",
+                EXPECTED_STOP,
+            )
+
+    def _require_unchanged_descendant_banks(self, *revisions: str) -> None:
+        roots = " | ".join(f"({revision})" for revision in revisions)
+        affected = set(self._changes(f"working_copies() & descendants({roots})"))
+        names = [
+            name
+            for name in self.banked_commits
+            if self._change_id(f"{name}@") in affected
+        ]
+        self._require_unchanged_banks(*names)
 
     def unstale_workspaces(self, *, strict: bool = True) -> None:
         failed: list[str] = []
@@ -866,6 +935,7 @@ class Lifecycle:
             raise KataError(
                 f"{name!r} could not be snapshotted and was left untouched", 2
             )
+        self._require_unchanged_banks(name)
 
         duplicate_id = ""
         created_bookmark = False
@@ -961,6 +1031,7 @@ class Lifecycle:
         if self._parents_match(roots, "default@-", ws_dir):
             self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
             return False
+        self._require_unchanged_descendant_banks(revset)
         self.jj.run("rebase", "-r", revset, "-d", "default@-", cwd=ws_dir)
         conflicted = self._conflicts(revset, ws_dir)
         self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
@@ -985,6 +1056,7 @@ class Lifecycle:
         if anchor_is_current and stack_is_current:
             self.jj.run("workspace", "update-stale", cwd=ws_dir, check=False)
             return False
+        self._require_unchanged_descendant_banks(anchor, "default@")
         self.jj.run(
             "rebase",
             "-r",
@@ -1143,6 +1215,7 @@ class Lifecycle:
         wc_id = self._change_id(f"{target}@", cwd=ws_dir)
         selection = f"default@..{target}@-"
         if self._changes(selection):
+            self._require_unchanged_descendant_banks(selection, "default@")
             self.jj.run(
                 "rebase",
                 "-r",
@@ -1178,6 +1251,7 @@ class Lifecycle:
             check=False,
         ).stdout.strip()
         if fork_parent and fork_parent != claim_id:
+            self._require_unchanged_descendant_banks(fork_parent)
             self.jj.run(
                 "rebase",
                 "-r",
@@ -1192,6 +1266,7 @@ class Lifecycle:
                     f"re-joining {target}'s claim conflicts with default", ws_dir
                 )
         selection = f"{self.bookmark_revset(target)} | default@..{target}@-"
+        self._require_unchanged_descendant_banks(selection, "default@")
         self.jj.run(
             "rebase",
             "-r",

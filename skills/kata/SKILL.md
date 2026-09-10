@@ -103,6 +103,12 @@ counts. Integration requires an empty, undescribed feature `@`; close work with
 and parks the workspace on the integrated tip. Retire it from `default` with
 `drop NAME`.
 
+Kata snapshots live workspaces before graph rewrites and rechecks each banked
+working-copy commit immediately before the first rebase that could affect its
+branch. A workspace changed in that interval is preserved and the command stops
+with exit 69; retry the same Kata command after reviewing the newly snapshotted
+work.
+
 Plain drop refuses unintegrated work. `--force` explicitly discards it.
 `--return-items` runs the configured return transition, preserves the paths it
 reports, refuses newer default-side item edits, and preserves the source

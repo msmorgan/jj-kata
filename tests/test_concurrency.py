@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from jj_kata.errors import KataError
+from jj_kata.lifecycle import Lifecycle
+
 ROOT = Path(__file__).resolve().parent.parent
 KATA = ROOT / "scripts" / "kata"
 TEST_CONFIG_HOME = Path(os.environ["XDG_CONFIG_HOME"])
@@ -280,6 +283,64 @@ def test_integrate_banks_dirty_siblings_before_rewriting_default(
     assert precious.read_text(encoding="utf-8") == "unsnapshotted sibling edit\n"
     assert_no_stale_workspaces(repo)
     assert_no_divergence(repo)
+
+
+def test_integrate_refuses_when_target_changes_after_banking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, config_home = init_repo(tmp_path)
+    target = start_closed_feature(repo, config_home, "target", "target work\n")
+    lifecycle = Lifecycle(cwd=repo)
+    bank_workspaces = lifecycle.bank_workspaces
+    target_file = target / "target.txt"
+
+    def edit_after_bank() -> None:
+        bank_workspaces()
+        target_file.write_text("rewritten after the snapshot\n", encoding="utf-8")
+
+    monkeypatch.setattr(lifecycle, "bank_workspaces", edit_after_bank)
+
+    with pytest.raises(KataError, match="changed after it was banked") as caught:
+        lifecycle.integrate("target")
+
+    assert caught.value.code == 69
+    assert target_file.read_text(encoding="utf-8") == "rewritten after the snapshot\n"
+    assert not (repo / "target.txt").exists()
+
+
+def test_shared_refresh_rechecks_a_later_claim_before_rewriting_its_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, config_home = init_repo(tmp_path)
+    add_ticket(repo, "target")
+    (repo / "docs/tickets/planned/later.md").write_text("# later\n", encoding="utf-8")
+    jj(repo, "commit", "-m", "tickets: add later")
+    (repo / "kata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n', encoding="utf-8"
+    )
+    jj(repo, "commit", "-m", "kata: use shared claims")
+    kata(repo, config_home, "claim", "target")
+    target = repo / ".workspaces/target"
+    (target / "target.txt").write_text("target work\n", encoding="utf-8")
+    jj(target, "commit", "-m", "feat: target")
+    kata(repo, config_home, "claim", "later")
+    later = repo / ".workspaces/later"
+    later_ticket = later / "docs/tickets/wip/later.md"
+    lifecycle = Lifecycle(cwd=repo)
+    bank_workspaces = lifecycle.bank_workspaces
+
+    def edit_later_claim_after_bank() -> None:
+        bank_workspaces()
+        later_ticket.write_text("edited after the snapshot\n", encoding="utf-8")
+
+    monkeypatch.setattr(lifecycle, "bank_workspaces", edit_later_claim_after_bank)
+
+    with pytest.raises(KataError, match="workspace 'later' changed") as caught:
+        lifecycle.refresh("target")
+
+    assert caught.value.code == 69
+    assert later_ticket.read_text(encoding="utf-8") == "edited after the snapshot\n"
+    assert not (repo / "target.txt").exists()
 
 
 def test_integrate_skips_a_preexisting_stale_dirty_sibling(

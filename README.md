@@ -84,6 +84,14 @@ no-op; existing test results still apply`; `--all` reports changed and
 already-current counts. The no-op result means Kata did not rewrite the feature
 stack, so tests run immediately before it need not be repeated.
 
+Before graph rewrites, Kata snapshots every live workspace. Immediately before
+the first rebase that could rewrite a banked workspace's branch, it snapshots
+that workspace again and compares the working-copy commit with the banked one.
+If an edit arrived in between, Kata preserves the new snapshot and refuses the
+rebase with exit 69 so the command can be retried. This closes most of the
+snapshot-to-rebase race without treating ignored build output as source edits;
+the final process-launch interval remains inherently non-atomic.
+
 `ITEM` is opaque to Kata. When an item ID is not also a legal jj workspace
 name, or several items should start together, pass `--name WORKSPACE`.
 Additional items can be folded into a feature with `claim ITEM... --into NAME`
