@@ -14,7 +14,7 @@ foundation. It teaches installed-version jj semantics and installs the
 repository boundaries that keep live workspaces from rewriting one another.
 Kata assumes those boundaries and owns only the
 `start` → `refresh` → `integrate` → `drop` lifecycle plus the optional `claim`
-adapter.
+adapter and `archive` side path.
 Mutating lifecycle commands refuse repositories that do not have a
 workspace-aware repository `immutable_heads()` definition; use jj-sensei's
 boundaries skill to install or audit it first.
@@ -91,6 +91,17 @@ from `default` or `claim ITEM...` from inside the feature.
 `--or-start` is the host-hook entry path: it claims a uniquely available item,
 but starts an ordinary ad-hoc workspace when the item or optional board is
 absent. Ambiguous items and broken drivers still fail loudly.
+
+When an implementation should be backed out but kept for reference, close the
+current work so the workspace has an empty, undescribed `@`, then run
+`kata archive` inside it. Kata bookmarks the closed stack as
+`archive-WORKSPACE`. For a shared claim, it duplicates the visible claim
+beneath that archive and leaves the workspace's empty `@` directly on the
+original claim, retaining active ownership without the archived implementation.
+For feature-local claims and ad-hoc workspaces, it instead starts the workspace
+at a fresh empty child of `fork_point(@ | default@)`; the local claim is part of
+the archived stack and is intentionally backed out too. Archive refuses an
+existing archive bookmark rather than choosing a new name.
 
 Integration accepts only an empty, undescribed feature working copy. It folds
 the feature's deliberately closed changes immediately before `default@`, then

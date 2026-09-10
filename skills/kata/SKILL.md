@@ -1,6 +1,6 @@
 ---
 name: kata
-description: "Coordinate safe parallel-agent work through jj-kata's named feature-workspace lifecycle: start or claim repository-defined work, refresh a feature from the default line, integrate deliberately closed work, return claimed items, or retire a workspace. Applies only when the default workspace of a Jujutsu repository holds kata.toml or jjkata.toml. Additional jj workspaces, a .workspaces/ directory, or any branch-per-feature layout do not make a repository Kata's."
+description: "Coordinate safe parallel-agent work through jj-kata's named feature-workspace lifecycle: start or claim repository-defined work, archive a closed workspace stack, refresh a feature from the default line, integrate deliberately closed work, return claimed items, or retire a workspace. Applies only when the default workspace of a Jujutsu repository holds kata.toml or jjkata.toml. Additional jj workspaces, a .workspaces/ directory, or any branch-per-feature layout do not make a repository Kata's."
 ---
 
 # jj-kata
@@ -10,9 +10,10 @@ Kata governs a repository only when `kata.toml` or `jjkata.toml` sits in its
 
 Use Kata to coordinate parallel feature workspaces through
 `start` → `refresh` → `integrate` → `drop`. `claim` optionally attaches
-repository-defined work-item transitions. Use jj-sensei for general jj
-knowledge, boundary setup, history shaping outside this lifecycle, and
-stale/divergent/conflicted workspace repair.
+repository-defined work-item transitions, while `archive` preserves a closed
+feature stack and backs it out of its workspace. Use jj-sensei for general jj
+knowledge, boundary setup, history shaping outside this lifecycle, and stale/
+divergent/conflicted workspace repair.
 
 Kata refuses lifecycle commands when the repository lacks a workspace-aware
 `immutable_heads()` definition. Install `jj-sensei` from
@@ -83,6 +84,7 @@ From a feature workspace, act only on itself:
 
 ```bash
 kata claim ITEM...
+kata archive
 kata refresh
 kata integrate
 ```
@@ -106,6 +108,15 @@ Plain drop refuses unintegrated work. `--force` explicitly discards it.
 reports, refuses newer default-side item edits, and preserves the source
 workspace until the return commit succeeds. There is no bulk drop command:
 fresh and integrated empty workspaces are not visibly distinguishable.
+
+Run `archive` inside a feature workspace after closing its work to an empty,
+undescribed `@`. It preserves the closed stack under `archive-WORKSPACE`. For a
+shared claim, it copies the shared claim beneath that archive and leaves `@`
+directly above the original claim, retaining ownership without the archived
+implementation. For a feature-local claim or bare workspace, it leaves a fresh
+empty `@` at `fork_point(@ | default@)` and the archived stack retains any local
+claim. It refuses empty stacks, non-claim-rooted shared topology, and an existing
+archive bookmark without changing them.
 
 If refresh or integration reports conflicts, use jj-sensei's harmony skill in
 the named workspace. Do not retry past a conflict or perform operation-log

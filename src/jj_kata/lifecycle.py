@@ -824,6 +824,104 @@ class Lifecycle:
         self._provision(provision, ws_dir)
         return ws_dir
 
+    def archive(self) -> None:
+        if self.on_default:
+            raise KataError("'archive' runs from a feature workspace", 2)
+        name = self.current_workspace_name()
+        ws_dir = self.current_root
+        self._require_empty_tip(name, ws_dir, command="archive")
+        visibility = self._workspace_visibility(name, ws_dir)
+
+        archive_name = f"archive-{name}"
+        if self.bookmark_exists(archive_name):
+            raise KataError(f"bookmark {archive_name!r} already exists", 2)
+
+        archive_tip = f"{name}@-"
+        archive_tip_id = self._change_id(archive_tip, cwd=ws_dir)
+        base = (
+            self.bookmark_revset(name)
+            if visibility == "shared"
+            else self._feature_base(name)
+        )
+        stack = f"{base}..{archive_tip}"
+        if not self._changes(f"({stack}) ~ empty()", cwd=ws_dir):
+            raise KataError(f"{name} has no work to archive", 2)
+
+        if visibility == "shared":
+            roots = self._changes(f"roots({stack})", cwd=ws_dir)
+            heads = self._changes(f"heads({stack})", cwd=ws_dir)
+            if (
+                len(roots) != 1
+                or heads != [archive_tip_id]
+                or not self._parents_match(roots, base, ws_dir)
+            ):
+                raise KataError(
+                    f"{name}'s work is not one claim-rooted stack and cannot be "
+                    "archived",
+                    2,
+                )
+
+        self.bank_workspaces()
+        if name in self.unbankable:
+            raise KataError(
+                f"{name!r} could not be snapshotted and was left untouched", 2
+            )
+
+        duplicate_id = ""
+        created_bookmark = False
+        before = set(self._changes("heads(all())"))
+        try:
+            self.jj.run(
+                "bookmark",
+                "create",
+                archive_name,
+                "-r",
+                archive_tip_id,
+                cwd=ws_dir,
+            )
+            created_bookmark = True
+            if visibility == "shared":
+                self.jj.run("duplicate", "-r", base, cwd=ws_dir)
+                created = set(self._changes("heads(all())")) - before
+                if len(created) != 1:
+                    raise KataError(
+                        "could not identify the duplicated claim; inspect the "
+                        "workspace before retrying",
+                        EXPECTED_STOP,
+                    )
+                duplicate_id = created.pop()
+                self.jj.run(
+                    "rebase",
+                    "-r",
+                    f"{base}..{self.bookmark_revset(archive_name)}",
+                    "-d",
+                    duplicate_id,
+                    cwd=ws_dir,
+                )
+            else:
+                self.jj.run("new", "-r", base, cwd=ws_dir)
+        except KataError:
+            if created_bookmark and self.bookmark_exists(archive_name):
+                self.jj.run("bookmark", "forget", archive_name, cwd=ws_dir, check=False)
+            if duplicate_id and self._live(duplicate_id):
+                self.jj.run("abandon", duplicate_id, cwd=ws_dir, check=False)
+            self.unstale_workspaces(strict=False)
+            raise
+
+        self.unstale_workspaces()
+        if (
+            not self._parents_match([f"{name}@"], base, ws_dir)
+            or not self._is_empty(f"{name}@", cwd=ws_dir)
+            or self._change_id(self.bookmark_revset(archive_name)) != archive_tip_id
+        ):
+            raise KataError(
+                f"archived work as {archive_name}, but the resulting topology needs "
+                "inspection",
+                EXPECTED_STOP,
+            )
+        suffix = " above its claim" if visibility == "shared" else " at its base"
+        note(f"archived {name}'s work as {archive_name}; {name}@ is ready{suffix}")
+
     def _conflicts(self, revset: str, cwd: Path) -> bool:
         return bool(
             self.jj.run(
@@ -975,7 +1073,7 @@ class Lifecycle:
         self.unstale_workspaces()
         self._report_refresh(current, changed)
 
-    def _require_closed(self, name: str, ws_dir: Path) -> None:
+    def _require_empty_tip(self, name: str, ws_dir: Path, *, command: str) -> None:
         self.snapshot_one(ws_dir)
         if not self._is_empty(f"{name}@", cwd=ws_dir):
             raise KataError(
@@ -994,9 +1092,12 @@ class Lifecycle:
         )
         if description:
             raise KataError(
-                f"{name}@ is described but empty; finish or clear it before integrate",
+                f"{name}@ is described but empty; finish or clear it before {command}",
                 EXPECTED_STOP,
             )
+
+    def _require_closed(self, name: str, ws_dir: Path) -> None:
+        self._require_empty_tip(name, ws_dir, command="integrate")
 
     def _complete_feature_items(
         self,

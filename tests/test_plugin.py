@@ -56,7 +56,14 @@ def test_every_shipped_executable_has_help() -> None:
         *[
             [launcher, command]
             for launcher in launchers
-            for command in ("start", "claim", "refresh", "integrate", "drop")
+            for command in (
+                "start",
+                "claim",
+                "archive",
+                "refresh",
+                "integrate",
+                "drop",
+            )
         ],
         *[[launcher, "kanban"] for launcher in launchers],
         *[

@@ -282,6 +282,173 @@ def test_shared_visibility_publishes_claim_through_an_anchor(tmp_path: Path) -> 
     ).stdout.strip()
 
 
+def test_archive_shared_claim_isolates_work_and_keeps_the_active_claim(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    add_ticket(repo, "bad-ticket")
+    workflow(repo, "claim", "bad-ticket")
+    workspace = repo / ".workspaces/bad-ticket"
+    claim_id = jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        'bookmarks(exact:"bad-ticket")',
+        "-T",
+        "change_id",
+    ).stdout.strip()
+    (workspace / "attempt.txt").write_text("wrong direction\n")
+    jj(workspace, "commit", "-m", "feat: the bad attempt")
+    attempt_id = jj(
+        workspace, "log", "--no-graph", "-r", "@-", "-T", "change_id"
+    ).stdout.strip()
+    working_copy_id = jj(
+        workspace, "log", "--no-graph", "-r", "@", "-T", "change_id"
+    ).stdout.strip()
+
+    result = workflow(workspace, "archive")
+
+    assert "archived bad-ticket's work as archive-bad-ticket" in result.stderr
+    assert not (workspace / "attempt.txt").exists()
+    assert (workspace / "docs/tickets/wip/bad-ticket.md").is_file()
+    assert (
+        jj(workspace, "log", "--no-graph", "-r", "@", "-T", "change_id").stdout.strip()
+        == working_copy_id
+    )
+    assert (
+        jj(workspace, "log", "--no-graph", "-r", "@-", "-T", "change_id").stdout.strip()
+        == claim_id
+    )
+    assert (
+        jj(
+            repo,
+            "log",
+            "--no-graph",
+            "-r",
+            'bookmarks(exact:"archive-bad-ticket")',
+            "-T",
+            "change_id",
+        ).stdout.strip()
+        == attempt_id
+    )
+    assert (
+        jj(repo, "file", "show", "-r", "archive-bad-ticket", "attempt.txt").stdout
+        == "wrong direction\n"
+    )
+    duplicated_claim = jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        'roots(bookmarks(exact:"bad-ticket")..bookmarks(exact:"archive-bad-ticket"))',
+        "-T",
+        "change_id",
+    ).stdout.strip()
+    assert duplicated_claim and duplicated_claim != claim_id
+    assert (
+        jj(
+            repo, "log", "--no-graph", "-r", duplicated_claim, "-T", "description"
+        ).stdout
+        == "kata: claim bad-ticket\n"
+    )
+
+
+def test_archive_feature_local_claim_backs_out_the_whole_stack(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    add_ticket(repo, "bad-ticket")
+    workflow(repo, "claim", "bad-ticket")
+    workspace = repo / ".workspaces/bad-ticket"
+    base_id = jj(
+        workspace,
+        "log",
+        "--no-graph",
+        "-r",
+        "fork_point(@ | default@)",
+        "-T",
+        "change_id",
+    ).stdout.strip()
+    (workspace / "attempt.txt").write_text("wrong direction\n")
+    jj(workspace, "commit", "-m", "feat: the bad attempt")
+    attempt_id = jj(
+        workspace, "log", "--no-graph", "-r", "@-", "-T", "change_id"
+    ).stdout.strip()
+
+    result = workflow(workspace, "archive")
+
+    assert "bad-ticket@ is ready at its base" in result.stderr
+    assert not (workspace / "attempt.txt").exists()
+    assert (workspace / "docs/tickets/planned/bad-ticket.md").is_file()
+    assert not (workspace / "docs/tickets/wip/bad-ticket.md").exists()
+    assert (
+        jj(workspace, "log", "--no-graph", "-r", "@-", "-T", "change_id").stdout.strip()
+        == base_id
+    )
+    assert (
+        jj(
+            repo,
+            "log",
+            "--no-graph",
+            "-r",
+            'bookmarks(exact:"archive-bad-ticket")',
+            "-T",
+            "change_id",
+        ).stdout.strip()
+        == attempt_id
+    )
+    assert (
+        jj(repo, "file", "show", "-r", "archive-bad-ticket", "attempt.txt").stdout
+        == "wrong direction\n"
+    )
+    assert (
+        jj(
+            repo,
+            "log",
+            "--no-graph",
+            "-r",
+            'bookmarks(exact:"archive-bad-ticket")-',
+            "-T",
+            "description",
+        ).stdout
+        == "kata: claim bad-ticket\n"
+    )
+
+
+def test_archive_refuses_an_open_tip_or_an_empty_shared_attempt(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    add_ticket(repo, "bad-ticket")
+    workflow(repo, "claim", "bad-ticket")
+    workspace = repo / ".workspaces/bad-ticket"
+
+    empty = workflow(workspace, "archive", check=False)
+
+    assert empty.returncode == 2
+    assert "has no work to archive" in empty.stderr
+    (workspace / "attempt.txt").write_text("not closed\n")
+
+    open_tip = workflow(workspace, "archive", check=False)
+
+    assert open_tip.returncode == 69
+    assert "still holds work" in open_tip.stderr
+    assert not jj(
+        repo,
+        "log",
+        "--no-graph",
+        "-r",
+        'bookmarks(exact:"archive-bad-ticket")',
+        "-T",
+        "change_id",
+    ).stdout
+
+
 def test_bare_start_ignores_claim_visibility(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     (repo / "jjkata.toml").write_text(

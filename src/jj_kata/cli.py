@@ -31,6 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     claim.add_argument("--into", metavar="WORKSPACE")
     claim.add_argument("--or-start", action="store_true")
 
+    commands.add_parser("archive", help="preserve and back out closed workspace work")
+
     refresh = commands.add_parser("refresh", help="bring feature work up to default")
     refresh.add_argument("name", nargs="?")
     refresh.add_argument("--all", action="store_true", dest="all_workspaces")
@@ -81,6 +83,8 @@ def dispatch(args: argparse.Namespace) -> int:
             )
             if path:
                 print(path)
+        elif args.command == "archive":
+            lifecycle.archive()
         elif args.command == "refresh":
             lifecycle.refresh(args.name, all_workspaces=args.all_workspaces)
         elif args.command == "integrate":
