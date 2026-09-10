@@ -237,11 +237,19 @@ Inspection is grouped under one subcommand:
 /PLUGIN/scripts/kata kanban board
 /PLUGIN/scripts/kata kanban ready
 /PLUGIN/scripts/kata kanban blocked
+/PLUGIN/scripts/kata kanban wip
 /PLUGIN/scripts/kata kanban order
 /PLUGIN/scripts/kata kanban graph ITEM
 /PLUGIN/scripts/kata kanban needs ITEM
 /PLUGIN/scripts/kata kanban check
 ```
+
+`wip` is a repository-wide claim view. Shared claims are reported from the
+ticket moves recorded in their visible claim anchors. Feature-local claims are
+reported when a ticket is in WIP or done at a live workspace tip but is not in
+either state at `default@`. Each normal output line names the workspace that
+owns the view, for example `ticket-a (wip) [ticket-a]`. The command reads
+snapshotted jj revisions without snapshotting any working copy.
 
 Dependency extraction is pluggable. By default, the bundled Markdown reader
 understands optional `needs: [item, ...]` frontmatter and otherwise ignores the

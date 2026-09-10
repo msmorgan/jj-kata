@@ -131,6 +131,77 @@ def add_ticket(repo: Path, slug: str, column: str = "planned") -> None:
     jj(repo, "commit", "-m", f"tickets: add {slug}")
 
 
+def test_kanban_wip_lists_claims_across_mixed_visibility_workspaces(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "feature"\n'
+    )
+    add_ticket(repo, "local-wip")
+    add_ticket(repo, "local-done")
+    workflow(
+        repo,
+        "claim",
+        "local-wip",
+        "local-done",
+        "--name",
+        "local-work",
+    )
+    local = repo / ".workspaces/local-work"
+    done = local / "docs/tickets/done/local-done.md"
+    done.parent.mkdir(parents=True, exist_ok=True)
+    (local / "docs/tickets/wip/local-done.md").rename(done)
+    jj(local, "commit", "-m", "tickets: finish local-done")
+
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    add_ticket(repo, "unclaimed-wip", column="wip")
+    add_ticket(repo, "shared-ticket")
+    workflow(repo, "claim", "shared-ticket", "--name", "shared-work")
+
+    (local / "unsnapshotted.txt").write_text("leave this out of the jj tip\n")
+    tip_before = jj(
+        local,
+        "log",
+        "--no-graph",
+        "-r",
+        "@",
+        "-T",
+        "commit_id",
+        "--ignore-working-copy",
+    ).stdout
+
+    result = workflow(local, "kanban", "wip")
+
+    assert result.stdout.splitlines() == [
+        "local-wip (wip) [local-work]",
+        "local-done (done) [local-work]",
+        "shared-ticket (wip) [shared-work]",
+    ]
+    assert (
+        jj(
+            local,
+            "log",
+            "--no-graph",
+            "-r",
+            "@",
+            "-T",
+            "commit_id",
+            "--ignore-working-copy",
+        ).stdout
+        == tip_before
+    )
+
+    slugs = workflow(repo, "kanban", "--slugs-only", "wip")
+    assert slugs.stdout.splitlines() == [
+        "local-wip",
+        "local-done",
+        "shared-ticket",
+    ]
+
+
 def test_ad_hoc_start_integrate_and_drop(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     workspace = repo / ".workspaces" / "feature-a"

@@ -667,6 +667,10 @@ class Lifecycle:
             2,
         )
 
+    def workspace_visibility(self, name: str, root: Path | None = None) -> str:
+        """Return the visibility actually encoded by a live workspace's claim."""
+        return self._workspace_visibility(name, root)
+
     def _item_context(self, name: str, visibility: str) -> tuple[str, str]:
         if visibility == "shared":
             revision = self.bookmark_revset(name)

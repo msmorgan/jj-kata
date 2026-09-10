@@ -29,6 +29,13 @@ class Card:
 
 
 @dataclass(frozen=True)
+class WorkspaceCard:
+    slug: str
+    column: str
+    workspace: str
+
+
+@dataclass(frozen=True)
 class BoardSettings:
     root: str = "docs/tickets"
     wip: str = "wip"
@@ -574,6 +581,7 @@ def configure_parser(
     subparsers.add_parser("board", help="list cards grouped by column")
     subparsers.add_parser("ready", help="list unblocked claimable cards")
     subparsers.add_parser("blocked", help="list blocked claimable cards")
+    subparsers.add_parser("wip", help="list live claimed work across workspaces")
     subparsers.add_parser("order", help="topologically order unfinished cards")
     for command in ("graph", "needs"):
         child = subparsers.add_parser(command, help=f"show {command} for one card")
@@ -590,9 +598,72 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def workspace_cards(args: argparse.Namespace, *, start: Path) -> tuple[WorkspaceCard, ...]:
+    from .lifecycle import Lifecycle
+
+    if args.root:
+        raise ValueError("wip uses the repository's configured kanban.root")
+
+    lifecycle = Lifecycle(start)
+    driver = lifecycle.item_driver
+    if not isinstance(driver, FolderKanbanDriver):
+        raise KataError(
+            'kanban wip requires [items].driver = "kanban" so claim ownership '
+            "can be derived safely",
+            2,
+        )
+
+    settings = driver.settings
+    default_cards = driver._revision_cards(lifecycle.default_root, "default@")
+    default_active = set(default_cards.get(settings.wip, {})) | set(
+        default_cards.get(settings.done, {})
+    )
+    found: list[WorkspaceCard] = []
+    for workspace in lifecycle.workspace_names():
+        if workspace == "default":
+            continue
+        visibility = lifecycle.workspace_visibility(workspace, lifecycle.default_root)
+        if visibility == "shared":
+            owned = lifecycle.ownership(workspace, lifecycle.default_root).items
+            found.extend(
+                WorkspaceCard(slug, settings.wip, workspace)
+                for slug in owned
+                if slug in default_cards.get(settings.wip, {})
+            )
+            continue
+
+        cards = driver._revision_cards(lifecycle.default_root, f"{workspace}@")
+        for column in (settings.wip, settings.done):
+            found.extend(
+                WorkspaceCard(slug, column, workspace)
+                for slug in cards.get(column, {})
+                if slug not in default_active
+            )
+
+    column_rank = {settings.wip: 0, settings.done: 1}
+    return tuple(
+        sorted(
+            found,
+            key=lambda card: (
+                card.workspace,
+                column_rank[card.column],
+                card.slug,
+            ),
+        )
+    )
+
+
 def run(args: argparse.Namespace, *, cwd: Path | None = None) -> int:
     command = getattr(args, "kanban_command", args.command)
     start = (cwd or Path.cwd()).resolve()
+    if command == "wip":
+        for card in workspace_cards(args, start=start):
+            print(
+                card.slug
+                if args.slugs_only
+                else f"{card.slug} ({card.column}) [{card.workspace}]"
+            )
+        return 0
     config_root, config = find_config(start)
     settings = BoardSettings.from_config(config)
     done = settings.done

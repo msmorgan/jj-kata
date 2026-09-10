@@ -45,6 +45,10 @@ def test_plugin_keeps_both_python_skills_and_worktree_bridges() -> None:
         assert command.read_text().startswith("#!/usr/bin/env python3\n")
 
     assert (ROOT / "skills/kanban/SKILL.md").is_file()
+    assert (
+        "NEVER edit a WIP ticket unless you are in the workspace that claims it."
+        in (ROOT / "skills/kanban/SKILL.md").read_text()
+    )
     assert (ROOT / "skills/kata/SKILL.md").is_file()
     assert (ROOT / "pyproject.toml").is_file()
 
@@ -73,6 +77,7 @@ def test_every_shipped_executable_has_help() -> None:
                 "board",
                 "ready",
                 "blocked",
+                "wip",
                 "order",
                 "graph",
                 "needs",

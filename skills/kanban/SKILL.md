@@ -13,6 +13,7 @@ this loaded skill; for `/PLUGIN/skills/kanban/SKILL.md`, run
 /PLUGIN/scripts/kata kanban board
 /PLUGIN/scripts/kata kanban ready
 /PLUGIN/scripts/kata kanban blocked
+/PLUGIN/scripts/kata kanban wip
 /PLUGIN/scripts/kata kanban order
 /PLUGIN/scripts/kata kanban graph ITEM
 /PLUGIN/scripts/kata kanban needs ITEM
@@ -24,6 +25,10 @@ Commands are read-only:
 - `board` lists items grouped by column.
 - `ready` lists claimable items whose dependencies are done.
 - `blocked` lists claimable items with missing or unfinished dependencies.
+- `wip` lists claimed work across all live workspaces and identifies its owning
+  workspace. Shared claims come from their visible claim moves. In
+  feature-local visibility, tickets in WIP or done at a workspace tip are shown
+  when they are not in either state at `default@`.
 - `order` lists every unfinished item in topological order, breaking ties by
   configured column priority and item ID. It validates the whole graph first,
   including completed-only dependencies, and refuses an invalid graph.
@@ -66,6 +71,6 @@ driver.
 
 Do not move items merely because inspection exposes their state. Use
 `kata claim`, `integrate`, or `drop --return-items` for lifecycle moves.
-Before editing a WIP ticket, apply Kata's
-[item ownership rules](../kata/SKILL.md#item-ownership): visibility in the board
-does not make its claim yours.
+NEVER edit a WIP ticket unless you are in the workspace that claims it. Apply
+Kata's [item ownership rules](../kata/SKILL.md#item-ownership): visibility in
+the board does not make its claim yours.
