@@ -1776,6 +1776,109 @@ def test_shared_refresh_conflict_stops_with_harmony_guidance(tmp_path: Path) -> 
     assert workspace.is_dir()
 
 
+def commit_ids(repo: Path, revset: str) -> list[str]:
+    return jj(
+        repo, "log", "--no-graph", "-r", revset, "-T", 'commit_id ++ "\\n"'
+    ).stdout.split()
+
+
+def test_integrate_refuses_a_conflicted_feature_before_mutation(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "base.txt").write_text("default edit\n")
+    workflow(repo, "start", "conflicted")
+    workspace = repo / ".workspaces/conflicted"
+    (workspace / "base.txt").write_text("feature edit\n")
+    jj(workspace, "commit", "-m", "feat: conflicting edit")
+    jj(repo, "commit", "-m", "trunk: conflicting edit")
+    assert workflow(repo, "refresh", "conflicted", check=False).returncode == 69
+    before = commit_ids(repo, "::default@ | ::conflicted@")
+
+    result = workflow(repo, "integrate", "conflicted", check=False)
+
+    assert result.returncode == 69
+    assert "conflicted has unresolved conflicts" in result.stderr
+    assert f"resolve it in {workspace} with jj-sensei's harmony" in result.stderr
+    assert commit_ids(repo, "::default@ | ::conflicted@") == before
+
+
+def test_integrate_refuses_a_conflict_resolved_later_in_the_feature(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "base.txt").write_text("default edit\n")
+    workflow(repo, "start", "resolved-late")
+    workspace = repo / ".workspaces/resolved-late"
+    (workspace / "base.txt").write_text("feature edit\n")
+    jj(workspace, "commit", "-m", "feat: conflicting edit")
+    jj(repo, "commit", "-m", "trunk: conflicting edit")
+    assert workflow(repo, "refresh", "resolved-late", check=False).returncode == 69
+    (workspace / "base.txt").write_text("resolved\n")
+    jj(workspace, "commit", "-m", "fix: resolve the conflict on top")
+    before = commit_ids(repo, "::default@ | ::resolved-late@")
+
+    refreshed = workflow(repo, "refresh", "resolved-late", check=False)
+
+    assert refreshed.returncode == 69
+    assert "resolved-late has unresolved conflicts" in refreshed.stderr
+
+    result = workflow(repo, "integrate", "resolved-late", check=False)
+
+    assert result.returncode == 69
+    assert "resolved-late has unresolved conflicts" in result.stderr
+    assert commit_ids(repo, "::default@ | ::resolved-late@") == before
+
+
+def test_shared_integrate_refuses_a_conflicted_feature_before_mutation(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "jjkata.toml").write_text(
+        '[items]\ndriver = "kanban"\nvisibility = "shared"\n'
+    )
+    add_ticket(repo, "conflicted")
+    workflow(repo, "claim", "conflicted")
+    workspace = repo / ".workspaces/conflicted"
+    (workspace / "base.txt").write_text("feature edit\n")
+    jj(workspace, "commit", "-m", "feat: conflicting edit")
+    (repo / "base.txt").write_text("default edit\n")
+    jj(repo, "commit", "-m", "trunk: conflicting edit")
+    assert workflow(repo, "refresh", "conflicted", check=False).returncode == 69
+    before = commit_ids(repo, "::default@ | ::conflicted@")
+
+    result = workflow(repo, "integrate", "conflicted", check=False)
+
+    assert result.returncode == 69
+    assert "conflicted has unresolved conflicts" in result.stderr
+    assert commit_ids(repo, "::default@ | ::conflicted@") == before
+    assert (repo / "docs/tickets/wip/conflicted.md").is_file()
+
+
+def test_integrate_refuses_a_conflicted_default_line_before_mutation(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    workflow(repo, "start", "clean")
+    workspace = repo / ".workspaces/clean"
+    (workspace / "feature.txt").write_text("feature\n")
+    jj(workspace, "commit", "-m", "feat: unrelated work")
+    (repo / "base.txt").write_text("one\n")
+    jj(repo, "commit", "-m", "trunk: one")
+    (repo / "base.txt").write_text("two\n")
+    jj(repo, "commit", "-m", "trunk: two")
+    jj(repo, "restore", "--from", "@---", "--into", "@--")
+    assert commit_ids(repo, "default@ & conflicts()")
+    before = commit_ids(repo, "::default@ | ::clean@")
+
+    result = workflow(repo, "integrate", "clean", check=False)
+
+    assert result.returncode == 69
+    assert "the default line has unresolved conflicts" in result.stderr
+    assert f"resolve it in {repo} with jj-sensei's harmony" in result.stderr
+    assert commit_ids(repo, "::default@ | ::clean@") == before
+
+
 def test_postflight_reports_divergent_working_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

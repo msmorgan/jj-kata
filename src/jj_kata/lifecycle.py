@@ -1085,8 +1085,16 @@ class Lifecycle:
 
     def _refresh_workspace(self, name: str) -> bool:
         if self._workspace_visibility(name) == "shared":
-            return self._refresh_reorder(name)
-        return self._refresh_detach(name)
+            changed = self._refresh_reorder(name)
+        else:
+            changed = self._refresh_detach(name)
+        # A rewrite stops on the conflicts it causes. A feature that is already
+        # current can still carry one from an earlier rewrite, even under a
+        # clean tip, and must not report a successful refresh.
+        ws_dir = self.workspace_root(name)
+        if self._conflicts(f"default@..{name}@", ws_dir):
+            self._conflict_stop(f"{name} has unresolved conflicts", ws_dir)
+        return changed
 
     def refresh(self, name: str | None = None, *, all_workspaces: bool = False) -> None:
         if all_workspaces:
@@ -1174,6 +1182,19 @@ class Lifecycle:
 
     def _require_closed(self, name: str, ws_dir: Path) -> None:
         self._require_empty_tip(name, ws_dir, command="integrate")
+
+    def _require_unconflicted(self, name: str, ws_dir: Path) -> None:
+        # Folding checks only the resulting default tip, and only after the
+        # rewrite. A conflict already on either line has to stop integration
+        # first: one resolved later in the feature would otherwise land its
+        # conflicted change on the default line and report success.
+        self.snapshot_one(self.default_root)
+        if self._conflicts("default@ | default@-", self.default_root):
+            self._conflict_stop(
+                "the default line has unresolved conflicts", self.default_root
+            )
+        if self._conflicts(f"default@..{name}@", ws_dir):
+            self._conflict_stop(f"{name} has unresolved conflicts", ws_dir)
 
     def _complete_feature_items(
         self,
@@ -1296,6 +1317,7 @@ class Lifecycle:
         ws_dir = self.workspace_root(target)
         self.require_linear_default()
         self._require_closed(target, ws_dir)
+        self._require_unconflicted(target, ws_dir)
         behind = self._changes(f"{target}@-..default@- & ~empty()")
         if behind:
             raise KataError(
